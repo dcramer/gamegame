@@ -42,3 +42,5 @@ export const GAMES = [
     gptUrl: "https://chatgpt.com/g/g-4xHTzqOoY-scythegpt",
   },
 ];
+
+export const MODEL = "gpt-4o-mini";

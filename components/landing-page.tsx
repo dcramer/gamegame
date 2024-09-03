@@ -1,22 +1,14 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { GAMES } from "@/constants";
-import { Dices } from "lucide-react";
-import { Comfortaa } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
 import { Footer } from "./footer";
+import Header from "./header";
 
 export function LandingPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-100 to-white">
-      <header className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-center space-x-2">
-          <Dices className="w-8 h-8 text-gray-800" />
-          <h1 className={`text-4xl font-bold text-center text-gray-800`}>
-            gamegame
-          </h1>
-        </div>
-      </header>
+      <Header />
 
       <main className="container mx-auto px-4 pb-12">
         <section className="text-center py-12">

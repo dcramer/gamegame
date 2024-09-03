@@ -1,47 +1,25 @@
 "use client";
 
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dices, MessageCircle, X } from "lucide-react";
+import { MessageCircle, X } from "lucide-react";
 import { GAMES } from "@/constants";
 import Link from "next/link";
 import { Footer } from "./footer";
-
-type ChatMessage = {
-  user: string;
-  ai: string;
-};
+import { useChat } from "ai/react";
+import Header from "./header";
+import { CoreMessage } from "ai";
+import { useState } from "react";
+import { continueConversation } from "@/app/actions";
+import { readStreamableValue } from "ai/rsc";
 
 export function Chat({ game }: { game: (typeof GAMES)[number] }) {
-  const [chatMessage, setChatMessage] = useState("");
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-
-  const handleChatSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (chatMessage.trim()) {
-      setChatHistory([
-        ...chatHistory,
-        {
-          user: chatMessage,
-          ai: `Here's a simulated answer about ${game.name}: ${chatMessage}`,
-        },
-      ]);
-      setChatMessage("");
-    }
-  };
-
+  const [messages, setMessages] = useState<CoreMessage[]>([]);
+  const [input, setInput] = useState("");
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-100 to-white">
-      <header className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-center space-x-2">
-          <Dices className="w-8 h-8 text-gray-800" />
-          <h1 className={`text-4xl font-bold text-center text-gray-800}`}>
-            gamegame
-          </h1>
-        </div>
-      </header>
+      <Header />
 
       <main className="container mx-auto px-4 pb-12">
         <div className="max-w-2xl mx-auto">
@@ -61,22 +39,48 @@ export function Chat({ game }: { game: (typeof GAMES)[number] }) {
           <Card className="bg-white">
             <CardContent className="p-4">
               <div className="h-96 overflow-y-auto mb-4 space-y-4">
-                {chatHistory.map((chat, index) => (
-                  <div key={index}>
-                    <p className="font-semibold text-gray-800">
-                      You: {chat.user}
-                    </p>
-                    <p className="ml-4 text-gray-600">AI: {chat.ai}</p>
+                {messages.map((m, index) => (
+                  <div
+                    key={index}
+                    className="font-semibold text-gray-800 whitespace-pre-wrap"
+                  >
+                    {m.role === "user" ? "User: " : "AI: "}
+                    {m.content as string}
                   </div>
                 ))}
               </div>
-              <form onSubmit={handleChatSubmit} className="flex space-x-2">
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const newMessages: CoreMessage[] = [
+                    ...messages,
+                    { content: input, role: "user" },
+                  ];
+
+                  setMessages(newMessages);
+                  setInput("");
+
+                  const result = await continueConversation(
+                    game.slug,
+                    newMessages
+                  );
+
+                  for await (const content of readStreamableValue(result)) {
+                    setMessages([
+                      ...newMessages,
+                      {
+                        role: "assistant",
+                        content: content as string,
+                      },
+                    ]);
+                  }
+                }}
+              >
                 <Input
-                  type="text"
-                  placeholder={`Ask a question about ${game.name}...`}
-                  value={chatMessage}
-                  onChange={(e) => setChatMessage(e.target.value)}
                   className="flex-grow bg-gray-100 text-gray-800 placeholder-gray-500"
+                  value={input}
+                  placeholder={`Ask a question about ${game.name}...`}
+                  onChange={(e) => setInput(e.target.value)}
                 />
                 <Button
                   type="submit"
