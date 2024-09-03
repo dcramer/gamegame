@@ -5,12 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dices, MessageCircle, X } from "lucide-react";
-import { Comfortaa } from "next/font/google";
 import { GAMES } from "@/constants";
 import Link from "next/link";
 import { Footer } from "./footer";
-
-const comfortaa = Comfortaa({ subsets: ["latin"] });
 
 type ChatMessage = {
   user: string;
@@ -40,9 +37,7 @@ export function Chat({ game }: { game: (typeof GAMES)[number] }) {
       <header className="container mx-auto px-4 py-8">
         <div className="flex items-center justify-center space-x-2">
           <Dices className="w-8 h-8 text-gray-800" />
-          <h1
-            className={`text-4xl font-bold text-center text-gray-800 ${comfortaa.className}`}
-          >
+          <h1 className={`text-4xl font-bold text-center text-gray-800}`}>
             gamegame
           </h1>
         </div>
@@ -51,11 +46,7 @@ export function Chat({ game }: { game: (typeof GAMES)[number] }) {
       <main className="container mx-auto px-4 pb-12">
         <div className="max-w-2xl mx-auto">
           <div className="flex justify-between items-center mb-6">
-            <h2
-              className={`text-3xl font-bold text-gray-900 ${comfortaa.className}`}
-            >
-              {game.name}
-            </h2>
+            <h2 className={`text-3xl font-bold text-gray-900`}>{game.name}</h2>
             <Button
               asChild
               variant="ghost"

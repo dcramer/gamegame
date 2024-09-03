@@ -6,17 +6,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { Footer } from "./footer";
 
-const comfortaa = Comfortaa({ subsets: ["latin"] });
-
 export function LandingPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-100 to-white">
       <header className="container mx-auto px-4 py-8">
         <div className="flex items-center justify-center space-x-2">
           <Dices className="w-8 h-8 text-gray-800" />
-          <h1
-            className={`text-4xl font-bold text-center text-gray-800 ${comfortaa.className}`}
-          >
+          <h1 className={`text-4xl font-bold text-center text-gray-800`}>
             gamegame
           </h1>
         </div>
@@ -24,9 +20,7 @@ export function LandingPage() {
 
       <main className="container mx-auto px-4 pb-12">
         <section className="text-center py-12">
-          <h2
-            className={`text-5xl font-extrabold text-gray-900 mb-4 ${comfortaa.className}`}
-          >
+          <h2 className={`text-5xl font-extrabold text-gray-900 mb-4`}>
             Choose Your Game
           </h2>
           <p className="text-xl text-gray-600 mb-8">
