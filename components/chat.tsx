@@ -9,14 +9,12 @@ import Link from "next/link";
 import { Footer } from "./footer";
 import { useChat } from "ai/react";
 import Header from "./header";
-import { CoreMessage } from "ai";
-import { useState } from "react";
-import { continueConversation } from "@/app/actions";
-import { readStreamableValue } from "ai/rsc";
 
 export function Chat({ game }: { game: (typeof GAMES)[number] }) {
-  const [messages, setMessages] = useState<CoreMessage[]>([]);
-  const [input, setInput] = useState("");
+  const { messages, input, handleInputChange, handleSubmit } = useChat({
+    maxToolRoundtrips: 2,
+  });
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-100 to-white">
       <Header />
@@ -45,42 +43,16 @@ export function Chat({ game }: { game: (typeof GAMES)[number] }) {
                     className="font-semibold text-gray-800 whitespace-pre-wrap"
                   >
                     {m.role === "user" ? "User: " : "AI: "}
-                    {m.content as string}
+                    {m.content}
                   </div>
                 ))}
               </div>
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const newMessages: CoreMessage[] = [
-                    ...messages,
-                    { content: input, role: "user" },
-                  ];
-
-                  setMessages(newMessages);
-                  setInput("");
-
-                  const result = await continueConversation(
-                    game.slug,
-                    newMessages
-                  );
-
-                  for await (const content of readStreamableValue(result)) {
-                    setMessages([
-                      ...newMessages,
-                      {
-                        role: "assistant",
-                        content: content as string,
-                      },
-                    ]);
-                  }
-                }}
-              >
+              <form onSubmit={handleSubmit}>
                 <Input
                   className="flex-grow bg-gray-100 text-gray-800 placeholder-gray-500"
                   value={input}
                   placeholder={`Ask a question about ${game.name}...`}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={handleInputChange}
                 />
                 <Button
                   type="submit"
