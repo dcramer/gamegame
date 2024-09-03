@@ -17,4 +17,16 @@ export const GAMES = [
     slug: "arcs",
     gptUrl: "https://chatgpt.com/g/g-zvwOJfz3H-arcsgpt",
   },
+  {
+    name: "Gloomhaven",
+    image: "/assets/gloomhaven.webp",
+    slug: "gloomhaven",
+    gptUrl: "https://chatgpt.com/g/g-mvicjv7X0-gloomhavengpt",
+  },
+  {
+    name: "Frosthaven",
+    image: "/assets/frosthaven.webp",
+    slug: "frosthaven",
+    gptUrl: "https://chatgpt.com/g/g-Z11qd3Sav-frosthavengpt",
+  },
 ];
