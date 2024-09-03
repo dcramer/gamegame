@@ -11,9 +11,14 @@ import Link from "next/link";
 
 const comfortaa = Comfortaa({ subsets: ["latin"] });
 
+type ChatMessage = {
+  user: string;
+  ai: string;
+};
+
 export function Chat({ game }: { game: (typeof GAMES)[number] }) {
   const [chatMessage, setChatMessage] = useState("");
-  const [chatHistory, setChatHistory] = useState([]);
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
 
   const handleChatSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,7 +27,7 @@ export function Chat({ game }: { game: (typeof GAMES)[number] }) {
         ...chatHistory,
         {
           user: chatMessage,
-          ai: `Here's a simulated answer about ${selectedGame.name}: ${chatMessage}`,
+          ai: `Here's a simulated answer about ${game.name}: ${chatMessage}`,
         },
       ]);
       setChatMessage("");
