@@ -4,6 +4,7 @@ import { Dices } from "lucide-react";
 import { Comfortaa } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
+import { Footer } from "./footer";
 
 const comfortaa = Comfortaa({ subsets: ["latin"] });
 
@@ -61,9 +62,7 @@ export function LandingPage() {
         </div>
       </main>
 
-      <footer className="container mx-auto px-4 py-8 text-center text-gray-600">
-        <p>&copy; 2023 gamegame.ai. All rights reserved.</p>
-      </footer>
+      <Footer />
     </div>
   );
 }
