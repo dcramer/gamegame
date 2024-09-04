@@ -1,7 +1,7 @@
 import { GitHubLogoIcon } from "@radix-ui/react-icons";
 import Link from "next/link";
 
-export function Footer() {
+export default function Footer() {
   return (
     <footer className="container mx-auto px-4 py-8 text-center text-gray-600 font-mono text-xs">
       <p className="flex items-center justify-center gap-2">

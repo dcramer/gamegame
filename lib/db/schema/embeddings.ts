@@ -2,8 +2,6 @@ import { nanoid } from "@/lib/utils";
 import { index, pgTable, text, varchar, vector } from "drizzle-orm/pg-core";
 import { games } from "./games";
 import { resources } from "./resources";
-import { createSelectSchema } from "drizzle-zod";
-import { z } from "zod";
 
 export const embeddings = pgTable(
   "embeddings",
