@@ -7,7 +7,7 @@ export default function Header() {
       <Link
         href="/"
         prefetch={false}
-        className="flex items-center justify-center space-x-2"
+        className="flex items-center justify-center space-x-2 text-muted-foreground hover:text-foreground"
       >
         <Dices className="w-8 h-8" />
         <h1 className="text-4xl font-bold">gamegame</h1>
