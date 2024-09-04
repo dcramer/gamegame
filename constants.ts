@@ -4,6 +4,7 @@ export const GAMES = [
     image: "/assets/settlers-of-catan.webp",
     slug: "catan",
     gptUrl: "https://chatgpt.com/g/g-sAoCBiDek-catangpt",
+    imagePosition: "top",
   },
   {
     name: "Arcs",
