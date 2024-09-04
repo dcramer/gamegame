@@ -1,6 +1,7 @@
 "use client";
 
 import ResourceDropzone from "@/components/resource-dropzone";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -9,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { uploadResource } from "@/lib/actions/resources";
+import { deleteResource, uploadResource } from "@/lib/actions/resources";
 import { Resource } from "@/lib/db/schema/resources";
 import { nanoid } from "@/lib/utils";
 import { useState } from "react";
@@ -116,19 +117,40 @@ export default function ResourceList({
           <TableHeader>
             <TableRow>
               <TableHead>Resource</TableHead>
+              <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {allResources.map((resource) => {
               return (
                 <TableRow key={resource.id}>
-                  <TableCell className="flex flex-col gap-1">
-                    <strong>{resource.name}</strong>
+                  <TableCell>
+                    <div>
+                      <strong>{resource.name}</strong>
+                    </div>
                     {resource.error ? (
                       <div className="text-red-400">{resource.error}</div>
                     ) : resource.pending ? (
                       <em>Pending</em>
                     ) : null}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+
+                        if (!resource.pending) {
+                          await deleteResource(resource.id);
+                        }
+                        setAllResources((prev) =>
+                          prev.filter((r) => r.id !== resource.id)
+                        );
+                      }}
+                    >
+                      Delete
+                    </Button>
                   </TableCell>
                 </TableRow>
               );

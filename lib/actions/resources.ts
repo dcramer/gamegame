@@ -11,6 +11,7 @@ import {
 } from "../db/schema/resources";
 import mime from "mime";
 import PDFParser from "pdf2json";
+import { eq } from "drizzle-orm";
 
 function forEachItem(pdf: any, handler: any) {
   var Pages = pdf.Pages || pdf.formImage.Pages;
@@ -68,7 +69,6 @@ export const uploadResource = async ({
       throw new Error("Unsupported mime type");
   }
 
-  console.log(newContent);
   return await createResource({ ...input, content: newContent });
 };
 
@@ -79,8 +79,6 @@ export const createResource = async (input: NewResourceParams) => {
   }
 
   const { id, name, content, gameId } = insertResourceSchema.parse(input);
-
-  console.log(input);
 
   const resource = await db.transaction(async (tx) => {
     const [resource] = await tx
@@ -107,4 +105,15 @@ export const createResource = async (input: NewResourceParams) => {
     id: resource.id,
     name: resource.name,
   };
+};
+
+export const deleteResource = async (resourceId: string) => {
+  const session = await auth();
+  if (!session?.user?.admin) {
+    throw new Error("Unauthorized");
+  }
+
+  await db.delete(resources).where(eq(resources.id, resourceId));
+
+  return {};
 };
