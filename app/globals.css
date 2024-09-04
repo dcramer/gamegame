@@ -83,6 +83,9 @@
   * {
     @apply border-border;
   }
+  html {
+    @apply bg-gray-100;
+  }
   body {
     @apply bg-background text-foreground;
   }

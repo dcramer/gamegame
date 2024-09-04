@@ -16,24 +16,28 @@ export function LandingPage() {
         </p>
       </section>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         {GAMES.map((game) => (
           <Card key={game.slug} className="relative">
+            <CardContent className="flex flex-col items-center">
+              <div className="w-full aspect-[3/2] overflow-hidden relative">
+                <Image
+                  src={game.image}
+                  alt={game.name}
+                  fill
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                  style={{
+                    objectFit: "cover",
+                    objectPosition: game.imagePosition || "center",
+                  }}
+                />
+              </div>
+            </CardContent>
             <CardHeader>
               <CardTitle className="text-center text-2xl">
                 {game.name}
               </CardTitle>
             </CardHeader>
-            <CardContent className="flex flex-col items-center">
-              <div className="w-64 h-64 relative">
-                <Image
-                  src={game.image}
-                  alt={game.name}
-                  layout="fill"
-                  objectFit="cover"
-                />
-              </div>
-            </CardContent>
             <Link
               href={game.gptUrl}
               prefetch={false}
