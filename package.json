@@ -19,6 +19,7 @@
     "@ai-sdk/openai": "^0.0.55",
     "@auth/drizzle-adapter": "^1.4.2",
     "@radix-ui/react-icons": "^1.3.0",
+    "@radix-ui/react-label": "^2.1.0",
     "@radix-ui/react-slot": "^1.1.0",
     "@t3-oss/env-nextjs": "^0.10.1",
     "ai": "^3.3.26",

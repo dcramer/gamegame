@@ -8,10 +8,8 @@ export function LandingPage() {
   return (
     <Layout>
       <section className="text-center py-12">
-        <h2 className={`text-5xl font-extrabold text-gray-900 mb-4`}>
-          Choose Your Game
-        </h2>
-        <p className="text-xl text-gray-600 mb-8">
+        <h2 className={`text-5xl font-extrabold mb-4`}>Choose Your Game</h2>
+        <p className="text-xl mb-8">
           Select a board game to start asking questions about its rules.
         </p>
       </section>

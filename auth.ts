@@ -16,7 +16,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     sessionsTable: sessions,
     verificationTokensTable: verificationTokens,
   }),
-  providers: [Resend],
+
+  providers: [
+    Resend({
+      from: "no-reply@gamegame.ai",
+    }),
+  ],
   callbacks: {
     authorized: async ({ request, auth }) => {
       if (
