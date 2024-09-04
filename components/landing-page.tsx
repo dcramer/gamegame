@@ -3,12 +3,13 @@ import { GAMES } from "@/constants";
 import Image from "next/image";
 import Link from "next/link";
 import Layout from "./layout";
+import Heading from "./heading";
 
 export function LandingPage() {
   return (
     <Layout>
       <section className="text-center py-12">
-        <h2 className={`text-5xl font-extrabold mb-4`}>Choose Your Game</h2>
+        <Heading>Choose Your Game</Heading>
         <p className="text-xl mb-8">
           Select a board game to start asking questions about its rules.
         </p>

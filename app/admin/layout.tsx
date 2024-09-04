@@ -14,10 +14,5 @@ export default async function Layout({
     return redirect("/");
   }
 
-  return (
-    <div>
-      <h1>Admin</h1>
-      {children}
-    </div>
-  );
+  return children;
 }
