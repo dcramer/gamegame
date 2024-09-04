@@ -25,3 +25,5 @@ export const insertGameSchema = createSelectSchema(games).extend({}).omit({
 });
 
 export type NewGameParams = z.infer<typeof insertGameSchema>;
+
+export type Game = typeof games.$inferSelect;

@@ -26,11 +26,15 @@ export const resources = pgTable("resources", {
 });
 
 export const insertResourceSchema = createSelectSchema(resources)
-  .extend({})
+  .extend({
+    id: z.string().trim().max(191).optional(),
+    content: z.string().trim().min(1),
+  })
   .omit({
-    id: true,
     createdAt: true,
     updatedAt: true,
   });
 
 export type NewResourceParams = z.infer<typeof insertResourceSchema>;
+
+export type Resource = typeof resources.$inferSelect;
