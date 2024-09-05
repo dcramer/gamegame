@@ -14,8 +14,7 @@ export const resources = pgTable("resources", {
     .notNull(),
   // filename
   name: text("name").notNull(),
-  // content as text
-  content: text("content").notNull(),
+  url: text("url").notNull(),
 
   createdAt: timestamp("created_at")
     .notNull()
@@ -28,7 +27,7 @@ export const resources = pgTable("resources", {
 export const insertResourceSchema = createSelectSchema(resources)
   .extend({
     id: z.string().trim().max(191).optional(),
-    content: z.string().trim().min(1),
+    url: z.string().trim().url(),
   })
   .omit({
     createdAt: true,

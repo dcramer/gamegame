@@ -25,7 +25,7 @@ function forEachItem(pdf: any, handler: any) {
   }
 }
 
-const extractTextFromPdf = async (content: string) => {
+const extractTextFromPdf = async (buf: Buffer) => {
   return await new Promise<string>((resolve, reject) => {
     const rows: string[] = [];
     const pdfParser = new PDFParser();
@@ -40,22 +40,41 @@ const extractTextFromPdf = async (content: string) => {
       });
       resolve(rows.join(" "));
     });
-    pdfParser.parseBuffer(Buffer.from(content, "base64"));
+    pdfParser.parseBuffer(buf);
   });
 };
 
-const createResource = async (input: NewResourceParams) => {
+export const createResource = async (input: {
+  id?: string;
+  gameId: string;
+  name: string;
+  url: string;
+}) => {
   const session = await auth();
   if (!session?.user?.admin) {
     throw new Error("Unauthorized");
   }
 
-  const { id, name, content, gameId } = insertResourceSchema.parse(input);
+  const mimeType = mime.getType(input.name);
+
+  const response = await fetch(input.url);
+  const content = Buffer.from(await response.arrayBuffer());
+
+  let newContent: string;
+  switch (mimeType) {
+    case "application/pdf":
+      newContent = await extractTextFromPdf(content);
+      break;
+    default:
+      throw new Error("Unsupported mime type");
+  }
+
+  const { id, name, url, gameId } = insertResourceSchema.parse(input);
 
   const resource = await db.transaction(async (tx) => {
     const [resource] = await tx
       .insert(resources)
-      .values({ id, name, content, gameId })
+      .values({ id, name, url, gameId })
       .returning();
 
     const embeddings = await generateEmbeddings(content);
@@ -79,35 +98,10 @@ const createResource = async (input: NewResourceParams) => {
   };
 };
 
-export const uploadResource = async ({
+export const updateResource = async ({
+  id,
   content,
-  ...input
 }: {
-  id?: string;
-  gameId: string;
-  name: string;
-  content: string;
-}) => {
-  const session = await auth();
-  if (!session?.user?.admin) {
-    throw new Error("Unauthorized");
-  }
-
-  const mimeType = mime.getType(input.name);
-
-  let newContent: string;
-  switch (mimeType) {
-    case "application/pdf":
-      newContent = await extractTextFromPdf(content);
-      break;
-    default:
-      throw new Error("Unsupported mime type");
-  }
-
-  return await createResource({ ...input, content: newContent });
-};
-
-export const updateResource = async ({ id, content }: {
   id: string;
   content: string;
 }) => {
@@ -131,7 +125,7 @@ export const updateResource = async ({ id, content }: {
     if (!embeddings.length) {
       throw new Error("Failed to generate embeddings");
     }
-  
+
     await tx.delete(embeddingsTable).where(eq(embeddingsTable.resourceId, id));
 
     await tx.insert(embeddingsTable).values(
@@ -151,7 +145,6 @@ export const updateResource = async ({ id, content }: {
   };
 };
 
-
 export const getResource = async (resourceId: string) => {
   const [resource] = await db
     .select()
@@ -162,9 +155,8 @@ export const getResource = async (resourceId: string) => {
     id: resource.id,
     name: resource.name,
     content: resource.content,
-  }
+  };
 };
-
 
 export const deleteResource = async (resourceId: string) => {
   const session = await auth();

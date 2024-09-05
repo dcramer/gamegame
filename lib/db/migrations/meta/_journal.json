@@ -5,15 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1725402353477,
-      "tag": "0000_known_king_cobra",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1725466128584,
-      "tag": "0001_new_shocker",
+      "when": 1725556428760,
+      "tag": "0000_wooden_red_wolf",
       "breakpoints": true
     }
   ]

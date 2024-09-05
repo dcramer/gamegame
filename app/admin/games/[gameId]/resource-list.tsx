@@ -10,12 +10,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { deleteResource, uploadResource } from "@/lib/actions/resources";
+import { deleteResource, createResource } from "@/lib/actions/resources";
 import { Resource } from "@/lib/db/schema/resources";
 import { nanoid } from "@/lib/utils";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { upload } from "@vercel/blob/client";
 
 type PendingResource = {
   id: string;
@@ -61,33 +62,38 @@ export default function ResourceList({
   );
 
   const handleAddResource = async (resource: PendingResource) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const content = await bufferToBase64(reader.result as ArrayBuffer);
-      uploadResource({
+    const newBlob = await upload(resource.file.name, resource.file, {
+      access: "public",
+      handleUploadUrl: "/api/resources/upload",
+      clientPayload: JSON.stringify({
+        gameId,
+        resourceId: resource.id,
+        name: resource.name,
+      }),
+    });
+
+    try {
+      const newResource = await createResource({
+        id: resource.id,
         name: resource.name,
         gameId,
-        content,
-      })
-        .then((newResource) => {
-          setAllResources((prev) =>
-            prev.map((r) =>
-              r.id === resource.id
-                ? { ...newResource, pending: false, error: null }
-                : r
-            )
-          );
-        })
-        .catch((err) => {
-          setAllResources((prev) =>
-            prev.map((r) =>
-              r.id === resource.id ? { ...r, error: err.message } : r
-            )
-          );
-          throw err;
-        });
-    };
-    reader.readAsArrayBuffer(resource.file);
+        url: newBlob.url,
+      });
+
+      setAllResources((prev) =>
+        prev.map((r) =>
+          r.id === resource.id
+            ? { ...newResource, pending: false, error: null }
+            : r
+        )
+      );
+    } catch (err: unknown) {
+      setAllResources((prev) =>
+        prev.map((r) =>
+          r.id === resource.id ? { ...r, error: (err as any).message } : r
+        )
+      );
+    }
   };
 
   return (
@@ -135,7 +141,9 @@ export default function ResourceList({
                       className="absolute inset-0"
                       onClick={(e) => {
                         e.stopPropagation();
-                        router.push(`/admin/games/${gameId}/resources/${resource.id}`);
+                        router.push(
+                          `/admin/games/${gameId}/resources/${resource.id}`
+                        );
                       }}
                     />
                     <div>
