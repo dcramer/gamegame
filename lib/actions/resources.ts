@@ -77,7 +77,7 @@ export const createResource = async (input: {
       .values({ id, name, url, gameId })
       .returning();
 
-    const embeddings = await generateEmbeddings(content);
+    const embeddings = await generateEmbeddings(newContent);
     if (!embeddings.length) {
       throw new Error("Failed to generate embeddings");
     }
@@ -95,53 +95,7 @@ export const createResource = async (input: {
   return {
     id: resource.id,
     name: resource.name,
-  };
-};
-
-export const updateResource = async ({
-  id,
-  content,
-}: {
-  id: string;
-  content: string;
-}) => {
-  const session = await auth();
-  if (!session?.user?.admin) {
-    throw new Error("Unauthorized");
-  }
-
-  if (!id) {
-    throw new Error("Invalid resource id");
-  }
-
-  const resource = await db.transaction(async (tx) => {
-    const [resource] = await tx
-      .update(resources)
-      .set({ content })
-      .where(eq(resources.id, id))
-      .returning();
-
-    const embeddings = await generateEmbeddings(content);
-    if (!embeddings.length) {
-      throw new Error("Failed to generate embeddings");
-    }
-
-    await tx.delete(embeddingsTable).where(eq(embeddingsTable.resourceId, id));
-
-    await tx.insert(embeddingsTable).values(
-      embeddings.map((embedding) => ({
-        gameId: resource.gameId,
-        resourceId: resource.id,
-        ...embedding,
-      }))
-    );
-
-    return resource;
-  });
-
-  return {
-    id: resource.id,
-    name: resource.name,
+    url: resource.url,
   };
 };
 
@@ -154,7 +108,7 @@ export const getResource = async (resourceId: string) => {
   return {
     id: resource.id,
     name: resource.name,
-    content: resource.content,
+    url: resource.url,
   };
 };
 
