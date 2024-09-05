@@ -16,7 +16,7 @@ reset-test-db:
 drop-db: drop-db-dev drop-db-test
 
 drop-db-dev:
-	$(PG_CONTAINER) dropdb --if-exists -h 127.0.0.1 -p 5432 -U postgres $PG_DATABASE
+	$(PG_CONTAINER) dropdb --if-exists -h 127.0.0.1 -p 5432 -U postgres $(PG_DATABASE)
 
 drop-db-test:
 	$(PG_CONTAINER) dropdb --if-exists -h 127.0.0.1 -p 5432 -U postgres $(PG_DATABASE_TEST)
