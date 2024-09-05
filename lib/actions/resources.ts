@@ -112,6 +112,31 @@ export const getResource = async (resourceId: string) => {
   };
 };
 
+export const updateResource = async (
+  resourceId: string,
+  input: {
+    name?: string;
+    // url?: string;
+  }
+) => {
+  const [resource] = await db
+    .select()
+    .from(resources)
+    .where(eq(resources.id, resourceId))
+    .limit(1);
+  if (!resource) {
+    throw new Error("Resource not found");
+  }
+
+  await db.update(resources).set(input).where(eq(resources.id, resourceId));
+
+  return {
+    id: resource.id,
+    name: resource.name,
+    url: resource.url,
+  };
+};
+
 export const deleteResource = async (resourceId: string) => {
   const session = await auth();
   if (!session?.user?.admin) {
