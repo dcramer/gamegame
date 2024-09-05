@@ -1,10 +1,11 @@
 import { embed, embedMany } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { db } from "../db";
-import { cosineDistance, desc, gt, sql } from "drizzle-orm";
+import { cosineDistance, desc, eq, gt, sql } from "drizzle-orm";
 import { embeddings } from "../db/schema/embeddings";
+import { resources } from "../db/schema";
 
-const embeddingModel = openai.embedding("text-embedding-ada-002");
+const embeddingModel = openai.embedding("text-embedding-3-small");
 
 const generateChunks = (input: string): string[] => {
   return input
@@ -40,11 +41,11 @@ export const findRelevantContent = async (userQuery: string) => {
     userQueryEmbedded
   )})`;
   const similarGuides = await db
-    .select({ name: embeddings.content, similarity })
+    .select({ content: embeddings.content, similarity, resourceName: resources.name })
     .from(embeddings)
+    .innerJoin(resources, eq(embeddings.resourceId, resources.id))
     .where(gt(similarity, 0.5))
     .orderBy((t) => desc(t.similarity))
-    .limit(12);
-  console.log(similarGuides);
+    .limit(6);
   return similarGuides;
 };

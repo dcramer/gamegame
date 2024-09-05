@@ -13,6 +13,8 @@ import {
 import { deleteResource, uploadResource } from "@/lib/actions/resources";
 import { Resource } from "@/lib/db/schema/resources";
 import { nanoid } from "@/lib/utils";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 type PendingResource = {
@@ -52,6 +54,8 @@ export default function ResourceList({
     id?: string;
   })[];
 }) {
+  const router = useRouter();
+
   const [allResources, setAllResources] = useState<AnyResource[]>(
     resourceList.map((r) => ({ ...r, pending: false, error: null }))
   );
@@ -117,14 +121,23 @@ export default function ResourceList({
           <TableHeader>
             <TableRow>
               <TableHead>Resource</TableHead>
-              <TableHead>Actions</TableHead>
+              <TableHead className="w-[200px] text-center">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {allResources.map((resource) => {
               return (
                 <TableRow key={resource.id}>
-                  <TableCell>
+                  <TableCell className="relative">
+                    <Link
+                      href={`/admin/games/${gameId}/resources/${resource.id}`}
+                      prefetch={false}
+                      className="absolute inset-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        router.push(`/admin/games/${gameId}/resources/${resource.id}`);
+                      }}
+                    />
                     <div>
                       <strong>{resource.name}</strong>
                     </div>
@@ -134,7 +147,7 @@ export default function ResourceList({
                       <em>Pending</em>
                     ) : null}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="text-center">
                     <Button
                       size="sm"
                       variant="destructive"

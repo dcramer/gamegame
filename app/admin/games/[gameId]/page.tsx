@@ -12,10 +12,5 @@ export default async function Page({ params }: { params: { gameId: string } }) {
 
   const resourceList = await getAllResourcesForGame(game.id);
 
-  return (
-    <Layout>
-      <Heading>{game.name}</Heading>
-      <ResourceList gameId={game.id} resourceList={resourceList} />
-    </Layout>
-  );
+  return <ResourceList gameId={game.id} resourceList={resourceList} />;
 }

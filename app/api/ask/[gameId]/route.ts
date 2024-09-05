@@ -19,7 +19,7 @@ export async function POST(req: Request, { params: { gameId } }: { params: { gam
     
     Check your knowledge base before answering any questions.
     
-    Only respond to questions using information from tool calls.
+    Only respond to questions using information from tool calls. Provide the resource name from the citation when possible.
     
     if no relevant information is found in the tool calls, respond, "Sorry, I don't know."`,
     messages: convertToCoreMessages(messages),

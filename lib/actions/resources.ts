@@ -44,35 +44,7 @@ const extractTextFromPdf = async (content: string) => {
   });
 };
 
-export const uploadResource = async ({
-  content,
-  ...input
-}: {
-  id?: string;
-  gameId: string;
-  name: string;
-  content: string;
-}) => {
-  const session = await auth();
-  if (!session?.user?.admin) {
-    throw new Error("Unauthorized");
-  }
-
-  const mimeType = mime.getType(input.name);
-
-  let newContent: string;
-  switch (mimeType) {
-    case "application/pdf":
-      newContent = await extractTextFromPdf(content);
-      break;
-    default:
-      throw new Error("Unsupported mime type");
-  }
-
-  return await createResource({ ...input, content: newContent });
-};
-
-export const createResource = async (input: NewResourceParams) => {
+const createResource = async (input: NewResourceParams) => {
   const session = await auth();
   if (!session?.user?.admin) {
     throw new Error("Unauthorized");
@@ -106,6 +78,93 @@ export const createResource = async (input: NewResourceParams) => {
     name: resource.name,
   };
 };
+
+export const uploadResource = async ({
+  content,
+  ...input
+}: {
+  id?: string;
+  gameId: string;
+  name: string;
+  content: string;
+}) => {
+  const session = await auth();
+  if (!session?.user?.admin) {
+    throw new Error("Unauthorized");
+  }
+
+  const mimeType = mime.getType(input.name);
+
+  let newContent: string;
+  switch (mimeType) {
+    case "application/pdf":
+      newContent = await extractTextFromPdf(content);
+      break;
+    default:
+      throw new Error("Unsupported mime type");
+  }
+
+  return await createResource({ ...input, content: newContent });
+};
+
+export const updateResource = async ({ id, content }: {
+  id: string;
+  content: string;
+}) => {
+  const session = await auth();
+  if (!session?.user?.admin) {
+    throw new Error("Unauthorized");
+  }
+
+  if (!id) {
+    throw new Error("Invalid resource id");
+  }
+
+  const resource = await db.transaction(async (tx) => {
+    const [resource] = await tx
+      .update(resources)
+      .set({ content })
+      .where(eq(resources.id, id))
+      .returning();
+
+    const embeddings = await generateEmbeddings(content);
+    if (!embeddings.length) {
+      throw new Error("Failed to generate embeddings");
+    }
+  
+    await tx.delete(embeddingsTable).where(eq(embeddingsTable.resourceId, id));
+
+    await tx.insert(embeddingsTable).values(
+      embeddings.map((embedding) => ({
+        gameId: resource.gameId,
+        resourceId: resource.id,
+        ...embedding,
+      }))
+    );
+
+    return resource;
+  });
+
+  return {
+    id: resource.id,
+    name: resource.name,
+  };
+};
+
+
+export const getResource = async (resourceId: string) => {
+  const [resource] = await db
+    .select()
+    .from(resources)
+    .where(eq(resources.id, resourceId))
+    .limit(1);
+  return {
+    id: resource.id,
+    name: resource.name,
+    content: resource.content,
+  }
+};
+
 
 export const deleteResource = async (resourceId: string) => {
   const session = await auth();
