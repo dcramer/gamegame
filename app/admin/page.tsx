@@ -32,30 +32,37 @@ export default async function Page() {
           </Button>
         </div>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {gameList.map((game) => {
-              return (
-                <TableRow key={game.id}>
-                  <TableCell className="font-medium relative">
-                    <Link
-                      href={`/admin/games/${game.id}`}
-                      prefetch={false}
-                      className="w-full block"
-                    >
-                      {game.name}
-                    </Link>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+        <div className="flex flex-col gap-4">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {gameList.map((game) => {
+                return (
+                  <TableRow key={game.id}>
+                    <TableCell className="font-medium relative">
+                      <Link
+                        href={`/admin/games/${game.id}`}
+                        prefetch={false}
+                        className="w-full block"
+                      >
+                        {game.name}
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+          <div className="self-end">
+            <Button asChild size="sm" variant="secondary">
+              <Link href="/admin/add-game">Add Game</Link>
+            </Button>
+          </div>
+        </div>
       )}
     </Layout>
   );
