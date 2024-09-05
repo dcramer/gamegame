@@ -12,7 +12,12 @@ export const getGame = async (input: string) => {
     .from(games)
     .where(eq(games.id, input))
     .limit(1);
-  return game;
+
+  return {
+    id: game.id,
+    name: game.name,
+    imageUrl: game.imageUrl,
+  };
 };
 
 export const getAllGames = async () => {
@@ -33,9 +38,49 @@ export const createGame = async (input: NewGameParams) => {
     throw new Error("Unauthorized");
   }
 
-  const { name } = insertGameSchema.parse(input);
+  const { name, imageUrl } = insertGameSchema.parse(input);
 
-  const [game] = await db.insert(games).values({ name }).returning();
+  const [game] = await db.insert(games).values({ name, imageUrl }).returning();
 
-  return game;
+  return {
+    id: game.id,
+    name: game.name,
+    imageUrl: game.imageUrl,
+  };
+};
+
+export const updateGame = async (
+  gameId: string,
+  input: {
+    name?: string;
+    imageUrl?: string;
+  }
+) => {
+  const [game] = await db
+    .select()
+    .from(games)
+    .where(eq(games.id, gameId))
+    .limit(1);
+  if (!game) {
+    throw new Error("Game not found");
+  }
+
+  await db.update(games).set(input).where(eq(games.id, gameId));
+
+  return {
+    id: game.id,
+    name: game.name,
+    imageUrl: game.imageUrl,
+  };
+};
+
+export const deleteGame = async (gameId: string) => {
+  const session = await auth();
+  if (!session?.user?.admin) {
+    throw new Error("Unauthorized");
+  }
+
+  await db.delete(games).where(eq(games.id, gameId));
+
+  return {};
 };

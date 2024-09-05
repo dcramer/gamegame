@@ -10,10 +10,12 @@ export const resources = pgTable("resources", {
     .primaryKey()
     .$defaultFn(() => nanoid()),
   gameId: varchar("game_id", { length: 191 })
-    .references(() => games.id)
+    .references(() => games.id, {
+      onDelete: "cascade",
+    })
     .notNull(),
   // filename
-  name: text("name").notNull(),
+  name: text("name").notNull().unique(),
   url: text("url").notNull(),
 
   createdAt: timestamp("created_at")

@@ -8,6 +8,20 @@
       "when": 1725556428760,
       "tag": "0000_wooden_red_wolf",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1725575233872,
+      "tag": "0001_fancy_otto_octavius",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1725577172878,
+      "tag": "0002_warm_maelstrom",
+      "breakpoints": true
     }
   ]
 }

@@ -1,10 +1,11 @@
-import { notFound, redirect } from "next/navigation";
-import { getResource, updateResource } from "@/lib/actions/resources";
+import { notFound } from "next/navigation";
+import { getResource } from "@/lib/actions/resources";
 import { DownloadIcon } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { updateResourceForm } from "@/lib/actions/forms";
 
 export default async function Page({
   params,
@@ -31,11 +32,7 @@ export default async function Page({
 
       <form
         action={async (formData) => {
-          "use server";
-          await updateResource(params.resourceId, {
-            name: formData.get("name") as string,
-          });
-          redirect(`/admin/games/${params.gameId}`);
+          await updateResourceForm(params.resourceId, params.gameId, formData);
         }}
         className="grid gap-4"
       >

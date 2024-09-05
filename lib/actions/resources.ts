@@ -4,11 +4,7 @@ import { auth } from "@/auth";
 import { generateEmbeddings } from "../ai/embedding";
 import { db } from "../db";
 import { embeddings as embeddingsTable } from "../db/schema/embeddings";
-import {
-  insertResourceSchema,
-  NewResourceParams,
-  resources,
-} from "../db/schema/resources";
+import { insertResourceSchema, resources } from "../db/schema/resources";
 import mime from "mime";
 import PDFParser from "pdf2json";
 import { eq } from "drizzle-orm";

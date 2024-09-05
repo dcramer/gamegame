@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-// import Image from "next/image";
+import Image from "next/image";
 import Link from "next/link";
 import Layout from "./layout";
 import Heading from "./heading";
@@ -22,16 +22,18 @@ export async function LandingPage() {
           <Card key={game.id} className="relative">
             <CardContent className="flex flex-col items-center">
               <div className="w-full aspect-[3/2] overflow-hidden relative">
-                {/* <Image
-                  src={game.image}
-                  alt={game.name}
-                  fill
-                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                  style={{
-                    objectFit: "cover",
-                    objectPosition: game.imagePosition || "center",
-                  }}
-                /> */}
+                {game.imageUrl ? (
+                  <Image
+                    src={game.imageUrl}
+                    alt={game.name}
+                    fill
+                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                    style={{
+                      objectFit: "cover",
+                      objectPosition: "top",
+                    }}
+                  />
+                ) : null}
               </div>
             </CardContent>
             <CardHeader>

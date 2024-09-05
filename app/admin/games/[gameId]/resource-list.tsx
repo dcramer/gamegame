@@ -11,11 +11,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { deleteResource, createResource } from "@/lib/actions/resources";
-import { Resource } from "@/lib/db/schema/resources";
 import { nanoid } from "@/lib/utils";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { upload } from "@vercel/blob/client";
 
 type PendingResource = {
@@ -26,40 +25,47 @@ type PendingResource = {
   error?: string | null;
 };
 
-type AnyResource =
-  | {
-      id: string;
-      name: string;
-      pending: false;
-      error: null;
-    }
-  | PendingResource;
-
-const bufferToBase64 = async (buffer: ArrayBuffer) => {
-  // use a FileReader to generate a base64 data URI:
-  const base64url: string = await new Promise((r) => {
-    const reader = new FileReader();
-    reader.onload = () => r(reader.result as string);
-    reader.readAsDataURL(new Blob([buffer]));
-  });
-  // remove the `data:...;base64,` part from the start
-  return base64url.slice(base64url.indexOf(",") + 1);
+type ActiveResource = {
+  id: string;
+  name: string;
+  pending: false;
+  error: null;
 };
+
+type AnyResource = ActiveResource | PendingResource;
 
 export default function ResourceList({
   gameId,
   resourceList,
 }: {
   gameId: string;
-  resourceList: (Resource & {
-    id?: string;
-  })[];
+  resourceList: {
+    id: string;
+    name: string;
+    url: string;
+  }[];
 }) {
   const router = useRouter();
 
   const [allResources, setAllResources] = useState<AnyResource[]>(
     resourceList.map((r) => ({ ...r, pending: false, error: null }))
   );
+
+  useEffect(() => {
+    const pendingResources: PendingResource[] = allResources
+      .filter((r) => r.pending)
+      .map((r) => ({
+        ...(r as PendingResource),
+        error: null,
+      }));
+
+    setAllResources([
+      ...resourceList.map(
+        (r) => ({ ...r, pending: false, error: null } as ActiveResource)
+      ),
+      ...pendingResources,
+    ]);
+  }, [resourceList]);
 
   const handleAddResource = async (resource: PendingResource) => {
     const newBlob = await upload(resource.file.name, resource.file, {

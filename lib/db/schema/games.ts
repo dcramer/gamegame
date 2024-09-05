@@ -8,7 +8,8 @@ export const games = pgTable("games", {
   id: varchar("id", { length: 191 })
     .primaryKey()
     .$defaultFn(() => nanoid()),
-  name: text("name").notNull(),
+  name: text("name").notNull().unique(),
+  imageUrl: text("url"),
 
   createdAt: timestamp("created_at")
     .notNull()
