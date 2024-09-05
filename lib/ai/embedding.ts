@@ -41,7 +41,12 @@ export const findRelevantContent = async (userQuery: string) => {
     userQueryEmbedded
   )})`;
   const similarGuides = await db
-    .select({ content: embeddings.content, similarity, resourceName: resources.name })
+    .select({
+      content: embeddings.content,
+      similarity,
+      resourceName: resources.name,
+      resourceId: resources.id,
+    })
     .from(embeddings)
     .innerJoin(resources, eq(embeddings.resourceId, resources.id))
     .where(gt(similarity, 0.5))
