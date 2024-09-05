@@ -56,6 +56,11 @@ export const updateGame = async (
     imageUrl?: string;
   }
 ) => {
+  const session = await auth();
+  if (!session?.user?.admin) {
+    throw new Error("Unauthorized");
+  }
+
   const [game] = await db
     .select()
     .from(games)

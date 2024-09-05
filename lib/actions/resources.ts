@@ -115,6 +115,11 @@ export const updateResource = async (
     // url?: string;
   }
 ) => {
+  const session = await auth();
+  if (!session?.user?.admin) {
+    throw new Error("Unauthorized");
+  }
+
   const [resource] = await db
     .select()
     .from(resources)
