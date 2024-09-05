@@ -38,21 +38,18 @@ export async function POST(
 
     Focus on the gameplay rules. Be very specific around understanding of rules that change based on the number of players. Do not advise the player on gameplay strategy.
 
-    Your response should always be in the following JSON format:
+    Your response should ALWAYS be in the following JSON format:
 
     {
       "answer": "your answer, using markdown and HTML formatting",
       "resourceName": "the name of the resource you used to answer the question",
-      "resourceId": "the id of the resource you used to answer the question"
+      "resourceId": "the id of the resource you used to answer the question",
+      "followUps": ["a list of follow up questions that might be relevant"]
     }
 
-    If no relevant information is found in the tool calls, you should at minimum, respond with:
+    If asked why you don't know an answer, or how you come up with your answer, your "answer" should explain you only have access to the resources provided.
 
-    {
-      "answer": "Sorry, I don't know.",
-      "resourceName": null,
-      "resourceId": null
-    }
+    Lastly, if you are unable to answer the question given the relevant information in the tool calls your "answer" should be "Sorry, I don't know.".
 
     Remember, your job is to ONLY ANSWER QUESTIONS ABOUT THE GAME '**${game.name}**', and nothing more than that.
     `,

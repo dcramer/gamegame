@@ -9,7 +9,11 @@ import { useChat } from "ai/react";
 import Markdown from "react-markdown";
 import { useEffect, useRef } from "react";
 
-function renderMessage(message: string) {
+function renderMessage(
+  message: string,
+  activeAnswer: boolean,
+  onFollowUp: (followUp: string) => void
+) {
   let parsed;
   try {
     parsed = JSON.parse(message);
@@ -20,7 +24,12 @@ function renderMessage(message: string) {
     );
   }
 
-  const { answer, resourceName, resourceId } = parsed;
+  const { answer, followUps, resourceName, resourceId } = parsed as {
+    answer: string;
+    followUps: string[];
+    resourceName: string;
+    resourceId: string;
+  };
   if (!answer) {
     console.error("no answer in JSON payload", message);
     return renderError(
@@ -37,6 +46,21 @@ function renderMessage(message: string) {
       >
         {resourceName}
       </a>
+      {activeAnswer && followUps && followUps.length > 0 && (
+        <ul className="mt-6 flex flex-col gap-2 text-sm">
+          {followUps.map((followUp) => (
+            <li key={followUp}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onFollowUp(followUp)}
+              >
+                {followUp}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -53,11 +77,18 @@ export function Chat({
     name: string;
   };
 }) {
-  const { messages, input, error, isLoading, handleInputChange, handleSubmit } =
-    useChat({
-      api: `/api/ask/${game.id}`,
-      maxToolRoundtrips: 2,
-    });
+  const {
+    messages,
+    input,
+    error,
+    append,
+    isLoading,
+    handleInputChange,
+    handleSubmit,
+  } = useChat({
+    api: `/api/ask/${game.id}`,
+    maxToolRoundtrips: 2,
+  });
 
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -67,6 +98,13 @@ export function Chat({
       element.scrollTop = element.scrollHeight;
     }
   }, [messages]);
+
+  const visibleMessages = messages.filter(
+    (m, index) =>
+      m.content &&
+      m.content !== "" &&
+      (index !== messages.length - 1 || !isLoading || m.role === "user")
+  );
 
   return (
     <div className="absolute inset-0 mx-auto flex flex-col items-stretch">
@@ -86,21 +124,28 @@ export function Chat({
             className="flex-1 overflow-y-auto mb-4 gap-2 flex flex-col"
             ref={containerRef}
           >
-            {messages
-              .filter((m) => m.content && m.content !== "")
-              .map((m, index) => (
-                <div key={index} className="flex flex-col gap-0">
-                  {m.role === "user" ? (
-                    <div className="font-semibold rounded bg-muted text-muted-foreground self-end p-3">
-                      <Markdown className="prose prose-invert">
-                        {m.content}
-                      </Markdown>
-                    </div>
-                  ) : (
-                    renderMessage(m.content)
-                  )}
-                </div>
-              ))}
+            {visibleMessages.map((m, index) => (
+              <div key={index} className="flex flex-col gap-0">
+                {m.role === "user" ? (
+                  <div className="font-semibold rounded bg-muted text-muted-foreground self-end p-3">
+                    <Markdown className="prose prose-invert">
+                      {m.content}
+                    </Markdown>
+                  </div>
+                ) : (
+                  renderMessage(
+                    m.content,
+                    index === visibleMessages.length - 1,
+                    (followUp) => {
+                      append({
+                        role: "user",
+                        content: followUp,
+                      });
+                    }
+                  )
+                )}
+              </div>
+            ))}
           </div>
           <form onSubmit={handleSubmit} className="flex items-center gap-4">
             <Input
