@@ -36,6 +36,8 @@ export async function POST(
     
     If the rule appears ambiguous, respond with the rule and explain that it is ambiguous.
 
+    Focus on the gameplay rules. Be very specific around understanding of rules that change based on the number of players. Do not advise the player on gameplay strategy.
+
     Your response should always be in the following JSON format:
 
     {
