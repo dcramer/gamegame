@@ -24,11 +24,10 @@ function renderMessage(
     );
   }
 
-  const { answer, followUps, resourceName, resourceId } = parsed as {
+  const { answer, followUps, resources } = parsed as {
     answer: string;
     followUps: string[];
-    resourceName: string;
-    resourceId: string;
+    resources: { name: string; id: string }[];
   };
   if (!answer) {
     console.error("no answer in JSON payload", message);
@@ -39,13 +38,19 @@ function renderMessage(
   return (
     <div className="flex flex-col">
       <Markdown className="prose prose-invert">{answer}</Markdown>
-      <a
-        href={`/resources/${resourceId}/download`}
-        className="text-xs underline"
-        target="_blank"
-      >
-        {resourceName}
-      </a>
+      <ul className="flex flex-row gap-2 text-sm">
+        {resources.map((resource) => (
+          <li key={resource.id}>
+            <a
+              href={`/resources/${resource.id}/download`}
+              className="text-xs underline"
+              target="_blank"
+            >
+              {resource.name}
+            </a>
+          </li>
+        ))}
+      </ul>
       {activeAnswer && followUps && followUps.length > 0 && (
         <ul className="mt-6 flex flex-col gap-2 text-sm">
           {followUps.map((followUp) => (

@@ -1,5 +1,5 @@
 import { MODEL } from "@/constants";
-import { getGame } from "@/lib/actions/games";
+import { getAllResourcesForGame, getGame } from "@/lib/actions/games";
 import { findRelevantContent } from "@/lib/ai/embedding";
 import { openai } from "@ai-sdk/openai";
 import { streamText, convertToCoreMessages, tool, jsonSchema } from "ai";
@@ -22,19 +22,13 @@ export async function POST(
   const result = await streamText({
     model: openai(MODEL),
     system: `
-    This GPT is a knowledgeable expert on the rules of the board game **${game.name}**.
+    This GPT is a knowledgeable expert on the rules of the board game **${game.name}**, and is being operated on a website called GameGame.
     
     It will interpret the rules based on the resources available and provide accurate, detailed explanations and clarifications about gameplay, mechanics, and any rule ambiguities.
     
     It will assist players in understanding the game, resolving disputes, and ensuring a smooth gaming experience.
     
     The GPT will focus on being precise, clear, and neutral in its interpretations, avoiding any bias and maintaining a focus on delivering accurate and helpful guidance.
-    
-    Do not answer questions without consulting the knowledge base.
-    
-    If you found information via a relevant tool, cite the resourceName in your response..
-    
-    If the rule appears ambiguous, respond with the rule and explain that it is ambiguous.
 
     Focus on the gameplay rules. Be very specific around understanding of rules that change based on the number of players. Do not advise the player on gameplay strategy.
 
@@ -42,14 +36,33 @@ export async function POST(
 
     {
       "answer": "your answer, using markdown and HTML formatting",
-      "resourceName": "the name of the resource you used to answer the question",
-      "resourceId": "the id of the resource you used to answer the question",
+      "resources": [{"name": "the name of the resource you used to answer the question", "id": "the id of the resource you used to answer the question"}],
       "followUps": ["a list of follow up questions that might be relevant"]
     }
 
-    If asked why you don't know an answer, or how you come up with your answer, your "answer" should explain you only have access to the resources provided.
+    The 'resources' field should be a list of resources you used to answer the question, if any.
 
-    Lastly, if you are unable to answer the question given the relevant information in the tool calls your "answer" should be "Sorry, I don't know.".
+    There are a few kinds of questions you will be asked:
+
+    1. Questions about the game rules.
+    
+    Do not answer questions without consulting the knowledge base.
+    
+    If you found information via a relevant tool, cite the resourceName in your response..
+    
+    If the rule appears ambiguous, respond with the rule and explain that it is ambiguous.
+
+    2. Questions about the resources available.
+
+    You can list the resources available to you using the listResources tool..
+
+    3. Questions that are not about the game rules or resources.
+
+    If you are unable to answer the question given the relevant information in the tool calls your "answer" should be "Sorry, I don't know.".
+
+    4. Questions about yourself.
+
+    If asked about what you are, or how you come up with answers, your "answer" should explain you only have access to the resources provided.
 
     Remember, your job is to ONLY ANSWER QUESTIONS ABOUT THE GAME '**${game.name}**', and nothing more than that.
     `,
@@ -61,6 +74,17 @@ export async function POST(
           question: z.string().describe("the users question"),
         }),
         execute: async ({ question }) => findRelevantContent(question),
+      }),
+      listResources: tool({
+        description: `list the resources available to you`,
+        parameters: z.object({}),
+        execute: async () =>
+          (
+            await getAllResourcesForGame(game.id)
+          ).map((r) => ({
+            id: r.id,
+            name: r.name,
+          })),
       }),
     },
     temperature: 0,
