@@ -21,8 +21,8 @@ export default async function Layout({
   return (
     <LayoutComponent>
       <div className="flex justify-center items-center gap-4 mb-4">
-        <Heading>{game.name}</Heading>
-        <Button asChild>
+        <Heading className="mb-0">{game.name}</Heading>
+        <Button asChild variant="ghost">
           <Link href={`/ask/${game.id}`}>
             <MessageCircle className="h-4 w-4" />
           </Link>

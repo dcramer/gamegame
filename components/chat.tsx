@@ -144,7 +144,7 @@ export function Chat({
                 alt={game.name}
                 fill
                 style={{
-                  objectFit: "contain",
+                  objectFit: "cover",
                   objectPosition: "top",
                 }}
               />

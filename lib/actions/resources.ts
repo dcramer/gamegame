@@ -3,10 +3,13 @@
 import { auth } from "@/auth";
 import { generateEmbeddings } from "../ai/embedding";
 import { db } from "../db";
-import { embeddings as embeddingsTable } from "../db/schema/embeddings";
+import {
+  embeddings,
+  embeddings as embeddingsTable,
+} from "../db/schema/embeddings";
 import { insertResourceSchema, resources } from "../db/schema/resources";
 import mime from "mime";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { extractTextFromPdf_Marker, extractTextFromPdf_Pdfjs } from "../pdf";
 import { env } from "../env.mjs";
 
@@ -85,10 +88,22 @@ export const getResource = async (resourceId: string) => {
     .from(resources)
     .where(eq(resources.id, resourceId))
     .limit(1);
+
+  if (!resource) {
+    throw new Error("Resource not found");
+  }
+
+  const [{ count: embeddingCount }] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(embeddings)
+    .where(eq(embeddings.resourceId, resource.id))
+    .limit(1);
+
   return {
     id: resource.id,
     name: resource.name,
     url: resource.url,
+    embeddingCount,
   };
 };
 
