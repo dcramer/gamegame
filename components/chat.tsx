@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
   DotIcon,
   ExternalLink,
+  ImageIcon,
   LoaderCircleIcon,
   MessageCircle,
   MessageCircleQuestion,
@@ -149,9 +150,9 @@ export function Chat({
   return (
     <>
       <div className="flex justify-between items-center h-16 lg:h-24 overflow-hidden absolute top-0 left-0 right-0 px-4 gap-4 border-b bg-card">
-        <div className="flex items-center">
-          {game.imageUrl && (
-            <div className="w-24 h-24 relative hidden lg:block">
+        <div className="flex items-end gap-2">
+          <div className="w-20 h-20 relative hidden lg:block">
+            {game.imageUrl ? (
               <Image
                 src={game.imageUrl}
                 alt={game.name}
@@ -161,12 +162,15 @@ export function Chat({
                   objectPosition: "top",
                 }}
               />
-            </div>
-          )}
+            ) : (
+              <ImageIcon className="w-20 h-20 text-muted-foreground" />
+            )}
+          </div>
+
           <div>
             <h2 className="text-3xl font-bold">{game.name}</h2>
             <p className="text-muted-foreground text-sm hidden lg:block">
-              {game.resourceCount} resources{" "}
+              {game.resourceCount} resources
               <Button
                 size="sm"
                 variant="link"

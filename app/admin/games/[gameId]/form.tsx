@@ -23,8 +23,6 @@ export default function Form({
   const [imageUrl, setImageUrl] = useState<string | null>(game.imageUrl);
   const [isLoading, setIsLoading] = useState(false);
 
-  console.log(game);
-
   return (
     <form
       action={async (formData) => {
@@ -36,8 +34,6 @@ export default function Form({
           });
           formData.set("imageUrl", newBlob.url);
         }
-
-        console.log(formData);
 
         await updateGameForm(game.id, formData);
       }}
