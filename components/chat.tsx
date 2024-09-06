@@ -147,7 +147,7 @@ export function Chat({
   }, [visibleMessages.length]);
 
   return (
-    <div className="absolute inset-0 mx-auto flex flex-col items-stretch">
+    <div className="absolute inset-0 mx-auto flex flex-col items-stretch p-4">
       <div className="flex justify-between items-center mb-2 lg:mb-6">
         <div className="flex items-center">
           {game.imageUrl && (
