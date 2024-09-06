@@ -1,4 +1,17 @@
-## Generating a GPT
+## Adding a Game
+
+**If you want a game added, please open an issue and if you can provide a link to a PDF of the rulebook, that would be great!**
+
+### New Way: Via /admin/add-game
+
+We do two things that some people will frown upon:
+
+1. We yoink the high res `.webp` icons from BGG (sorry, <3 BGG)
+2. We google for a PDF version of the rulebook, which we'll convert to markdown and use to generate with the RAG system.
+
+Right now I do this locally wired up to the prod db (cringe), but should be easy enough for to make it function in prod.
+
+### Old Way: Generating a GPT
 
 For now we're using the GPT store to manage these. Here's a rough template to follow:
 
