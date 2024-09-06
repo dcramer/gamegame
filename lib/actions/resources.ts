@@ -68,13 +68,21 @@ export const createResource = async (input: {
       throw new Error("Failed to generate embeddings");
     }
 
-    await tx.insert(embeddingsTable).values(
-      embeddings.map((embedding) => ({
+    // dont batch this to avoid timeouts
+    for (const embedding of embeddings) {
+      await tx.insert(embeddingsTable).values({
         gameId: resource.gameId,
         resourceId: resource.id,
         ...embedding,
-      }))
-    );
+      });
+    }
+    // await tx.insert(embeddingsTable).values(
+    //   embeddings.map((embedding) => ({
+    //     gameId: resource.gameId,
+    //     resourceId: resource.id,
+    //     ...embedding,
+    //   }))
+    // );
 
     return resource;
   });
