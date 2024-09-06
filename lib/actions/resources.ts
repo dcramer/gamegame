@@ -164,7 +164,7 @@ export const deleteResource = async (resourceId: string) => {
   return {};
 };
 
-export const updateResourceEmbeddings = async (
+export const reprocessResource = async (
   resourceId: string,
   pdfExtractor = env.DEFAULT_PDF_EXTRACTOR
 ) => {
@@ -196,7 +196,13 @@ export const updateResourceEmbeddings = async (
       throw new Error("Unsupported mime type");
   }
 
-  await db.transaction(async (tx) => {
+  const newResource = await db.transaction(async (tx) => {
+    const [newResource] = await tx
+      .update(resources)
+      .set({ content: newContent })
+      .where(eq(resources.id, resourceId))
+      .returning();
+
     const embeddings = await generateEmbeddings(newContent);
     if (!embeddings.length) {
       throw new Error("Failed to generate embeddings");
@@ -211,7 +217,14 @@ export const updateResourceEmbeddings = async (
         ...embedding,
       }))
     );
+
+    return newResource;
   });
 
-  return {};
+  return {
+    id: newResource.id,
+    name: newResource.name,
+    url: newResource.url,
+    hasContent: true,
+  };
 };

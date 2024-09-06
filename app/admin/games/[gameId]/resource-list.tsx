@@ -10,7 +10,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { deleteResource, createResource } from "@/lib/actions/resources";
+import {
+  deleteResource,
+  createResource,
+  reprocessResource,
+} from "@/lib/actions/resources";
 import { nanoid } from "@/lib/utils";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -168,7 +172,28 @@ export default function ResourceList({
                       <div className="text-red-400">Missing Content</div>
                     ) : null}
                   </TableCell>
-                  <TableCell className="text-center">
+                  <TableCell className="text-center gap-2 flex">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={resource.pending}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+
+                        const newResource = await reprocessResource(
+                          resource.id
+                        );
+                        setAllResources(
+                          allResources.map((r) =>
+                            r.id === resource.id
+                              ? { ...newResource, error: null, pending: false }
+                              : r
+                          )
+                        );
+                      }}
+                    >
+                      Reprocess
+                    </Button>
                     <Button
                       size="sm"
                       variant="destructive"
