@@ -3,16 +3,36 @@ import { getAllResourcesForGame, getGame } from "@/lib/actions/games";
 import { findRelevantContent } from "@/lib/ai/embedding";
 import { openai } from "@ai-sdk/openai";
 import { streamText, convertToCoreMessages, tool, jsonSchema } from "ai";
-import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Ratelimit } from "@upstash/ratelimit";
+import { kv } from "@vercel/kv";
 
-// Allow streaming responses up to 30 seconds
+const ratelimit = new Ratelimit({
+  redis: kv,
+  limiter: Ratelimit.slidingWindow(5, "30 s"),
+});
 export const maxDuration = 30;
 
 export async function POST(
   req: Request,
   { params: { gameId } }: { params: { gameId: string } }
 ) {
+  const ip = (req.headers.get("x-forwarded-for") ?? "127.0.0.1").split(",")[0];
+  const { limit, reset, remaining } = await ratelimit.limit(ip);
+  if (remaining <= 0) {
+    return Response.json(
+      { error: "Rate limit exceeded" },
+      {
+        status: 429,
+        headers: {
+          "X-RateLimit-Limit": limit.toString(),
+          "X-RateLimit-Remaining": remaining.toString(),
+          "X-RateLimit-Reset": reset.toString(),
+        },
+      }
+    );
+  }
+
   const game = await getGame(gameId);
   if (!game) {
     return Response.json({ error: "Game not found" }, { status: 404 });
@@ -99,5 +119,11 @@ export async function POST(
     },
   });
 
-  return result.toDataStreamResponse();
+  return result.toDataStreamResponse({
+    headers: {
+      "X-RateLimit-Limit": limit.toString(),
+      "X-RateLimit-Remaining": remaining.toString(),
+      "X-RateLimit-Reset": reset.toString(),
+    },
+  });
 }

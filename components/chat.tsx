@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  Dot,
   DotIcon,
   LoaderCircleIcon,
   MessageCircle,
@@ -30,7 +29,7 @@ function renderMessage(
     if (isStreaming) return null;
     console.error("invalid payload", message);
     return renderError(
-      "There was an error processing your request. Please try again."
+      new Error("There was an error processing your request. Please try again.")
     );
   }
 
@@ -42,7 +41,7 @@ function renderMessage(
   if (!answer) {
     console.error("no answer in JSON payload", message);
     return renderError(
-      "There was an error processing your request. Please try again."
+      new Error("There was an error processing your request. Please try again.")
     );
   }
   return (
@@ -93,8 +92,19 @@ function renderMessage(
   );
 }
 
-function renderError(message: string) {
-  return <div className="bg-error text-error p-4 rounded mb-4">{message}</div>;
+function renderError(error: Error) {
+  let message;
+  if (error.message.includes("Rate limit exceeded")) {
+    message = "Rate limit exceeded. Try again in a bit.";
+  } else {
+    message = error.message;
+  }
+
+  return (
+    <div className="bg-destructive text-destructive-foreground font-bold p-4 rounded mb-4">
+      {message}
+    </div>
+  );
 }
 
 export function Chat({
@@ -178,7 +188,7 @@ export function Chat({
       </div>
       <Card className="flex-1 flex">
         <CardContent className="p-4 flex-1 flex items-stretch flex-col">
-          {error && renderError(error.message)}
+          {error && renderError(error)}
           <div className="flex-1 overflow-y-auto mb-4 gap-2 flex flex-col">
             {visibleMessages.length > 0 ? (
               visibleMessages.map((m, index) => (
