@@ -148,7 +148,7 @@ export function Chat({
 
   return (
     <div className="absolute inset-0 mx-auto flex flex-col items-stretch">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex justify-between items-center mb-2 lg:mb-6">
         <div className="flex items-center">
           {game.imageUrl && (
             <div className="w-32 h-32 relative hidden lg:block">
