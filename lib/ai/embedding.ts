@@ -10,19 +10,23 @@ const embeddingModel = openai.embedding("text-embedding-3-small");
 const generateChunks = (input: string): string[] => {
   return input
     .trim()
-    .split(".")
+    .split("\n")
     .filter((i) => i !== "");
 };
 
 export const generateEmbeddings = async (
   value: string
-): Promise<Array<{ embedding: number[]; content: string }>> => {
+): Promise<Array<{ index: number; embedding: number[]; content: string }>> => {
   const chunks = generateChunks(value);
   const { embeddings } = await embedMany({
     model: embeddingModel,
     values: chunks,
   });
-  return embeddings.map((e, i) => ({ content: chunks[i], embedding: e }));
+  return embeddings.map((e, i) => ({
+    index: i,
+    content: chunks[i],
+    embedding: e,
+  }));
 };
 
 export const generateEmbedding = async (value: string): Promise<number[]> => {
