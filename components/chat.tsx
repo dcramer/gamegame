@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   DotIcon,
+  Download,
+  ExternalLink,
   LoaderCircleIcon,
   MessageCircle,
   MessageCircleQuestion,
@@ -49,8 +51,9 @@ function renderMessage(
       <Markdown className="prose prose-invert">{answer}</Markdown>
       {!!resources.length && (
         <div className="mt-4 flex flex-col gap-2 text-sm flex-wrap">
-          <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground">
+          <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground flex items-center gap-2">
             Resources
+            <ExternalLink className="w-3 h-3" />
           </h4>
           <ul className="flex flex-row gap-2 text-xs flex-wrap">
             {resources.map((resource) => (
@@ -70,8 +73,9 @@ function renderMessage(
       )}
       {activeAnswer && followUps && followUps.length > 0 && (
         <div className="mt-4 flex flex-col gap-2 text-sm flex-wrap">
-          <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground">
+          <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground flex items-center gap-2">
             Follow Ups
+            <MessageCircleQuestion className="w-3 h-3" />
           </h4>
           <ul className="flex flex-col gap-2 text-sm flex-wrap">
             {followUps.map((followUp) => (

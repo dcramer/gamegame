@@ -9,7 +9,7 @@ import { kv } from "@vercel/kv";
 
 const ratelimit = new Ratelimit({
   redis: kv,
-  limiter: Ratelimit.slidingWindow(5, "30 s"),
+  limiter: Ratelimit.slidingWindow(10, "30 s"),
 });
 export const maxDuration = 30;
 
@@ -62,9 +62,9 @@ export async function POST(
 
     The 'resources' field should be a list of resources that are used to answer the question, or referenced in the answer, if any.
 
-    There are a few kinds of questions you will be asked. ANYTHING outside of those lines of questions is not your job.
+    There are a few kinds of questions you will be asked. ANYTHING outside of these lines of questions is not your job.
 
-    1. Questions about the game rules.
+    1. Questions about the game rules, game setup, or gameplay in general.
       
       Do not answer questions without consulting the knowledge base.
       
