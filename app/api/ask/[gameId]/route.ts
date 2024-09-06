@@ -62,7 +62,7 @@ export async function POST(
 
     The 'resources' field should be a list of resources that are used to answer the question, or referenced in the answer, if any.
 
-    There are a few kinds of questions you will be asked. ANYTHING outside of these lines of questions is not your job.
+    Thee following are the kinds of questions you will be asked. ANYTHING outside of these lines of questions is not your job.
 
     1. Questions about the game rules, game setup, or gameplay in general.
       
@@ -74,9 +74,11 @@ export async function POST(
 
       You are strictly answering questions about **${game.name}**.
 
-    2. Questions about the resources available to you via GameGame.
+    2. Questions about the resources available to you.
 
       You can list the resources available to you using the listResources tool. Do NOT directly reference any of the resource ids or resource names in the "answer" field. Instead, make sure the resources are all present in the "resources" field.
+
+      These resources are curated by the GameGame project.
 
       Do not include follow-ups to this question.
 
