@@ -147,8 +147,8 @@ export function Chat({
   }, [visibleMessages.length]);
 
   return (
-    <div className="absolute inset-0 mx-auto flex flex-col items-stretch p-4">
-      <div className="flex justify-between items-center mb-2 lg:mb-6">
+    <>
+      <div className="flex justify-between items-center h-16 lg:h-24 overflow-hidden absolute top-0 left-0 right-0 px-4 gap-4 border-b bg-card">
         <div className="flex items-center">
           {game.imageUrl && (
             <div className="w-24 h-24 relative hidden lg:block">
@@ -164,8 +164,8 @@ export function Chat({
             </div>
           )}
           <div>
-            <h2 className="text-3xl font-bold pl-4">{game.name}</h2>
-            <p className="text-muted-foreground text-sm pl-4">
+            <h2 className="text-3xl font-bold">{game.name}</h2>
+            <p className="text-muted-foreground text-sm hidden lg:block">
               {game.resourceCount} resources{" "}
               <Button
                 size="sm"
@@ -189,8 +189,8 @@ export function Chat({
           </Link>
         </Button>
       </div>
-      <Card className="flex-1 flex rounded-none lg:rounded-xl">
-        <CardContent className="p-4 flex-1 flex items-stretch flex-col">
+      <Card className="flex-1 flex rounded-none lg:rounded-xl min-h-screen pt-20 lg:pt-32 pb-4 overflow-hidden h-screen px-4">
+        <CardContent className="flex-1 flex items-stretch flex-col">
           {error && renderError(error)}
           <div className="flex-1 overflow-y-auto mb-4 gap-2 flex flex-col">
             {visibleMessages.length > 0 ? (
@@ -240,17 +240,22 @@ export function Chat({
               onChange={handleInputChange}
               autoFocus
             />
-            <Button type="submit" size="sm" disabled={isLoading}>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={isLoading}
+              className="gap-2"
+            >
               {!isLoading ? (
-                <MessageCircle className="w-5 h-5 mr-2" />
+                <MessageCircle className="w-5 h-5" />
               ) : (
-                <LoaderCircleIcon className="w-5 h-5 mr-2 animate-spin" />
+                <LoaderCircleIcon className="w-5 h-5 animate-spin" />
               )}
-              Ask
+              <span className="hidden lg:inline">Ask</span>
             </Button>
           </form>
         </CardContent>
       </Card>
-    </div>
+    </>
   );
 }

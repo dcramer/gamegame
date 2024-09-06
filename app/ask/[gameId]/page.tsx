@@ -28,11 +28,5 @@ export default async function Page({
     return notFound();
   }
 
-  return (
-    <div className="min-h-screen flex flex-col items-stretch">
-      <main className="container mx-auto p-4 flex-1 relative">
-        <Chat game={game} />
-      </main>
-    </div>
-  );
+  return <Chat game={game} />;
 }
