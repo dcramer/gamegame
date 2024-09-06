@@ -23,6 +23,7 @@ type PendingResource = {
   file: File;
   pending: true;
   error?: string | null;
+  hasContent: true;
 };
 
 type ActiveResource = {
@@ -30,6 +31,7 @@ type ActiveResource = {
   name: string;
   pending: false;
   error: null;
+  hasContent: boolean;
 };
 
 type AnyResource = ActiveResource | PendingResource;
@@ -43,6 +45,7 @@ export default function ResourceList({
     id: string;
     name: string;
     url: string;
+    hasContent: boolean;
   }[];
 }) {
   const router = useRouter();
@@ -110,6 +113,7 @@ export default function ResourceList({
           id: nanoid(),
           name: r.name,
           pending: true,
+          hasContent: true,
         }));
         setAllResources((prev) => [...prev, ...newResources]);
         for (const resource of newResources) {
@@ -159,6 +163,9 @@ export default function ResourceList({
                       <div className="text-red-400">{resource.error}</div>
                     ) : resource.pending ? (
                       <em>Pending</em>
+                    ) : null}
+                    {!resource.hasContent ? (
+                      <div className="text-red-400">Missing Content</div>
                     ) : null}
                   </TableCell>
                   <TableCell className="text-center">

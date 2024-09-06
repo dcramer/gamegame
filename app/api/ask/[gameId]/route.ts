@@ -1,11 +1,12 @@
 import { MODEL } from "@/constants";
-import { getAllResourcesForGame, getGame } from "@/lib/actions/games";
+import { getGame } from "@/lib/actions/games";
 import { findRelevantContent } from "@/lib/ai/embedding";
 import { openai } from "@ai-sdk/openai";
 import { streamText, convertToCoreMessages, tool, jsonSchema } from "ai";
 import { z } from "zod";
 import { Ratelimit } from "@upstash/ratelimit";
 import { kv } from "@vercel/kv";
+import { getAllResourcesForGame } from "@/lib/actions/resources";
 
 const ratelimit = new Ratelimit({
   redis: kv,

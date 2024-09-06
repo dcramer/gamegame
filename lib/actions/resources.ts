@@ -9,7 +9,7 @@ import {
 } from "../db/schema/embeddings";
 import { insertResourceSchema, resources } from "../db/schema/resources";
 import mime from "mime";
-import { eq, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { extractTextFromPdf_Marker, extractTextFromPdf_Pdfjs } from "../pdf";
 import { env } from "../env.mjs";
 
@@ -79,6 +79,7 @@ export const createResource = async (input: {
     id: resource.id,
     name: resource.name,
     url: resource.url,
+    hasContent: true,
   };
 };
 
@@ -103,8 +104,22 @@ export const getResource = async (resourceId: string) => {
     id: resource.id,
     name: resource.name,
     url: resource.url,
+    content: resource.content,
     embeddingCount,
   };
+};
+
+export const getAllResourcesForGame = async (gameId: string) => {
+  return await db
+    .select({
+      id: resources.id,
+      name: resources.name,
+      url: resources.url,
+      hasContent: sql<boolean>`${resources.content} != '' AND ${resources.content} is not null`,
+    })
+    .from(resources)
+    .where(eq(resources.gameId, gameId))
+    .orderBy(asc(resources.name));
 };
 
 export const updateResource = async (
@@ -120,7 +135,12 @@ export const updateResource = async (
   }
 
   const [resource] = await db
-    .select()
+    .select({
+      id: resources.id,
+      name: resources.name,
+      url: resources.url,
+      hasContent: sql<boolean>`${resources.content} != '' AND ${resources.content} is not null`,
+    })
     .from(resources)
     .where(eq(resources.id, resourceId))
     .limit(1);
@@ -130,11 +150,7 @@ export const updateResource = async (
 
   await db.update(resources).set(input).where(eq(resources.id, resourceId));
 
-  return {
-    id: resource.id,
-    name: resource.name,
-    url: resource.url,
-  };
+  return resource;
 };
 
 export const deleteResource = async (resourceId: string) => {
@@ -163,6 +179,7 @@ export const updateResourceEmbeddings = async (
     .where(eq(resources.id, resourceId))
     .limit(1);
   if (!resource) {
+    throw new Error("Resource not found");
   }
 
   const mimeType = mime.getType(resource.name);

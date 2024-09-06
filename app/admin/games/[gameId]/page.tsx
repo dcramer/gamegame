@@ -1,7 +1,8 @@
-import { getAllResourcesForGame, getGame } from "@/lib/actions/games";
+import { getGame } from "@/lib/actions/games";
 import { notFound } from "next/navigation";
 import ResourceList from "./resource-list";
 import Form from "./form";
+import { getAllResourcesForGame } from "@/lib/actions/resources";
 
 export default async function Page({ params }: { params: { gameId: string } }) {
   const game = await getGame(params.gameId);
