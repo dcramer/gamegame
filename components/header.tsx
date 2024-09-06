@@ -10,7 +10,7 @@ export default function Header() {
         className="flex items-center justify-center space-x-2"
       >
         <Dices className="w-8 h-8" />
-        <h1 className="text-4xl font-bold">gamegame</h1>
+        <h1 className="text-2xl lg:text-4xl font-bold">gamegame</h1>
       </Link>
     </header>
   );

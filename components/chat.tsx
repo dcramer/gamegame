@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   DotIcon,
-  Download,
   ExternalLink,
   LoaderCircleIcon,
   MessageCircle,
@@ -152,7 +151,7 @@ export function Chat({
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center">
           {game.imageUrl && (
-            <div className="w-32 h-32 relative">
+            <div className="w-32 h-32 relative hidden lg:block">
               <Image
                 src={game.imageUrl}
                 alt={game.name}

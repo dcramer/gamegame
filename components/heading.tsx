@@ -8,7 +8,7 @@ export default function Heading({
   className?: string;
 }) {
   return (
-    <h2 className={cn("text-5xl font-extrabold mb-6", className)}>
+    <h2 className={cn("text-3xl lg:text-5xl font-extrabold mb-6", className)}>
       {children}
     </h2>
   );
