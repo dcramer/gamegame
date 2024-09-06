@@ -52,7 +52,10 @@ export const createResource = async (input: {
       throw new Error("Unsupported mime type");
   }
 
-  const { id, name, url, gameId } = insertResourceSchema.parse(input);
+  const { id, name, url, gameId } = insertResourceSchema.parse({
+    ...input,
+    content: newContent,
+  });
 
   const resource = await db.transaction(async (tx) => {
     const [resource] = await tx
@@ -64,6 +67,7 @@ export const createResource = async (input: {
     if (!embeddings.length) {
       throw new Error("Failed to generate embeddings");
     }
+
     await tx.insert(embeddingsTable).values(
       embeddings.map((embedding) => ({
         gameId: resource.gameId,
