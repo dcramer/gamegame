@@ -5,7 +5,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
 const runMigrate = async () => {
-  const databaseUrl = env.POSTGRES_URL || env.DATABASE_URL;
+  const databaseUrl = env.DATABASE_URL;
 
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is not defined");

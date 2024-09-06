@@ -7,7 +7,6 @@ export default {
   out: "./lib/db/migrations",
   dbCredentials: {
     url:
-      env.POSTGRES_URL ||
       env.DATABASE_URL ||
       "postgres://postgres:postgres@localhost:5432/postgres",
   },
