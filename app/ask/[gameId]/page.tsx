@@ -29,8 +29,10 @@ export default async function Page({
   }
 
   return (
-    <Layout>
-      <Chat game={game} />
-    </Layout>
+    <div className="min-h-screen flex flex-col items-stretch">
+      <main className="container mx-auto px-4 pb-12 flex-1 relative">
+        <Chat game={game} />
+      </main>
+    </div>
   );
 }
