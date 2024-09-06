@@ -89,7 +89,12 @@ export const createResource = async (input: {
 
 export const getResource = async (resourceId: string) => {
   const [resource] = await db
-    .select()
+    .select({
+      id: resources.id,
+      name: resources.name,
+      url: resources.url,
+      content: resources.content,
+    })
     .from(resources)
     .where(eq(resources.id, resourceId))
     .limit(1);
@@ -105,10 +110,7 @@ export const getResource = async (resourceId: string) => {
     .limit(1);
 
   return {
-    id: resource.id,
-    name: resource.name,
-    url: resource.url,
-    content: resource.content,
+    ...resource,
     embeddingCount,
   };
 };

@@ -29,7 +29,14 @@ export const getGame = async (input: string) => {
 
 export const getAllGames = async (withResources: boolean = true) => {
   const gameList = await db
-    .select()
+    .select({
+      id: games.id,
+      name: games.name,
+      imageUrl: games.imageUrl,
+      hasResources: exists(
+        db.select().from(resources).where(eq(resources.gameId, games.id))
+      ),
+    })
     .from(games)
     .orderBy(asc(games.name))
     .where(
@@ -39,11 +46,7 @@ export const getAllGames = async (withResources: boolean = true) => {
           )
         : undefined
     );
-  return gameList.map((game) => ({
-    id: game.id,
-    name: game.name,
-    imageUrl: game.imageUrl,
-  }));
+  return gameList;
 };
 
 export const createGame = async (input: NewGameParams) => {

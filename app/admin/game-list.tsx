@@ -20,6 +20,7 @@ export default function GameList({
     id: string;
     name: string;
     imageUrl: string | null;
+    hasResources: boolean | unknown; // TODO: Fix this
   }[];
 }) {
   const [activeGameList, setGameList] = useState(gameList);
@@ -61,6 +62,9 @@ export default function GameList({
                   >
                     {game.name}
                   </Link>
+                  {!game.hasResources ? (
+                    <div className="text-red-400">No Resources</div>
+                  ) : null}
                 </TableCell>
                 <TableCell className="text-center">
                   <Button
