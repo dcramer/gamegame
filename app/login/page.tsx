@@ -2,7 +2,7 @@ import Layout from "@/components/layout";
 import SignIn from "@/components/sign-in";
 
 export default async function Page() {
-  const session = await auth()
+  const session = await auth();
   if (session?.user) return redirect("/");
 
   return (
@@ -19,9 +19,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
-
-export const description =
-  "A login page with two columns. The first column has the login form with email and password. There's a Forgot your passwork link and a link to sign up if you do not have an account. The second column has a cover image.";
 
 export function Dashboard() {
   return (
