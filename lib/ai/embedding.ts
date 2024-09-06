@@ -1,7 +1,7 @@
 import { embed, embedMany } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { db } from "../db";
-import { cosineDistance, desc, eq, gt, sql } from "drizzle-orm";
+import { and, cosineDistance, desc, eq, gt, sql } from "drizzle-orm";
 import { embeddings } from "../db/schema/embeddings";
 import { resources } from "../db/schema";
 
@@ -34,7 +34,10 @@ export const generateEmbedding = async (value: string): Promise<number[]> => {
   return embedding;
 };
 
-export const findRelevantContent = async (userQuery: string) => {
+export const findRelevantContent = async (
+  gameId: string,
+  userQuery: string
+) => {
   const userQueryEmbedded = await generateEmbedding(userQuery);
   const similarity = sql<number>`1 - (${cosineDistance(
     embeddings.embedding,
@@ -49,7 +52,7 @@ export const findRelevantContent = async (userQuery: string) => {
     })
     .from(embeddings)
     .innerJoin(resources, eq(embeddings.resourceId, resources.id))
-    .where(gt(similarity, 0.5))
+    .where(and(gt(similarity, 0.5), eq(resources.gameId, gameId)))
     .orderBy((t) => desc(t.similarity))
     .limit(12);
   return similarGuides;

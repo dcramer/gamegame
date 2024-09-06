@@ -13,25 +13,30 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useChat } from "ai/react";
+import { Message, useChat } from "ai/react";
 import Markdown from "react-markdown";
 import { useEffect, useRef } from "react";
 import Image from "next/image";
 
 function renderMessage(
-  message: string,
+  message: Message,
   isStreaming: boolean,
   activeAnswer: boolean,
   onFollowUp: (followUp: string) => void
 ) {
   let parsed;
   try {
-    parsed = JSON.parse(message);
+    parsed = JSON.parse(message.content);
   } catch (err) {
     if (isStreaming) return null;
     console.error("invalid payload", message);
     return renderError(
-      new Error("There was an error processing your request. Please try again.")
+      new Error(
+        "There was an error processing your request. Please try again.",
+        {
+          cause: err,
+        }
+      )
     );
   }
 
@@ -101,7 +106,7 @@ function renderError(error: Error) {
   if (error.message.includes("Rate limit exceeded")) {
     message = "Rate limit exceeded. Try again in a bit.";
   } else {
-    message = error.message;
+    message = error.toString();
   }
 
   return (
@@ -199,7 +204,7 @@ export function Chat({
           <div className="flex-1 overflow-y-auto mb-4 gap-2 flex flex-col">
             {visibleMessages.length > 0 ? (
               visibleMessages.map((m, index) => (
-                <div key={index} className="flex flex-col gap-0">
+                <div key={m.id} className="flex flex-col gap-0">
                   {m.role === "user" ? (
                     <div className="font-semibold rounded bg-muted text-muted-foreground self-end p-3">
                       <Markdown className="prose prose-invert">
@@ -208,7 +213,7 @@ export function Chat({
                     </div>
                   ) : (
                     renderMessage(
-                      m.content,
+                      m,
                       index === visibleMessages.length - 1 && isLoading,
                       index === visibleMessages.length - 1,
                       (followUp) => {

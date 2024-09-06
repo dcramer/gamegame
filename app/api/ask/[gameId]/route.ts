@@ -85,7 +85,7 @@ export async function POST(
 
     3. Questions that are not about the game rules or resources.
 
-      If you are unable to answer the question given the relevant information in the tool calls your "answer" should be "Sorry, I don't know.".
+      If you are unable to answer the question given the relevant information in the tool calls your "answer" should be "Sorry, I can't help with that."
 
     4. Questions about yourself, how you function, do what you do, or who you are.
 
@@ -102,7 +102,7 @@ export async function POST(
         parameters: z.object({
           question: z.string().describe("the users question"),
         }),
-        execute: async ({ question }) => findRelevantContent(question),
+        execute: async ({ question }) => findRelevantContent(gameId, question),
       }),
       listResources: tool({
         description: `list the resources available to you`,
