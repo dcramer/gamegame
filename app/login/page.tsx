@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 
-export function Dashboard() {
+export function Login() {
   return (
     <div className="w-full lg:grid lg:min-h-[600px] lg:grid-cols-2 xl:min-h-[800px]">
       <div className="flex items-center justify-center py-12">
