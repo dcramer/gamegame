@@ -189,7 +189,7 @@ export function Chat({
           </Link>
         </Button>
       </div>
-      <Card className="flex-1 flex">
+      <Card className="flex-1 flex rounded-none lg:rounded-xl">
         <CardContent className="p-4 flex-1 flex items-stretch flex-col">
           {error && renderError(error)}
           <div className="flex-1 overflow-y-auto mb-4 gap-2 flex flex-col">
