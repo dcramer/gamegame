@@ -6,38 +6,22 @@ import { db } from "../db";
 import { embeddings as embeddingsTable } from "../db/schema/embeddings";
 import { insertResourceSchema, resources } from "../db/schema/resources";
 import mime from "mime";
-import PDFParser from "pdf2json";
 import { eq } from "drizzle-orm";
+import { extractTextFromPdf_Marker, extractTextFromPdf_Pdfjs } from "../pdf";
+import { env } from "../env.mjs";
 
-function forEachItem(pdf: any, handler: any) {
-  var Pages = pdf.Pages || pdf.formImage.Pages;
-  for (var p in Pages) {
-    var page = Pages[p];
-    for (var t in page.Texts) {
-      var item = page.Texts[t];
-      item.text = decodeURIComponent(item.R[0].T);
-      handler(item);
-    }
+const extractTextFromPdf = async (
+  buf: Buffer,
+  pdfExtractor = env.DEFAULT_PDF_EXTRACTOR
+) => {
+  switch (pdfExtractor) {
+    case "pdfjs":
+      return await extractTextFromPdf_Pdfjs(buf);
+    case "marker":
+      return await extractTextFromPdf_Marker(buf);
+    default:
+      throw new Error("Unsupported pdf extractor");
   }
-}
-
-const extractTextFromPdf = async (buf: Buffer) => {
-  return await new Promise<string>((resolve, reject) => {
-    const rows: string[] = [];
-    const pdfParser = new PDFParser();
-    pdfParser.on("pdfParser_dataError", (errData) =>
-      reject(errData.parserError)
-    );
-    pdfParser.on("pdfParser_dataReady", (data) => {
-      forEachItem(data, (item: any) => {
-        if (item?.text) {
-          rows.push(item.text);
-        }
-      });
-      resolve(rows.join(" "));
-    });
-    pdfParser.parseBuffer(buf);
-  });
 };
 
 export const createResource = async (input: {
@@ -145,6 +129,57 @@ export const deleteResource = async (resourceId: string) => {
   }
 
   await db.delete(resources).where(eq(resources.id, resourceId));
+
+  return {};
+};
+
+export const updateResourceEmbeddings = async (
+  resourceId: string,
+  pdfExtractor = env.DEFAULT_PDF_EXTRACTOR
+) => {
+  const session = await auth();
+  if (!session?.user?.admin) {
+    throw new Error("Unauthorized");
+  }
+
+  const [resource] = await db
+    .select()
+    .from(resources)
+    .where(eq(resources.id, resourceId))
+    .limit(1);
+  if (!resource) {
+  }
+
+  const mimeType = mime.getType(resource.name);
+
+  const response = await fetch(resource.url);
+  const content = Buffer.from(await response.arrayBuffer());
+
+  let newContent: string;
+  switch (mimeType) {
+    case "application/pdf":
+      newContent = await extractTextFromPdf(content, pdfExtractor);
+      break;
+    default:
+      throw new Error("Unsupported mime type");
+  }
+
+  await db.transaction(async (tx) => {
+    const embeddings = await generateEmbeddings(newContent);
+    if (!embeddings.length) {
+      throw new Error("Failed to generate embeddings");
+    }
+    await tx
+      .delete(embeddingsTable)
+      .where(eq(embeddingsTable.resourceId, resource.id));
+    await tx.insert(embeddingsTable).values(
+      embeddings.map((embedding) => ({
+        gameId: resource.gameId,
+        resourceId: resource.id,
+        ...embedding,
+      }))
+    );
+  });
 
   return {};
 };

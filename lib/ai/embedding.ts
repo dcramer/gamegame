@@ -51,6 +51,6 @@ export const findRelevantContent = async (userQuery: string) => {
     .innerJoin(resources, eq(embeddings.resourceId, resources.id))
     .where(gt(similarity, 0.5))
     .orderBy((t) => desc(t.similarity))
-    .limit(6);
+    .limit(12);
   return similarGuides;
 };

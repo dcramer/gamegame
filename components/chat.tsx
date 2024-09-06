@@ -3,7 +3,14 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { LoaderCircleIcon, MessageCircle, X } from "lucide-react";
+import {
+  Dot,
+  DotIcon,
+  LoaderCircleIcon,
+  MessageCircle,
+  MessageCircleQuestion,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { useChat } from "ai/react";
 import Markdown from "react-markdown";
@@ -11,6 +18,7 @@ import { useEffect, useRef } from "react";
 
 function renderMessage(
   message: string,
+  isStreaming: boolean,
   activeAnswer: boolean,
   onFollowUp: (followUp: string) => void
 ) {
@@ -18,6 +26,7 @@ function renderMessage(
   try {
     parsed = JSON.parse(message);
   } catch (err) {
+    if (isStreaming) return null;
     console.error("invalid payload", message);
     return renderError(
       "There was an error processing your request. Please try again."
@@ -38,33 +47,46 @@ function renderMessage(
   return (
     <div className="flex flex-col">
       <Markdown className="prose prose-invert">{answer}</Markdown>
-      <ul className="flex flex-row gap-2 text-sm">
-        {resources.map((resource) => (
-          <li key={resource.id}>
-            <a
-              href={`/resources/${resource.id}/download`}
-              className="text-xs underline"
-              target="_blank"
-            >
-              {resource.name}
-            </a>
-          </li>
-        ))}
-      </ul>
+      {!!resources.length && (
+        <div className="mt-4 flex flex-col gap-2 text-sm flex-wrap">
+          <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground">
+            Resources
+          </h4>
+          <ul className="flex flex-row gap-2 text-xs flex-wrap">
+            {resources.map((resource) => (
+              <li key={resource.id}>
+                <Button variant="secondary" size="sm" asChild>
+                  <a
+                    href={`/resources/${resource.id}/download`}
+                    target="_blank"
+                  >
+                    {resource.name}
+                  </a>
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {activeAnswer && followUps && followUps.length > 0 && (
-        <ul className="mt-6 flex flex-col gap-2 text-sm">
-          {followUps.map((followUp) => (
-            <li key={followUp}>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onFollowUp(followUp)}
-              >
-                {followUp}
-              </Button>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-4 flex flex-col gap-2 text-sm flex-wrap">
+          <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground">
+            Follow Ups
+          </h4>
+          <ul className="flex flex-col gap-2 text-sm flex-wrap">
+            {followUps.map((followUp) => (
+              <li key={followUp}>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => onFollowUp(followUp)}
+                >
+                  {followUp}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
@@ -95,14 +117,7 @@ export function Chat({
     maxToolRoundtrips: 2,
   });
 
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const element = containerRef.current;
-    if (element) {
-      element.scrollTop = element.scrollHeight;
-    }
-  }, [messages]);
+  const ref = useRef<HTMLDivElement | null>(null);
 
   const visibleMessages = messages.filter(
     (m, index) =>
@@ -110,6 +125,10 @@ export function Chat({
       m.content !== "" &&
       (index !== messages.length - 1 || !isLoading || m.role === "user")
   );
+
+  useEffect(() => {
+    setTimeout(() => ref.current?.scrollIntoView());
+  }, [visibleMessages.length]);
 
   return (
     <div className="absolute inset-0 mx-auto flex flex-col items-stretch">
@@ -125,32 +144,45 @@ export function Chat({
       <Card className="flex-1 flex">
         <CardContent className="p-4 flex-1 flex items-stretch flex-col">
           {error && renderError(error.message)}
-          <div
-            className="flex-1 overflow-y-auto mb-4 gap-2 flex flex-col"
-            ref={containerRef}
-          >
-            {visibleMessages.map((m, index) => (
-              <div key={index} className="flex flex-col gap-0">
-                {m.role === "user" ? (
-                  <div className="font-semibold rounded bg-muted text-muted-foreground self-end p-3">
-                    <Markdown className="prose prose-invert">
-                      {m.content}
-                    </Markdown>
-                  </div>
-                ) : (
-                  renderMessage(
-                    m.content,
-                    index === visibleMessages.length - 1,
-                    (followUp) => {
-                      append({
-                        role: "user",
-                        content: followUp,
-                      });
-                    }
-                  )
-                )}
+          <div className="flex-1 overflow-y-auto mb-4 gap-2 flex flex-col">
+            {visibleMessages.length > 0 ? (
+              visibleMessages.map((m, index) => (
+                <div key={index} className="flex flex-col gap-0">
+                  {m.role === "user" ? (
+                    <div className="font-semibold rounded bg-muted text-muted-foreground self-end p-3">
+                      <Markdown className="prose prose-invert">
+                        {m.content}
+                      </Markdown>
+                    </div>
+                  ) : (
+                    renderMessage(
+                      m.content,
+                      index === visibleMessages.length - 1 && isLoading,
+                      index === visibleMessages.length - 1,
+                      (followUp) => {
+                        append({
+                          role: "user",
+                          content: followUp,
+                        });
+                      }
+                    )
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="flex-1 flex flex-col gap-6 items-center justify-center text-muted-foreground text-lg">
+                <MessageCircleQuestion className="w-24 h-24" />
+                What's are you about to start fisticuffs over?
               </div>
-            ))}
+            )}
+            {isLoading && (
+              <div className="flex flex-row items-center">
+                <DotIcon className="w-5 h-5 animate-pulse" />
+                <DotIcon className="w-5 h-5 animate-pulse" />
+                <DotIcon className="w-5 h-5 animate-pulse" />
+              </div>
+            )}
+            <div ref={ref} />
           </div>
           <form onSubmit={handleSubmit} className="flex items-center gap-4">
             <Input
