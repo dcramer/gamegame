@@ -1,57 +1,54 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { GAMES } from "@/constants";
 import Image from "next/image";
 import Link from "next/link";
-import { Footer } from "./footer";
-import Header from "./header";
+import Layout from "./layout";
+import Heading from "./heading";
+import { getAllGames } from "@/lib/actions/games";
 
-export function LandingPage() {
+export async function LandingPage() {
+  const gameList = await getAllGames();
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-100 to-white">
-      <Header />
+    <Layout>
+      <section className="text-center py-12">
+        <Heading>Choose Your Game</Heading>
+        <p className="text-xl mb-8">
+          Select a board game to start asking questions about its rules.
+        </p>
+      </section>
 
-      <main className="container mx-auto px-4 pb-12">
-        <section className="text-center py-12">
-          <h2 className={`text-5xl font-extrabold text-gray-900 mb-4`}>
-            Choose Your Game
-          </h2>
-          <p className="text-xl text-gray-600 mb-8">
-            Select a board game to start asking questions about its rules.
-          </p>
-        </section>
-
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {GAMES.map((game) => (
-            <Card key={game.slug} className="relative">
-              <CardContent className="flex flex-col items-center">
-                <div className="w-full aspect-[3/2] overflow-hidden relative">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        {gameList.map((game) => (
+          <Card key={game.id} className="relative">
+            <CardContent className="flex flex-col items-center">
+              <div className="w-full aspect-[3/2] overflow-hidden relative">
+                {game.imageUrl ? (
                   <Image
-                    src={game.image}
+                    src={game.imageUrl}
                     alt={game.name}
                     fill
                     sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                     style={{
                       objectFit: "cover",
-                      objectPosition: game.imagePosition || "center",
-                    }} />
-                </div>
-              </CardContent>
-              <CardHeader>
-                <CardTitle className="text-center text-2xl">
-                  {game.name}
-                </CardTitle>
-              </CardHeader>
-              <Link
-                href={game.gptUrl}
-                prefetch={false}
-                className="inset-0 absolute"
-              />
-            </Card>
-          ))}
-        </div>
-      </main>
-
-      <Footer />
-    </div>
+                      objectPosition: "top",
+                    }}
+                  />
+                ) : null}
+              </div>
+            </CardContent>
+            <CardHeader>
+              <CardTitle className="text-center text-2xl">
+                {game.name}
+              </CardTitle>
+            </CardHeader>
+            <Link
+              href={`/ask/${game.id}`}
+              prefetch={false}
+              className="inset-0 absolute"
+            />
+          </Card>
+        ))}
+      </div>
+    </Layout>
   );
 }
