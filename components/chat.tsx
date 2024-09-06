@@ -151,7 +151,7 @@ export function Chat({
       <div className="flex justify-between items-center mb-2 lg:mb-6">
         <div className="flex items-center">
           {game.imageUrl && (
-            <div className="w-32 h-32 relative hidden lg:block">
+            <div className="w-24 h-24 relative hidden lg:block">
               <Image
                 src={game.imageUrl}
                 alt={game.name}
