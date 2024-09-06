@@ -220,7 +220,7 @@ export function Chat({
             ) : (
               <div className="flex-1 flex flex-col gap-6 items-center justify-center text-muted-foreground text-lg">
                 <MessageCircleQuestion className="w-24 h-24" />
-                What's are you about to start fisticuffs over?
+                What are you about to start fisticuffs over?
               </div>
             )}
             {isLoading && (
