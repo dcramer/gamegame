@@ -150,7 +150,7 @@ export function Chat({
   return (
     <>
       <div className="flex justify-between items-center h-16 lg:h-24 overflow-hidden absolute top-0 left-0 right-0 px-4 gap-4 border-b bg-card">
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-4">
           <div className="w-20 h-20 relative hidden lg:block">
             {game.imageUrl ? (
               <Image
