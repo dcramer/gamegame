@@ -1,6 +1,6 @@
 "use server";
 
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, eq, exists, sql } from "drizzle-orm";
 import { db } from "../db";
 import { games, insertGameSchema, NewGameParams } from "../db/schema/games";
 import { resources } from "../db/schema/resources";
@@ -27,8 +27,23 @@ export const getGame = async (input: string) => {
   };
 };
 
-export const getAllGames = async () => {
-  return await db.select().from(games).orderBy(asc(games.name));
+export const getAllGames = async (withResources: boolean = true) => {
+  const gameList = await db
+    .select()
+    .from(games)
+    .orderBy(asc(games.name))
+    .where(
+      withResources
+        ? exists(
+            db.select().from(resources).where(eq(resources.gameId, games.id))
+          )
+        : undefined
+    );
+  return gameList.map((game) => ({
+    id: game.id,
+    name: game.name,
+    imageUrl: game.imageUrl,
+  }));
 };
 
 export const createGame = async (input: NewGameParams) => {
