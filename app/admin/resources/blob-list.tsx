@@ -12,33 +12,28 @@ import {
 import Link from "next/link";
 import { deleteGame } from "@/lib/actions/games";
 import { useEffect, useState } from "react";
+import { deleteBlob } from "@/lib/actions/blobs";
 
-export default function GameList({
-  gameList,
+export default function BlobList({
+  blobList,
 }: {
-  gameList: {
-    id: string;
-    name: string;
-    imageUrl: string | null;
+  blobList: {
+    url: string;
   }[];
 }) {
-  const [activeGameList, setGameList] = useState(gameList);
+  const [activeBlobList, setBlobList] = useState(blobList);
 
   useEffect(() => {
-    setGameList(gameList);
-  }, [gameList]);
+    setBlobList(blobList);
+  }, [blobList]);
 
-  return activeGameList.length === 0 ? (
+  return activeBlobList.length === 0 ? (
     <div className="flex flex-1 flex-col gap-6 items-center justify-center rounded-lg border border-dashed shadow-sm p-6 bg-muted min-h-64">
       <div className="flex flex-col items-center gap-1 text-center">
         <h3 className="text-2xl font-bold tracking-tight">
-          There are no games
+          There are no blobs to show
         </h3>
-        <p className="text-sm text-muted-foreground">Start by adding a game.</p>
       </div>
-      <Button asChild>
-        <Link href="/admin/add-game">Add Game</Link>
-      </Button>
     </div>
   ) : (
     <div className="flex flex-col gap-4">
@@ -50,17 +45,13 @@ export default function GameList({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {activeGameList.map((game) => {
+          {activeBlobList.map((blob) => {
             return (
-              <TableRow key={game.id}>
+              <TableRow key={blob.url}>
                 <TableCell className="font-medium relative">
-                  <Link
-                    href={`/admin/games/${game.id}`}
-                    prefetch={false}
-                    className="w-full block"
-                  >
-                    {game.name}
-                  </Link>
+                  <a href={blob.url} className="w-full block">
+                    {blob.url}
+                  </a>
                 </TableCell>
                 <TableCell className="text-center">
                   <Button
@@ -68,11 +59,12 @@ export default function GameList({
                     variant="destructive"
                     onClick={async (e) => {
                       e.stopPropagation();
-
-                      await deleteGame(game.id);
-                      setGameList(
-                        activeGameList.filter((g) => g.id !== game.id)
+                      setBlobList(
+                        activeBlobList.filter((b) => b.url !== blob.url)
                       );
+                      await deleteBlob(blob.url).catch((err) => {
+                        setBlobList([blob, ...activeBlobList]);
+                      });
                     }}
                   >
                     Delete
@@ -83,11 +75,6 @@ export default function GameList({
           })}
         </TableBody>
       </Table>
-      <div className="self-end">
-        <Button asChild size="sm" variant="secondary">
-          <Link href="/admin/add-game">Add Game</Link>
-        </Button>
-      </div>
     </div>
   );
 }
