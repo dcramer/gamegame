@@ -6,7 +6,7 @@ export default async function Footer() {
   const session = await auth();
 
   return (
-    <footer className="container mx-auto px-4 py-8 text-center text-muted-foreground font-mono text-xs">
+    <footer className="container hidden lg:block mx-auto px-4 py-8 text-center text-muted-foreground font-mono text-xs">
       <div className="flex justify-center items-center gap-4">
         <Link
           prefetch={false}
