@@ -15,6 +15,7 @@ import Link from "next/link";
 import { useChat } from "ai/react";
 import Markdown from "react-markdown";
 import { useEffect, useRef } from "react";
+import Image from "next/image";
 
 function renderMessage(
   message: string,
@@ -102,6 +103,8 @@ export function Chat({
   game: {
     id: string;
     name: string;
+    imageUrl: string | null;
+    resourceCount: number;
   };
 }) {
   const {
@@ -133,10 +136,42 @@ export function Chat({
   return (
     <div className="absolute inset-0 mx-auto flex flex-col items-stretch">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-3xl font-bold pl-4">{game.name}</h2>
+        <div className="flex items-center">
+          {game.imageUrl && (
+            <div className="w-32 h-32 relative">
+              <Image
+                src={game.imageUrl}
+                alt={game.name}
+                fill
+                style={{
+                  objectFit: "contain",
+                  objectPosition: "top",
+                }}
+              />
+            </div>
+          )}
+          <div>
+            <h2 className="text-3xl font-bold pl-4">{game.name}</h2>
+            <p className="text-muted-foreground text-sm pl-4">
+              {game.resourceCount} resources{" "}
+              <Button
+                size="sm"
+                variant="link"
+                onClick={() => {
+                  append({
+                    role: "user",
+                    content: "What resources are you using?",
+                  });
+                }}
+              >
+                What are they?
+              </Button>
+            </p>
+          </div>
+        </div>
         <Button asChild variant="ghost">
           <Link href="/" prefetch={false}>
-            <X className="w-6 h-6" />
+            <X className="w-8 h-8" />
             <span className="sr-only">Close chat</span>
           </Link>
         </Button>

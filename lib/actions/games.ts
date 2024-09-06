@@ -1,6 +1,6 @@
 "use server";
 
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { games, insertGameSchema, NewGameParams } from "../db/schema/games";
 import { resources } from "../db/schema/resources";
@@ -13,10 +13,17 @@ export const getGame = async (input: string) => {
     .where(eq(games.id, input))
     .limit(1);
 
+  const [{ count: resourceCount }] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(resources)
+    .where(eq(resources.gameId, game.id))
+    .limit(1);
+
   return {
     id: game.id,
     name: game.name,
     imageUrl: game.imageUrl,
+    resourceCount,
   };
 };
 
