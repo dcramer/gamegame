@@ -16,6 +16,7 @@ export const resources = pgTable("resources", {
     .notNull(),
   // filename
   name: text("name").notNull().unique(),
+  content: text("content"),
   url: text("url").notNull(),
 
   createdAt: timestamp("created_at")

@@ -57,7 +57,7 @@ export const createResource = async (input: {
   const resource = await db.transaction(async (tx) => {
     const [resource] = await tx
       .insert(resources)
-      .values({ id, name, url, gameId })
+      .values({ id, name, url, gameId, content: newContent })
       .returning();
 
     const embeddings = await generateEmbeddings(newContent);
