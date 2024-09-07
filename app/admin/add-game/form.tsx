@@ -7,18 +7,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createGameForm } from "@/lib/actions/forms";
 import { upload } from "@vercel/blob/client";
+import { Loader2 } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
 
 export default function Form() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setLoading] = useState(false);
 
   return (
     <form
-      action={async (formData) => {
-        setIsLoading(true);
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setLoading(true);
+        const formData = new FormData(event.currentTarget);
         if (imageFile) {
           const newBlob = await upload(imageFile.name, imageFile, {
             access: "public",
@@ -28,6 +31,7 @@ export default function Form() {
         }
 
         await createGameForm(formData);
+        setLoading(false);
       }}
       className="grid gap-4"
     >
@@ -76,6 +80,7 @@ export default function Form() {
       </div>
       <Button type="submit" className="w-full" disabled={isLoading}>
         Add Game
+        {isLoading && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
       </Button>
     </form>
   );

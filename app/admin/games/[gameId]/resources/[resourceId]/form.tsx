@@ -25,7 +25,7 @@ export default function ResourceForm({
       onSubmit={async (event) => {
         event.preventDefault();
         setLoading(true);
-        const formData = new FormData(event.currentTarget); //get formData from event
+        const formData = new FormData(event.currentTarget);
         await updateResourceForm(resourceId, formData);
         setLoading(false);
       }}
