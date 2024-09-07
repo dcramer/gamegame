@@ -3,16 +3,14 @@ import { getResource } from "@/lib/actions/resources";
 import { DownloadIcon } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { updateResourceForm } from "@/lib/actions/forms";
+import ResourceForm from "./form";
 
 export default async function Page({
   params,
 }: {
   params: { gameId: string; resourceId: string };
 }) {
-  const resource = await getResource(params.resourceId);
+  const resource = await getResource(params.resourceId, true);
   if (!resource) {
     notFound();
   }
@@ -33,28 +31,7 @@ export default async function Page({
         </p>
       </div>
 
-      <form
-        action={async (formData) => {
-          "use server";
-          await updateResourceForm(params.resourceId, params.gameId, formData);
-        }}
-        className="grid gap-4"
-      >
-        <div className="grid gap-2">
-          <Label htmlFor="name">Name</Label>
-          <Input
-            id="name"
-            type="text"
-            name="name"
-            defaultValue={resource.name}
-            placeholder="Game Manual.pdf"
-            required
-          />
-        </div>
-        <Button type="submit" className="mr-auto">
-          Update Resource
-        </Button>
-      </form>
+      <ResourceForm resourceId={params.resourceId} initialData={resource} />
     </div>
   );
 }

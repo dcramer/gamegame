@@ -95,13 +95,31 @@ export const createResource = async (input: {
   };
 };
 
-export const getResource = async (resourceId: string) => {
+export async function getResource(
+  resourceId: string,
+  withContent: true
+): Promise<{
+  id: string;
+  name: string;
+  url: string;
+  content: string;
+  embeddingCount: number;
+}>;
+export async function getResource(
+  resourceId: string,
+  withContent = false
+): Promise<{
+  id: string;
+  name: string;
+  url: string;
+  embeddingCount: number;
+}> {
   const [resource] = await db
     .select({
       id: resources.id,
       name: resources.name,
       url: resources.url,
-      content: resources.content,
+      ...(withContent ? { content: resources.content } : {}),
     })
     .from(resources)
     .where(eq(resources.id, resourceId))
@@ -121,7 +139,7 @@ export const getResource = async (resourceId: string) => {
     ...resource,
     embeddingCount,
   };
-};
+}
 
 export const getAllResourcesForGame = async (gameId: string) => {
   return await db
@@ -140,6 +158,7 @@ export const updateResource = async (
   resourceId: string,
   input: {
     name?: string;
+    content?: string;
     // url?: string;
   }
 ) => {
@@ -151,9 +170,8 @@ export const updateResource = async (
   const [resource] = await db
     .select({
       id: resources.id,
-      name: resources.name,
-      url: resources.url,
-      hasContent: sql<boolean>`${resources.content} != '' AND ${resources.content} is not null`,
+      gameId: resources.gameId,
+      content: resources.content,
     })
     .from(resources)
     .where(eq(resources.id, resourceId))
@@ -162,9 +180,40 @@ export const updateResource = async (
     throw new Error("Resource not found");
   }
 
-  await db.update(resources).set(input).where(eq(resources.id, resourceId));
+  const newResource = await db.transaction(async (tx) => {
+    const [newResource] = await tx
+      .update(resources)
+      .set(input)
+      .where(eq(resources.id, resourceId))
+      .returning({
+        id: resources.id,
+        name: resources.name,
+        url: resources.url,
+        content: resources.content,
+        hasContent: sql<boolean>`${resources.content} != '' AND ${resources.content} is not null`,
+      });
 
-  return resource;
+    if (input.content && input.content !== resource.content) {
+      const embeddings = await generateEmbeddings(input.content);
+      if (!embeddings.length) {
+        throw new Error("Failed to generate embeddings");
+      }
+      await tx
+        .delete(embeddingsTable)
+        .where(eq(embeddingsTable.resourceId, resource.id));
+      await tx.insert(embeddingsTable).values(
+        embeddings.map((embedding) => ({
+          gameId: resource.gameId,
+          resourceId: resource.id,
+          ...embedding,
+        }))
+      );
+
+      return newResource;
+    }
+  });
+
+  return newResource;
 };
 
 export const deleteResource = async (resourceId: string) => {
@@ -210,7 +259,7 @@ export const reprocessResource = async (
       throw new Error("Unsupported mime type");
   }
 
-  const newResource = await db.transaction(async (tx) => {
+  const [newResource, embeddingCount] = await db.transaction(async (tx) => {
     const [newResource] = await tx
       .update(resources)
       .set({ content: newContent })
@@ -232,7 +281,7 @@ export const reprocessResource = async (
       }))
     );
 
-    return newResource;
+    return [newResource, embeddings.length];
   });
 
   return {
@@ -240,5 +289,6 @@ export const reprocessResource = async (
     name: newResource.name,
     url: newResource.url,
     hasContent: true,
+    embeddingCount,
   };
 };

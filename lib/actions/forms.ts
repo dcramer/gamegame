@@ -22,11 +22,12 @@ export const updateGameForm = async (gameId: string, formData: FormData) => {
 
 export const updateResourceForm = async (
   resourceId: string,
-  gameId: string,
   formData: FormData
 ) => {
   await updateResource(resourceId, {
-    name: formData.get("name") as string,
+    name: formData.has("name") ? (formData.get("name") as string) : undefined,
+    content: formData.has("content")
+      ? (formData.get("content") as string)
+      : undefined,
   });
-  redirect(`/admin/games/${gameId}`);
 };
