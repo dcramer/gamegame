@@ -107,13 +107,14 @@ export async function getResource(
 }>;
 export async function getResource(
   resourceId: string,
-  withContent = false
+  withContent?: false | undefined
 ): Promise<{
   id: string;
   name: string;
   url: string;
   embeddingCount: number;
-}> {
+}>;
+export async function getResource(resourceId: string, withContent = false) {
   const [resource] = await db
     .select({
       id: resources.id,
