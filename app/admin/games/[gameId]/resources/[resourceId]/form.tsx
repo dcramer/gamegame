@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { updateResourceForm } from "@/lib/actions/forms";
 import { Loader2 } from "lucide-react";
-import { FormEvent, useState } from "react";
+import { useState } from "react";
 
 export default function ResourceForm({
   resourceId,
