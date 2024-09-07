@@ -19,7 +19,10 @@ export async function LandingPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         {gameList.map((game) => (
-          <Card key={game.id} className="relative rounded-none lg:rounded">
+          <Card
+            key={game.id}
+            className="relative rounded-none lg:rounded hover:ring-ring hover:ring-offset-2 ring-offset-background hover:ring-2"
+          >
             <CardContent className="flex flex-col items-center">
               <div className="w-full aspect-[3/2] overflow-hidden relative">
                 {game.imageUrl ? (
