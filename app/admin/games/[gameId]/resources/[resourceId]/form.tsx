@@ -51,6 +51,7 @@ export default function ResourceForm({
           defaultValue={initialData?.content}
           rows={16}
           placeholder="Markdown Content"
+          className="font-mono"
           required
         />
       </div>
