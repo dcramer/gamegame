@@ -20,6 +20,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { upload } from "@vercel/blob/client";
+import { useFlashMessages } from "@/components/flashMessages";
 
 type PendingResource = {
   id: string;
@@ -75,6 +76,8 @@ export default function ResourceList({
   }, [resourceList]);
 
   const handleAddResource = async (resource: PendingResource) => {
+    flash(`Processing resource ${resource.name}...`, "info");
+
     const newBlob = await upload(resource.file.name, resource.file, {
       access: "public",
       handleUploadUrl: "/api/resources/upload",
@@ -100,14 +103,18 @@ export default function ResourceList({
             : r
         )
       );
+      flash(`Resource ${resource.name} saved.`, "success");
     } catch (err: unknown) {
       setAllResources((prev) =>
         prev.map((r) =>
           r.id === resource.id ? { ...r, error: (err as any).message } : r
         )
       );
+      flash(`Error adding ${resource.name}.`, "error");
     }
   };
+
+  const { flash } = useFlashMessages();
 
   return (
     <ResourceDropzone
@@ -180,6 +187,10 @@ export default function ResourceList({
                       onClick={async (e) => {
                         e.stopPropagation();
 
+                        flash(
+                          `Reprocessing resource ${resource.name}...`,
+                          "info"
+                        );
                         const newResource = await reprocessResource(
                           resource.id
                         );
@@ -190,6 +201,7 @@ export default function ResourceList({
                               : r
                           )
                         );
+                        flash(`Resource ${resource.name} updated.`, "success");
                       }}
                     >
                       Reprocess
@@ -206,6 +218,7 @@ export default function ResourceList({
                         setAllResources((prev) =>
                           prev.filter((r) => r.id !== resource.id)
                         );
+                        flash(`Resource ${resource.name} deleted.`, "success");
                       }}
                     >
                       Delete

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Comfortaa } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
+import Providers from "./providers";
 
 const comfortaa = Comfortaa({ subsets: ["latin"] });
 
@@ -20,7 +21,7 @@ export default function RootLayout({
       <body
         className={cn("bg-background text-foreground", comfortaa.className)}
       >
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

@@ -62,6 +62,6 @@ export const findRelevantContent = async (
     .innerJoin(resources, eq(embeddings.resourceId, resources.id))
     .where(and(gt(similarity, 0.5), eq(resources.gameId, gameId)))
     .orderBy((t) => desc(t.similarity))
-    .limit(12);
+    .limit(6);
   return similarGuides;
 };
