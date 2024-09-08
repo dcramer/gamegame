@@ -76,7 +76,9 @@ export default function ResourceList({
   }, [resourceList]);
 
   const handleAddResource = async (resource: PendingResource) => {
-    flash(`Processing resource ${resource.name}...`, "info");
+    const message = flash(`Processing resource ${resource.name}...`, "info", {
+      removeAfter: null,
+    });
 
     const newBlob = await upload(resource.file.name, resource.file, {
       access: "public",
@@ -103,14 +105,18 @@ export default function ResourceList({
             : r
         )
       );
-      flash(`Resource ${resource.name} saved.`, "success");
+      message.update(`Resource ${resource.name} saved.`, "success", {
+        removeAfter: 8000,
+      });
     } catch (err: unknown) {
       setAllResources((prev) =>
         prev.map((r) =>
           r.id === resource.id ? { ...r, error: (err as any).message } : r
         )
       );
-      flash(`Error adding ${resource.name}.`, "error");
+      message.update(`Error adding ${resource.name}.`, "error", {
+        removeAfter: 8000,
+      });
     }
   };
 
@@ -187,13 +193,24 @@ export default function ResourceList({
                       onClick={async (e) => {
                         e.stopPropagation();
 
-                        flash(
+                        const message = flash(
                           `Reprocessing resource ${resource.name}...`,
-                          "info"
+                          "info",
+                          { removeAfter: null }
                         );
-                        const newResource = await reprocessResource(
-                          resource.id
-                        );
+                        let newResource;
+                        try {
+                          newResource = await reprocessResource(resource.id);
+                        } catch (err: unknown) {
+                          message.update(
+                            `Error reprocessing ${resource.name}.`,
+                            "error",
+                            {
+                              removeAfter: 8000,
+                            }
+                          );
+                          throw err;
+                        }
                         setAllResources(
                           allResources.map((r) =>
                             r.id === resource.id
@@ -201,7 +218,13 @@ export default function ResourceList({
                               : r
                           )
                         );
-                        flash(`Resource ${resource.name} updated.`, "success");
+                        message.update(
+                          `Resource ${resource.name} updated.`,
+                          "success",
+                          {
+                            removeAfter: 8000,
+                          }
+                        );
                       }}
                     >
                       Reprocess

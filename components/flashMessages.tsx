@@ -10,15 +10,30 @@ let messageNum = 0;
 
 type FlashType = "success" | "error" | "info";
 
+type FlashMessageOptions = {
+  removeAfter?: number | null;
+};
+
 type FlashMessage = {
   id: number;
   message: string | ReactNode;
   type: FlashType;
-  createdAt: number;
+  removeAfter: number | null;
+
+  update: (
+    message: string | ReactNode,
+    type?: FlashType,
+    options?: FlashMessageOptions
+  ) => void;
+  remove: () => void;
 };
 
 const FlashContext = createContext<{
-  flash: (message: string | ReactNode, type?: FlashType) => void;
+  flash: (
+    message: string | ReactNode,
+    type?: FlashType,
+    options?: FlashMessageOptions
+  ) => FlashMessage;
 }>({
   flash: () => {
     throw new Error("FlashContext not initialized");
@@ -47,29 +62,77 @@ export function Message({
   );
 }
 
+function isNotExpired(message: FlashMessage) {
+  if (!message.removeAfter) return true;
+  return message.removeAfter > new Date().getTime();
+}
+
 export default function FlashMessages({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<FlashMessage[]>([]);
 
   useIntervalEffect(() => {
     setMessages((messages) => {
-      const cutoff = new Date().getTime() - ALIVE_TIME;
-      return messages.filter((m) => m.createdAt > cutoff);
+      return messages.filter(isNotExpired);
     });
   }, 1000);
 
   return (
     <FlashContext.Provider
       value={{
-        flash: (message: string | ReactNode, type: FlashType = "success") => {
+        flash: (
+          message: string | ReactNode,
+          type: FlashType = "success",
+          { removeAfter = ALIVE_TIME }: FlashMessageOptions = {
+            removeAfter: ALIVE_TIME,
+          }
+        ) => {
           const newFlash = {
             message,
             type,
             id: messageNum,
-            createdAt: new Date().getTime(),
+
+            removeAfter: removeAfter
+              ? new Date().getTime() + removeAfter
+              : null,
+
+            remove: () => {
+              setMessages((messages) => {
+                return messages.filter((m) => m.id !== newFlash.id);
+              });
+            },
+
+            update: (
+              message: string | ReactNode,
+              type?: FlashType,
+              options?: FlashMessageOptions
+            ) => {
+              setMessages((messages) => {
+                return messages.map((m) => {
+                  if (m.id === newFlash.id) {
+                    const updatedFlash = {
+                      ...m,
+                      message,
+                      type: type ?? m.type,
+                      removeAfter:
+                        options?.removeAfter === null
+                          ? null
+                          : options?.removeAfter
+                          ? new Date().getTime() + options?.removeAfter
+                          : m.removeAfter,
+                    };
+
+                    console.log(updatedFlash);
+
+                    return updatedFlash;
+                  } else {
+                    return m;
+                  }
+                });
+              });
+            },
           };
           setMessages((messages) => {
-            const cutoff = new Date().getTime() - ALIVE_TIME;
-            return [...messages.filter((m) => m.createdAt > cutoff), newFlash];
+            return [...messages.filter(isNotExpired), newFlash];
           });
           messageNum += 1;
           return newFlash;
