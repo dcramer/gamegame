@@ -4,20 +4,28 @@ import { db } from "../db";
 import { and, cosineDistance, desc, eq, gt, sql } from "drizzle-orm";
 import { embeddings } from "../db/schema/embeddings";
 import { resources } from "../db/schema";
+import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
+
+const splitter = RecursiveCharacterTextSplitter.fromLanguage("markdown", {
+  chunkSize: 4000,
+  chunkOverlap: 0,
+});
 
 const embeddingModel = openai.embedding("text-embedding-3-small");
 
-const generateChunks = (input: string): string[] => {
-  return input
-    .trim()
-    .split(".")
-    .filter((i) => i !== "");
+const generateChunks = async (input: string): Promise<string[]> => {
+  const output = await splitter.createDocuments([input]);
+  return output.map((i) => i.pageContent);
+  // return input
+  //   .trim()
+  //   .split("\n")
+  //   .filter((i) => i !== "");
 };
 
 export const generateEmbeddings = async (
   value: string
 ): Promise<Array<{ embedding: number[]; content: string }>> => {
-  const chunks = generateChunks(value);
+  const chunks = await generateChunks(value);
   const { embeddings } = await embedMany({
     model: embeddingModel,
     values: chunks,
