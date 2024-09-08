@@ -18,25 +18,34 @@ import Markdown from "react-markdown";
 import { useEffect, useRef } from "react";
 import Image from "next/image";
 
-function renderMessage(
-  message: Message,
-  isStreaming: boolean,
-  activeAnswer: boolean,
-  onFollowUp: (followUp: string) => void
-) {
+const SystemMessage = ({
+  message,
+  isStreaming,
+  isCurrent,
+  onFollowUp,
+}: {
+  message: Message;
+  isStreaming: boolean;
+  isCurrent: boolean;
+  onFollowUp: (followUp: string) => void;
+}) => {
   let parsed;
   try {
     parsed = JSON.parse(message.content);
   } catch (err) {
     if (isStreaming) return null;
     console.error("invalid payload", message);
-    return renderError(
-      new Error(
-        "There was an error processing your request. Please try again.",
-        {
-          cause: err,
+    return (
+      <ErrorMessage
+        error={
+          new Error(
+            "There was an error processing your request. Please try again.",
+            {
+              cause: err,
+            }
+          )
         }
-      )
+      />
     );
   }
 
@@ -47,13 +56,21 @@ function renderMessage(
   };
   if (!answer) {
     console.error("no answer in JSON payload", message);
-    return renderError(
-      new Error("There was an error processing your request. Please try again.")
+    return (
+      <ErrorMessage
+        error={
+          new Error(
+            "There was an error processing your request. Please try again."
+          )
+        }
+      />
     );
   }
   return (
     <div className="flex flex-col">
-      <Markdown className="prose prose-invert">{answer}</Markdown>
+      <Markdown className="prose prose-invert lg:prose-base prose-sm">
+        {answer}
+      </Markdown>
       {!!resources.length && (
         <div className="mt-4 flex flex-col gap-2 text-sm flex-wrap">
           <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground flex items-center gap-2">
@@ -76,7 +93,7 @@ function renderMessage(
           </ul>
         </div>
       )}
-      {activeAnswer && followUps && followUps.length > 0 && (
+      {isCurrent && followUps && followUps.length > 0 && (
         <div className="mt-4 flex flex-col gap-2 text-sm flex-wrap">
           <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground flex items-center gap-2">
             Follow Ups
@@ -88,6 +105,7 @@ function renderMessage(
                 <Button
                   variant="default"
                   size="sm"
+                  className="whitespace-normal text-left py-2 block h-auto"
                   onClick={() => onFollowUp(followUp)}
                 >
                   {followUp}
@@ -99,9 +117,19 @@ function renderMessage(
       )}
     </div>
   );
-}
+};
 
-function renderError(error: Error) {
+const UserMessage = ({ message }: { message: Message }) => {
+  return (
+    <div className="font-semibold rounded bg-muted text-muted-foreground self-end p-2 lg:p-3">
+      <Markdown className="prose prose-invert lg:prose-base prose-sm">
+        {message.content}
+      </Markdown>
+    </div>
+  );
+};
+
+const ErrorMessage = ({ error }: { error: Error }) => {
   let message;
   if (error.message.includes("Rate limit exceeded")) {
     message = "Rate limit exceeded. Try again in a bit.";
@@ -114,7 +142,7 @@ function renderError(error: Error) {
       {message}
     </div>
   );
-}
+};
 
 export function Chat({
   game,
@@ -205,31 +233,29 @@ export function Chat({
           </Link>
         </Button>
       </div>
-      <Card className="flex-1 flex rounded-none lg:rounded-xl min-h-screen pt-20 lg:pt-32 pb-4 overflow-hidden h-screen px-4">
-        <CardContent className="flex-1 flex items-stretch flex-col">
-          {error && renderError(error)}
+      <Card className="flex-1 flex rounded-none lg:rounded-xl min-h-screen max-w-full overflow-hidden h-screen w-full">
+        <CardContent className="flex-1 flex items-stretch flex-col pt-20 lg:pt-32 pb-4 px-4">
+          {error && <ErrorMessage error={error} />}
           <div className="flex-1 overflow-y-auto mb-4 gap-2 flex flex-col">
             {visibleMessages.length > 0 ? (
               visibleMessages.map((m, index) => (
                 <div key={m.id} className="flex flex-col gap-0">
                   {m.role === "user" ? (
-                    <div className="font-semibold rounded bg-muted text-muted-foreground self-end p-3">
-                      <Markdown className="prose prose-invert">
-                        {m.content}
-                      </Markdown>
-                    </div>
+                    <UserMessage message={m} />
                   ) : (
-                    renderMessage(
-                      m,
-                      index === visibleMessages.length - 1 && isLoading,
-                      index === visibleMessages.length - 1,
-                      (followUp) => {
+                    <SystemMessage
+                      message={m}
+                      isStreaming={
+                        index === visibleMessages.length - 1 && isLoading
+                      }
+                      isCurrent={index === visibleMessages.length - 1}
+                      onFollowUp={(followUp) => {
                         append({
                           role: "user",
                           content: followUp,
                         });
-                      }
-                    )
+                      }}
+                    />
                   )}
                 </div>
               ))
