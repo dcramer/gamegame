@@ -140,6 +140,7 @@ export function Chat({
   });
 
   const ref = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const visibleMessages = messages.filter(
     (m, index) =>
@@ -152,11 +153,17 @@ export function Chat({
     setTimeout(() => ref.current?.scrollIntoView());
   }, [visibleMessages.length]);
 
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, []);
+
   return (
     <>
-      <div className="flex justify-between items-center h-16 lg:h-24 overflow-hidden absolute top-0 left-0 right-0 px-4 gap-4 border-b bg-card">
-        <div className="flex items-end gap-4">
-          <div className="w-20 h-20 relative hidden lg:block">
+      <div className="flex justify-between items-center h-16 lg:h-24 overflow-hidden absolute top-0 left-0 right-0 pl-4 lg:px-4 gap-4 border-b bg-card">
+        <div className="flex items-end gap-4 overflow-hidden whitespace-nowrap">
+          <div className="w-8 h-8 lg:w-20 lg:h-20 relative">
             {game.imageUrl ? (
               <Image
                 src={game.imageUrl}
@@ -173,7 +180,7 @@ export function Chat({
           </div>
 
           <div>
-            <h2 className="text-3xl font-bold">{game.name}</h2>
+            <h2 className="text-xl lg:text-3xl font-bold">{game.name}</h2>
             <p className="text-muted-foreground text-sm hidden lg:block">
               {game.resourceCount} resources
               <Button
@@ -193,7 +200,7 @@ export function Chat({
         </div>
         <Button asChild variant="ghost">
           <Link href="/" prefetch={false}>
-            <X className="w-8 h-8" />
+            <X className="w-6 h-6 lg:w-8 lg:h-8" />
             <span className="sr-only">Close chat</span>
           </Link>
         </Button>
@@ -227,9 +234,9 @@ export function Chat({
                 </div>
               ))
             ) : (
-              <div className="flex-1 flex flex-col gap-6 items-center justify-center text-muted-foreground text-lg">
-                <MessageCircleQuestion className="w-24 h-24" />
-                What are you about to start fisticuffs over?
+              <div className="flex-1 flex flex-col gap-6 items-center justify-center text-muted-foreground lg:text-lg">
+                <MessageCircleQuestion className="hidden lg:block w-24 h-24" />
+                <p>What are you about to start fisticuffs over?</p>
               </div>
             )}
             {isLoading && (
@@ -241,20 +248,15 @@ export function Chat({
             )}
             <div ref={ref} />
           </div>
-          <form onSubmit={handleSubmit} className="flex items-center gap-4">
+          <form onSubmit={handleSubmit} className="flex items-center gap-2">
             <Input
-              className="bg-background text-foreground placeholder-text-muted-foreground"
+              className="bg-background text-foreground placeholder-text-muted-foreground px-3 py-5"
               value={input}
               placeholder={`Ask a question about ${game.name}...`}
               onChange={handleInputChange}
-              autoFocus
+              ref={inputRef}
             />
-            <Button
-              type="submit"
-              size="sm"
-              disabled={isLoading}
-              className="gap-2"
-            >
+            <Button type="submit" disabled={isLoading} className="gap-2">
               {!isLoading ? (
                 <MessageCircle className="w-5 h-5" />
               ) : (
