@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { useIntervalEffect } from "@react-hookz/web";
 
-const ALIVE_TIME = 8000; // 8 seconds
+const ALIVE_TIME = 5000; // ms
 
 let messageNum = 0;
 
