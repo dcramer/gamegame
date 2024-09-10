@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx lib/db/migrate.ts",
     "db:drop": "drizzle-kit drop",
@@ -53,15 +54,20 @@
   },
   "packageManager": "pnpm@9.7.1",
   "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.0.1",
     "@types/node": "^20.16.5",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
     "dotenv": "^16.4.5",
     "drizzle-kit": "^0.22.8",
+    "jsdom": "^25.0.0",
     "pg": "^8.12.0",
     "postcss": "^8.4.45",
     "tailwindcss": "^3.4.10",
     "tsx": "^4.19.0",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
   }
 }
