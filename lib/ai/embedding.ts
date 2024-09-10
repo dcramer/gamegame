@@ -7,7 +7,7 @@ import { resources } from "../db/schema";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 
 const splitter = RecursiveCharacterTextSplitter.fromLanguage("markdown", {
-  chunkSize: 4000,
+  chunkSize: 1000,
   chunkOverlap: 0,
 });
 
