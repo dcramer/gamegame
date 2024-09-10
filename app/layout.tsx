@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Comfortaa } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,14 @@ const comfortaa = Comfortaa({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "GameGame",
   description: "Stop reading the rules, and ask the AI.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1.0,
+  userScalable: false,
+  themeColor: "#000000",
 };
 
 export default function RootLayout({
