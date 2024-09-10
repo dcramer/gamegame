@@ -3,6 +3,7 @@ import { Comfortaa } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import Providers from "./providers";
+import InstallPrompt from "@/components/installPrompt";
 
 const comfortaa = Comfortaa({ subsets: ["latin"] });
 
@@ -22,6 +23,8 @@ export default function RootLayout({
         className={cn("bg-background text-foreground", comfortaa.className)}
       >
         <Providers>{children}</Providers>
+
+        <InstallPrompt />
       </body>
     </html>
   );
