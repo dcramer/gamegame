@@ -50,9 +50,9 @@ const SystemMessage = ({
   }
 
   const { answer, followUps, resources } = parsed as {
-    answer: string;
-    followUps: string[];
-    resources: { name: string; id: string }[];
+    answer?: string;
+    followUps?: string[];
+    resources?: { name: string; id: string }[];
   };
   if (!answer) {
     console.error("no answer in JSON payload", message);
@@ -71,7 +71,7 @@ const SystemMessage = ({
       <Markdown className="prose prose-invert lg:prose-base prose-sm">
         {answer}
       </Markdown>
-      {!!resources.length && (
+      {!!resources?.length && (
         <div className="mt-4 flex flex-col gap-2 text-sm flex-wrap">
           <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground flex items-center gap-2">
             Resources
@@ -93,7 +93,7 @@ const SystemMessage = ({
           </ul>
         </div>
       )}
-      {isCurrent && followUps && followUps.length > 0 && (
+      {isCurrent && !!followUps?.length && (
         <div className="mt-4 flex flex-col gap-2 text-sm flex-wrap">
           <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground flex items-center gap-2">
             Follow Ups
