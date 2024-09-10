@@ -302,7 +302,7 @@ export const reprocessResource = async (
         id: resources.id,
         name: resources.name,
         url: resources.url,
-        version: resources.url,
+        version: resources.version,
       });
 
     return [newResource, embeddings.length];
