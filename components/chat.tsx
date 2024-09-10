@@ -189,51 +189,7 @@ export function Chat({
 
   return (
     <>
-      <div className="flex justify-between items-center h-16 lg:h-24 overflow-hidden absolute top-0 left-0 right-0 pl-4 lg:px-4 gap-4 border-b bg-card">
-        <div className="flex items-end gap-4 overflow-hidden whitespace-nowrap">
-          <div className="w-8 h-8 lg:w-20 lg:h-20 relative">
-            {game.imageUrl ? (
-              <Image
-                src={game.imageUrl}
-                alt={game.name}
-                fill
-                style={{
-                  objectFit: "cover",
-                  objectPosition: "top",
-                }}
-              />
-            ) : (
-              <ImageIcon className="w-20 h-20 text-muted-foreground" />
-            )}
-          </div>
-
-          <div>
-            <h2 className="text-xl lg:text-3xl font-bold">{game.name}</h2>
-            <p className="text-muted-foreground text-sm hidden lg:block">
-              {game.resourceCount} resources
-              <Button
-                size="sm"
-                variant="link"
-                onClick={() => {
-                  append({
-                    role: "user",
-                    content: "What resources are you using?",
-                  });
-                }}
-              >
-                What are they?
-              </Button>
-            </p>
-          </div>
-        </div>
-        <Button asChild variant="ghost">
-          <Link href="/" prefetch={false}>
-            <X className="w-6 h-6 lg:w-8 lg:h-8" />
-            <span className="sr-only">Close chat</span>
-          </Link>
-        </Button>
-      </div>
-      <Card className="flex-1 flex rounded-none lg:rounded-xl min-h-screen max-w-full overflow-hidden h-screen w-full">
+      <Card className="flex-1 flex rounded-none lg:rounded-xl absolute inset-0 max-w-full overflow-hidden w-full">
         <CardContent className="flex-1 flex items-stretch flex-col pt-20 lg:pt-32 pb-4 px-4">
           {error && <ErrorMessage error={error} />}
           <div className="flex-1 overflow-y-auto mb-4 gap-2 flex flex-col">
@@ -293,6 +249,50 @@ export function Chat({
           </form>
         </CardContent>
       </Card>
+      <div className="flex justify-between items-center h-16 lg:h-24 overflow-hidden absolute top-0 left-0 right-0 pl-4 lg:px-4 gap-4 border-b bg-card">
+        <div className="flex items-end gap-4 overflow-hidden whitespace-nowrap">
+          <div className="w-8 h-8 lg:w-20 lg:h-20 relative">
+            {game.imageUrl ? (
+              <Image
+                src={game.imageUrl}
+                alt={game.name}
+                fill
+                style={{
+                  objectFit: "cover",
+                  objectPosition: "top",
+                }}
+              />
+            ) : (
+              <ImageIcon className="w-20 h-20 text-muted-foreground" />
+            )}
+          </div>
+
+          <div>
+            <h2 className="text-xl lg:text-3xl font-bold">{game.name}</h2>
+            <p className="text-muted-foreground text-sm hidden lg:block">
+              {game.resourceCount} resources
+              <Button
+                size="sm"
+                variant="link"
+                onClick={() => {
+                  append({
+                    role: "user",
+                    content: "What resources are you using?",
+                  });
+                }}
+              >
+                What are they?
+              </Button>
+            </p>
+          </div>
+        </div>
+        <Button asChild variant="ghost">
+          <Link href="/" prefetch={false}>
+            <X className="w-6 h-6 lg:w-8 lg:h-8" />
+            <span className="sr-only">Close chat</span>
+          </Link>
+        </Button>
+      </div>
     </>
   );
 }
