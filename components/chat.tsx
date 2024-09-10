@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  Dices,
   DotIcon,
   ExternalLink,
   ImageIcon,
@@ -217,8 +218,7 @@ export function Chat({
               ))
             ) : (
               <div className="flex-1 flex flex-col gap-6 items-center justify-center text-muted-foreground lg:text-lg">
-                <MessageCircleQuestion className="hidden lg:block w-24 h-24" />
-                <p>What are you about to start fisticuffs over?</p>
+                <Dices className="w-24 h-24 opacity-20" />
               </div>
             )}
             {isLoading && (
@@ -230,15 +230,18 @@ export function Chat({
             )}
             <div ref={ref} />
           </div>
-          <form onSubmit={handleSubmit} className="flex items-center gap-2">
+          <form
+            onSubmit={handleSubmit}
+            className="flex items-center gap-2 h-12"
+          >
             <Input
-              className="bg-background text-foreground placeholder-text-muted-foreground px-3 py-5"
+              className="bg-background text-foreground placeholder-text-muted-foreground px-3 py-3 lg:py-5 h-full lg:text-base text-lg"
               value={input}
-              placeholder={`Ask a question about ${game.name}...`}
+              placeholder={`Ask about ${game.name}...`}
               onChange={handleInputChange}
               ref={inputRef}
             />
-            <Button type="submit" disabled={isLoading} className="gap-2">
+            <Button type="submit" disabled={isLoading} className="gap-2 h-full">
               {!isLoading ? (
                 <MessageCircle className="w-5 h-5" />
               ) : (
