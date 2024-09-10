@@ -35,6 +35,7 @@ type ActiveResource = {
   id: string;
   name: string;
   pending: false;
+  version: number;
   error: null;
   hasContent: boolean;
 };
@@ -50,6 +51,7 @@ export default function ResourceList({
     id: string;
     name: string;
     url: string;
+    version: number;
     hasContent: boolean;
   }[];
 }) {
@@ -154,6 +156,7 @@ export default function ResourceList({
           <TableHeader>
             <TableRow>
               <TableHead>Resource</TableHead>
+              <TableHead className="w-[60px] text-center">Version</TableHead>
               <TableHead className="w-[200px] text-center">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -185,6 +188,10 @@ export default function ResourceList({
                       <div className="text-red-400">Missing Content</div>
                     ) : null}
                   </TableCell>
+                  <TableCell className="text-center">
+                    {!resource.pending && resource.version}
+                  </TableCell>
+
                   <TableCell className="text-center gap-2 flex">
                     <Button
                       size="sm"

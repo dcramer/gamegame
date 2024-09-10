@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm";
-import { text, varchar, timestamp, pgTable } from "drizzle-orm/pg-core";
+import {
+  text,
+  varchar,
+  timestamp,
+  pgTable,
+  integer,
+} from "drizzle-orm/pg-core";
 import { createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 import { nanoid } from "@/lib/utils";
@@ -18,6 +24,9 @@ export const resources = pgTable("resources", {
   name: text("name").notNull().unique(),
   content: text("content"),
   url: text("url").notNull(),
+
+  // this is effectively min(SELECT version FROM embeddings WHERE resource_id = resources.id)
+  version: integer("version").notNull().default(0),
 
   createdAt: timestamp("created_at")
     .notNull()

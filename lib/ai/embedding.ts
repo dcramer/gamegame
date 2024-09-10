@@ -13,9 +13,11 @@ const splitter = RecursiveCharacterTextSplitter.fromLanguage("markdown", {
 
 const embeddingModel = openai.embedding("text-embedding-3-small");
 
-const generateChunks = async (input: string): Promise<string[]> => {
+export const CURRENT_EMBEDDING_VERSION: number = 1;
+
+const generateChunks = async (input: string): Promise<[string[], number]> => {
   const output = await splitter.createDocuments([input]);
-  return output.map((i) => i.pageContent);
+  return [output.map((i) => i.pageContent), CURRENT_EMBEDDING_VERSION];
   // return input
   //   .trim()
   //   .split("\n")
@@ -24,22 +26,30 @@ const generateChunks = async (input: string): Promise<string[]> => {
 
 export const generateEmbeddings = async (
   value: string
-): Promise<Array<{ embedding: number[]; content: string }>> => {
-  const chunks = await generateChunks(value);
+): Promise<[{ embedding: number[]; content: string }[], number]> => {
+  const [chunks, version] = await generateChunks(value);
   const { embeddings } = await embedMany({
     model: embeddingModel,
     values: chunks,
   });
-  return embeddings.map((e, i) => ({ content: chunks[i], embedding: e }));
+  return [
+    embeddings.map((e, i) => ({
+      content: chunks[i],
+      embedding: e,
+    })),
+    version,
+  ];
 };
 
-export const generateEmbedding = async (value: string): Promise<number[]> => {
+export const generateEmbedding = async (
+  value: string
+): Promise<[number[], number]> => {
   const input = value.replaceAll("\\n", " ");
   const { embedding } = await embed({
     model: embeddingModel,
     value: input,
   });
-  return embedding;
+  return [embedding, CURRENT_EMBEDDING_VERSION];
 };
 
 export const findRelevantContent = async (
@@ -49,7 +59,7 @@ export const findRelevantContent = async (
   const userQueryEmbedded = await generateEmbedding(userQuery);
   const similarity = sql<number>`1 - (${cosineDistance(
     embeddings.embedding,
-    userQueryEmbedded
+    userQueryEmbedded[0]
   )})`;
   const similarGuides = await db
     .select({

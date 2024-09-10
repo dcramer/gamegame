@@ -58,15 +58,22 @@ export const createResource = async (input: {
   });
 
   const resource = await db.transaction(async (tx) => {
-    const [resource] = await tx
-      .insert(resources)
-      .values({ id, name, url, gameId, content: newContent })
-      .returning();
-
-    const embeddings = await generateEmbeddings(newContent);
+    const [embeddings, version] = await generateEmbeddings(newContent);
     if (!embeddings.length) {
       throw new Error("Failed to generate embeddings");
     }
+
+    const [resource] = await tx
+      .insert(resources)
+      .values({
+        id,
+        name,
+        url,
+        gameId,
+        content: newContent,
+        version,
+      })
+      .returning();
 
     // dont batch this to avoid timeouts
     for (const embedding of embeddings) {
@@ -74,6 +81,7 @@ export const createResource = async (input: {
         gameId: resource.gameId,
         resourceId: resource.id,
         ...embedding,
+        version,
       });
     }
     // await tx.insert(embeddingsTable).values(
@@ -91,6 +99,7 @@ export const createResource = async (input: {
     id: resource.id,
     name: resource.name,
     url: resource.url,
+    version: resource.version,
     hasContent: true,
   };
 };
@@ -102,6 +111,7 @@ export async function getResource(
   id: string;
   name: string;
   url: string;
+  version: number;
   content: string;
   embeddingCount: number;
 }>;
@@ -112,6 +122,7 @@ export async function getResource(
   id: string;
   name: string;
   url: string;
+  version: number;
   embeddingCount: number;
 }>;
 export async function getResource(resourceId: string, withContent = false) {
@@ -120,6 +131,7 @@ export async function getResource(resourceId: string, withContent = false) {
       id: resources.id,
       name: resources.name,
       url: resources.url,
+      version: resources.version,
       ...(withContent ? { content: resources.content } : {}),
     })
     .from(resources)
@@ -148,6 +160,7 @@ export const getAllResourcesForGame = async (gameId: string) => {
       id: resources.id,
       name: resources.name,
       url: resources.url,
+      version: resources.version,
       hasContent: sql<boolean>`${resources.content} != '' AND ${resources.content} is not null`,
     })
     .from(resources)
@@ -182,23 +195,25 @@ export const updateResource = async (
   }
 
   const newResource = await db.transaction(async (tx) => {
-    const [newResource] = await tx
-      .update(resources)
-      .set(input)
-      .where(eq(resources.id, resourceId))
-      .returning({
-        id: resources.id,
-        name: resources.name,
-        url: resources.url,
-        content: resources.content,
-        hasContent: sql<boolean>`${resources.content} != '' AND ${resources.content} is not null`,
-      });
-
     if (input.content && input.content !== resource.content) {
-      const embeddings = await generateEmbeddings(input.content);
+      const [embeddings, version] = await generateEmbeddings(input.content);
       if (!embeddings.length) {
         throw new Error("Failed to generate embeddings");
       }
+
+      const [newResource] = await tx
+        .update(resources)
+        .set({ ...input, version: version })
+        .where(eq(resources.id, resourceId))
+        .returning({
+          id: resources.id,
+          name: resources.name,
+          url: resources.url,
+          content: resources.content,
+          version: resources.version,
+          hasContent: sql<boolean>`${resources.content} != '' AND ${resources.content} is not null`,
+        });
+
       await tx
         .delete(embeddingsTable)
         .where(eq(embeddingsTable.resourceId, resource.id));
@@ -207,6 +222,7 @@ export const updateResource = async (
           gameId: resource.gameId,
           resourceId: resource.id,
           ...embedding,
+          version,
         }))
       );
 
@@ -261,16 +277,11 @@ export const reprocessResource = async (
   }
 
   const [newResource, embeddingCount] = await db.transaction(async (tx) => {
-    const [newResource] = await tx
-      .update(resources)
-      .set({ content: newContent })
-      .where(eq(resources.id, resourceId))
-      .returning();
-
-    const embeddings = await generateEmbeddings(newContent);
+    const [embeddings, version] = await generateEmbeddings(newContent);
     if (!embeddings.length) {
       throw new Error("Failed to generate embeddings");
     }
+
     await tx
       .delete(embeddingsTable)
       .where(eq(embeddingsTable.resourceId, resource.id));
@@ -282,6 +293,18 @@ export const reprocessResource = async (
       }))
     );
 
+    const [newResource] = await tx
+      .update(resources)
+      // TODO: not the most correct to set version
+      .set({ content: newContent, version })
+      .where(eq(resources.id, resourceId))
+      .returning({
+        id: resources.id,
+        name: resources.name,
+        url: resources.url,
+        version: resources.url,
+      });
+
     return [newResource, embeddings.length];
   });
 
@@ -289,6 +312,7 @@ export const reprocessResource = async (
     id: newResource.id,
     name: newResource.name,
     url: newResource.url,
+    version: newResource.version,
     hasContent: true,
     embeddingCount,
   };

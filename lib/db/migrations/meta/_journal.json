@@ -29,6 +29,13 @@
       "when": 1725593616910,
       "tag": "0003_clear_alice",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1726009485206,
+      "tag": "0004_last_sentinels",
+      "breakpoints": true
     }
   ]
 }
