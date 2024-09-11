@@ -164,3 +164,29 @@ describe("dice rolling scenario", () => {
     }
   );
 });
+
+describe("general questions", () => {
+  test(
+    "what is this game",
+    {
+      timeout: TIMEOUT_AFTER,
+    },
+    async () => {
+      const result = await makeCall(ARCS_ID, ARCS_NAME, "what is this game?");
+
+      await expectLLMResponse(result, "It should give a summary of the game.");
+    }
+  );
+
+  test(
+    "how do you play",
+    {
+      timeout: TIMEOUT_AFTER,
+    },
+    async () => {
+      const result = await makeCall(ARCS_ID, ARCS_NAME, "how do you play?");
+
+      await expectLLMResponse(result, "It should give a summary of gameplay.");
+    }
+  );
+});
