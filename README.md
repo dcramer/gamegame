@@ -31,3 +31,9 @@ Add the PDF versions of any available rulebook to the knowledge, and ensure "Cod
 For the image, just search for the `.webp` on BGG.
 
 Publish it to the GPT Store, add the required fields to `constants.ts` and you're done!
+
+## LLM Tests
+
+There's a simple qualitative test suite that can be run via `pnpm test`. It relies the environment be configured to talk to the production datastores (or otherwise, have replicas of them running).
+
+It will utilize additional calls to the LLM in order to validate the responses from the original questions.
