@@ -218,8 +218,8 @@ export default function ResourceList({
                           );
                           throw err;
                         }
-                        setAllResources(
-                          allResources.map((r) =>
+                        setAllResources((prev) =>
+                          prev.map((r) =>
                             r.id === resource.id
                               ? { ...newResource, error: null, pending: false }
                               : r
