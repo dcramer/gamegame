@@ -5,6 +5,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import ResourceForm from "./form";
 
+export const maxDuration = 300;
+
 export default async function Page({
   params,
 }: {

@@ -4,6 +4,8 @@ import ResourceList from "./resource-list";
 import Form from "./form";
 import { getAllResourcesForGame } from "@/lib/actions/resources";
 
+export const maxDuration = 300;
+
 export default async function Page({ params }: { params: { gameId: string } }) {
   const game = await getGame(params.gameId);
   if (!game) {

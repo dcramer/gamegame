@@ -208,6 +208,11 @@ export default function ResourceList({
                         let newResource;
                         try {
                           newResource = await reprocessResource(resource.id);
+                          // TODO: where the hell is the error???? a 504 timeout in prod
+                          // seems to just fail silently here
+                          if (!newResource) {
+                            throw new Error("Failed to reprocess resource");
+                          }
                         } catch (err: unknown) {
                           message.update(
                             `Error reprocessing ${resource.name}.`,
