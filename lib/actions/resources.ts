@@ -54,6 +54,7 @@ export const createResource = async (input: {
 
   const { id, name, url, gameId } = insertResourceSchema.parse({
     ...input,
+    version: 0,
     content: newContent,
   });
 
