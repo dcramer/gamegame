@@ -11,9 +11,11 @@ export async function LandingPage() {
   return (
     <Layout>
       <section className="text-center py-6 lg:py-12">
-        <Heading>Choose Your Game</Heading>
-        <p className="text-xl mb-4 lg:mb-8">
-          Select a board game to start asking questions about its rules.
+        <Heading className="text-2xl lg:text-5xl lg:mb-6 mb-2">
+          What are you playing?
+        </Heading>
+        <p className="text-lg lg:text-xl mb-4 lg:mb-8 text-muted-foreground">
+          Select your game to start getting answers about the rules.
         </p>
       </section>
 
