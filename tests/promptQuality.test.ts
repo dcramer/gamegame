@@ -2,109 +2,165 @@
  * @jest-environment node
  */
 
+import { MODEL } from "@/constants";
+import { buildPrompt, getTools } from "@/lib/ai/prompt";
+import { openai } from "@ai-sdk/openai";
+import { generateText } from "ai";
 import { expect, test, describe } from "vitest";
+import { z } from "zod";
 
-const baseUrl = "http://localhost:3000";
+const TIMEOUT_AFTER = 30000;
 
-async function readableStreamToString(readableStream: ReadableStream) {
-  const reader = readableStream.getReader();
-  let result = "";
-  let done = false;
-
-  while (!done) {
-    const { value, done: readDone } = await reader.read();
-    if (readDone) {
-      done = true;
-    } else {
-      result += new TextDecoder().decode(value);
-    }
-  }
-
-  return result;
+async function makeCall(
+  gameId: string,
+  gameName: string,
+  content: string,
+  model = MODEL
+) {
+  return await generateText({
+    model: openai(model),
+    system: buildPrompt(gameName),
+    prompt: content,
+    tools: getTools(gameId),
+    maxToolRoundtrips: 5,
+    temperature: 0,
+  });
 }
 
-describe("llm qualitative tests", () => {
-  test("number of dice in combat", async () => {
-    const res = await fetch(`${baseUrl}/api/ask/6791qkvb6wxutz0clqbmk`, {
-      method: "POST",
-      body: JSON.stringify({
-        messages: [
-          {
-            role: "user",
-            content: "How many dice do you roll in battle?",
-          },
-        ],
-      }),
-    });
+const AnswerSchema = z.object({
+  answer: z.string(),
+  resources: z
+    .array(
+      z.object({
+        name: z.string(),
+        id: z.string(),
+      })
+    )
+    .default([]),
+  followUps: z.array(z.string()).default([]),
+});
 
-    expect(res.status).toBe(200);
-    console.log(res.headers);
+async function expectLLMResponse(
+  result: Awaited<ReturnType<typeof makeCall>>,
+  expected: string
+) {
+  const { text } = result;
 
-    const body = await readableStreamToString(res.body as ReadableStream);
-    console.log(body);
-    expect(await JSON.parse(body)).toMatchObject([
+  let parsedResult;
+  try {
+    parsedResult = AnswerSchema.parse(JSON.parse(text));
+  } catch (err) {
+    throw new Error(
+      `Unable to parse JSON from result: ${text || "(no result text)"}`,
       {
-        userId: 1,
-        id: 1,
-        title: "first post title",
-        body: "first post body",
-      },
-    ]);
+        cause: err,
+      }
+    );
+  }
+
+  expect(
+    parsedResult.answer,
+    `No answer provided in result: ${text}`
+  ).toBeTruthy();
+
+  const response = await generateText({
+    model: openai(MODEL),
+    system: `You are responsible for verifying the output of an LLM, ensuring that answers a question accurately.
+    
+    You response must ALWAYS be JSON matching the following format:
+
+    {
+      "correct": boolean,
+      "reason": string,
+    }`,
+    prompt: `The answer given by the LLM should represent the following:
+
+    ${expected}
+
+    The answer given by the LLM is this:
+    
+    ${parsedResult.answer}
+    `,
   });
 
-  test("number of dice in battle", async () => {
-    const res = await fetch(`${baseUrl}/api/ask/6791qkvb6wxutz0clqbmk`, {
-      method: "POST",
-      body: JSON.stringify({
-        messages: [
-          {
-            role: "user",
-            content: "How many dice do you roll in battle?",
-          },
-        ],
-      }),
+  let outcome;
+  try {
+    outcome = z
+      .object({
+        correct: z.boolean(),
+        reason: z.string().nullable().default(null),
+      })
+      .parse(JSON.parse(response.text));
+  } catch (err) {
+    throw new Error(`Unable to parse JSON from outcome: ${response.text}`, {
+      cause: err,
     });
+  }
 
-    expect(res.status).toBe(200);
-    console.log(res.headers);
+  expect(
+    outcome.correct,
+    `${outcome.reason}\n\nAnswer: ${parsedResult.answer || "(no answer)"}`
+  ).toBe(true);
+}
 
-    const body = await readableStreamToString(res.body as ReadableStream);
-    console.log(body);
-    expect(await JSON.parse(body)).toMatchObject([
-      {
-        userId: 1,
-        id: 1,
-        title: "first post title",
-        body: "first post body",
-      },
-    ]);
-  });
+const ARCS_ID = "6791qkvb6wxutz0clqbmk";
+const ARCS_NAME = "Arcs";
 
-  test("number of dice", async () => {
-    const res = await fetch(`${baseUrl}/api/ask/6791qkvb6wxutz0clqbmk`, {
-      method: "POST",
-      body: JSON.stringify({
-        messages: [
-          {
-            role: "user",
-            content: "How many dice do you roll?",
-          },
-        ],
-      }),
-    });
+describe("dice rolling scenario", () => {
+  test(
+    "number of dice in combat",
+    {
+      timeout: TIMEOUT_AFTER,
+    },
+    async () => {
+      const result = await makeCall(
+        ARCS_ID,
+        ARCS_NAME,
+        "How many dice do you roll in combat?"
+      );
 
-    expect(res.status).toBe(200);
-    console.log(res.headers);
+      await expectLLMResponse(
+        result,
+        "It should explain that the dice are rolled based on the number of attacking ships."
+      );
+    }
+  );
 
-    const body = await readableStreamToString(res.body as ReadableStream);
-    console.log(body);
-    expect(await JSON.parse(body)).toMatchObject([
-      {
-        userId: 1,
-        id: 1,
-        title: "first post title",
-        body: "first post body",
-      },
-    ]);
-  });
+  test(
+    "number of dice in battle",
+    {
+      timeout: TIMEOUT_AFTER,
+    },
+    async () => {
+      const result = await makeCall(
+        ARCS_ID,
+        ARCS_NAME,
+        "How many dice do you roll in battle?"
+      );
+
+      await expectLLMResponse(
+        result,
+        "It should explain that the dice are rolled based on the number of attacking ships."
+      );
+    }
+  );
+
+  test(
+    "number of dice",
+    {
+      timeout: TIMEOUT_AFTER,
+    },
+    async () => {
+      const result = await makeCall(
+        ARCS_ID,
+        ARCS_NAME,
+        "How many dice do you roll?"
+      );
+
+      await expectLLMResponse(
+        result,
+        "It should explain that the dice are rolled based on the number of attacking ships."
+      );
+    }
+  );
 });

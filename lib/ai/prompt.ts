@@ -1,3 +1,29 @@
+import { tool } from "ai";
+import { z } from "zod";
+import { findRelevantContent } from "./embedding";
+import { getAllResourcesForGame } from "../actions/resources";
+
+export const getTools = (gameId: string) => {
+  return {
+    getInformation: tool({
+      description: `get information from your knowledge base to help answer questions.`,
+      parameters: z.object({
+        question: z.string().describe("the users question"),
+      }),
+      execute: async ({ question }) => findRelevantContent(gameId, question),
+    }),
+    listResources: tool({
+      description: `list the resources available to you`,
+      parameters: z.object({}),
+      execute: async () =>
+        (await getAllResourcesForGame(gameId)).map((r) => ({
+          id: r.id,
+          name: r.name,
+        })),
+    }),
+  };
+};
+
 export const buildPrompt = (gameName: string) => {
   return `
     This GPT is a knowledgeable expert on the rules of the board game **${gameName}**, and is being operated on a website called GameGame.

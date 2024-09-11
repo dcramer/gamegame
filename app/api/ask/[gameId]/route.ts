@@ -1,13 +1,10 @@
 import { MODEL } from "@/constants";
 import { getGame } from "@/lib/actions/games";
-import { findRelevantContent } from "@/lib/ai/embedding";
 import { openai } from "@ai-sdk/openai";
-import { streamText, convertToCoreMessages, tool, jsonSchema } from "ai";
-import { z } from "zod";
+import { streamText, convertToCoreMessages } from "ai";
 import { Ratelimit } from "@upstash/ratelimit";
 import { kv } from "@vercel/kv";
-import { getAllResourcesForGame } from "@/lib/actions/resources";
-import { buildPrompt } from "@/lib/ai/prompt";
+import { buildPrompt, getTools } from "@/lib/ai/prompt";
 
 const ratelimit = new Ratelimit({
   redis: kv,
@@ -45,32 +42,9 @@ export async function POST(
     model: openai(MODEL),
     system: buildPrompt(game.name),
     messages: convertToCoreMessages(messages),
-    tools: {
-      getInformation: tool({
-        description: `get information from your knowledge base to help answer questions.`,
-        parameters: z.object({
-          question: z.string().describe("the users question"),
-        }),
-        execute: async ({ question }) => findRelevantContent(gameId, question),
-      }),
-      listResources: tool({
-        description: `list the resources available to you`,
-        parameters: z.object({}),
-        execute: async () =>
-          (
-            await getAllResourcesForGame(game.id)
-          ).map((r) => ({
-            id: r.id,
-            name: r.name,
-          })),
-      }),
-    },
+    tools: getTools(gameId),
+    maxToolRoundtrips: 5,
     temperature: 0,
-    onFinish: (result) => {
-      if (result.finishReason === "error") {
-        console.error(result);
-      }
-    },
   });
 
   return result.toDataStreamResponse({
