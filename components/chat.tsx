@@ -197,7 +197,7 @@ export function Chat({
 
   return (
     <>
-      <Card className="flex-1 flex rounded-none lg:rounded-xl absolute inset-0 max-w-full overflow-hidden w-full">
+      <Card className="flex-1 flex absolute inset-0 max-w-full overflow-hidden w-full">
         <CardContent className="flex-1 flex items-stretch flex-col pt-20 lg:pt-32 pb-4 px-4">
           {error && <ErrorMessage error={error} />}
           <div className="flex-1 overflow-y-auto mb-4 gap-2 flex flex-col">
