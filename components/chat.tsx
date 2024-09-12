@@ -274,7 +274,7 @@ export function Chat({
 
           <div>
             <h2 className="text-xl lg:text-3xl font-bold">{game.name}</h2>
-            <div className="flex gap-4 items-center">
+            <div className="gap-4 items-center hidden lg:flex">
               {!!game.bggUrl && (
                 <Link
                   href={game.bggUrl}
@@ -287,7 +287,7 @@ export function Chat({
                     alt="Board Game Geek"
                     width={16}
                     height={16}
-                    className="w-6 h-6 grayscale group-hover:grayscale-0 rounded"
+                    className="w-5 h-5 grayscale group-hover:grayscale-0 rounded"
                   />
                 </Link>
               )}
