@@ -36,6 +36,13 @@
       "when": 1726009485206,
       "tag": "0004_last_sentinels",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1726175981359,
+      "tag": "0005_curvy_jane_foster",
+      "breakpoints": true
     }
   ]
 }

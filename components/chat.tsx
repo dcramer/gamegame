@@ -18,6 +18,7 @@ import { Message, useChat } from "ai/react";
 import Markdown from "react-markdown";
 import { useEffect, useRef } from "react";
 import Image from "next/image";
+import bggImage from "@/public/bgg.png";
 
 const SystemMessage = ({
   message,
@@ -152,6 +153,7 @@ export function Chat({
     id: string;
     name: string;
     imageUrl: string | null;
+    bggUrl: string | null;
     resourceCount: number;
   };
 }) {
@@ -272,21 +274,39 @@ export function Chat({
 
           <div>
             <h2 className="text-xl lg:text-3xl font-bold">{game.name}</h2>
-            <p className="text-muted-foreground text-sm hidden lg:block">
-              {game.resourceCount} resources
-              <Button
-                size="sm"
-                variant="link"
-                onClick={() => {
-                  append({
-                    role: "user",
-                    content: "What resources are you using?",
-                  });
-                }}
-              >
-                What are they?
-              </Button>
-            </p>
+            <div className="flex gap-4 items-center">
+              {!!game.bggUrl && (
+                <Link
+                  href={game.bggUrl}
+                  className="group"
+                  prefetch={false}
+                  title={`${game.name} on Board Game Geek`}
+                >
+                  <Image
+                    src="/bgg.png"
+                    alt="Board Game Geek"
+                    width={16}
+                    height={16}
+                    className="w-6 h-6 grayscale group-hover:grayscale-0 rounded"
+                  />
+                </Link>
+              )}
+              <p className="text-muted-foreground text-sm hidden lg:block">
+                {game.resourceCount} resources
+                <Button
+                  size="sm"
+                  variant="link"
+                  onClick={() => {
+                    append({
+                      role: "user",
+                      content: "What resources are you using?",
+                    });
+                  }}
+                >
+                  What are they?
+                </Button>
+              </p>
+            </div>
           </div>
         </div>
         <Button asChild variant="ghost">

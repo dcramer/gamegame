@@ -52,7 +52,7 @@ export const createResource = async (input: {
       throw new Error("Unsupported mime type");
   }
 
-  const { id, name, url, gameId } = insertResourceSchema.parse({
+  const parsedInput = insertResourceSchema.parse({
     ...input,
     version: 0,
     content: newContent,
@@ -67,11 +67,7 @@ export const createResource = async (input: {
     const [resource] = await tx
       .insert(resources)
       .values({
-        id,
-        name,
-        url,
-        gameId,
-        content: newContent,
+        ...parsedInput,
         version,
       })
       .returning();
@@ -195,6 +191,8 @@ export const updateResource = async (
     throw new Error("Resource not found");
   }
 
+  const parsedInput = insertResourceSchema.partial().parse(input);
+
   const newResource = await db.transaction(async (tx) => {
     if (input.content && input.content !== resource.content) {
       const [embeddings, version] = await generateEmbeddings(input.content);
@@ -204,7 +202,7 @@ export const updateResource = async (
 
       const [newResource] = await tx
         .update(resources)
-        .set({ ...input, version: version })
+        .set({ ...parsedInput, version: version })
         .where(eq(resources.id, resourceId))
         .returning({
           id: resources.id,

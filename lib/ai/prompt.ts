@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { findRelevantContent } from "./embedding";
 import { getAllResourcesForGame } from "../actions/resources";
+import { Game } from "../db/schema";
 
 export const getTools = (gameId: string) => {
   return {
@@ -24,9 +25,15 @@ export const getTools = (gameId: string) => {
   };
 };
 
-export const buildPrompt = (gameName: string) => {
+export const buildPrompt = (game: {
+  id: string;
+  name: string;
+  bggUrl?: string | null;
+}) => {
   return `
-    This GPT is a knowledgeable expert on the rules of the board game **${gameName}**, and is being operated on a website called GameGame.
+    This GPT is a knowledgeable expert on the rules of the board game **${
+      game.name
+    }**, and is being operated on a website called GameGame.
     
     It will interpret the rules based on the resources available and provide accurate, detailed explanations and clarifications about gameplay, mechanics, and any rule ambiguities.
     
@@ -56,7 +63,7 @@ export const buildPrompt = (gameName: string) => {
       
       If the rule appears ambiguous, respond with the rule and explain that it is ambiguous.
 
-      You are strictly answering questions about **${gameName}**.
+      You are strictly answering questions about **${game.name}**.
 
     2. Questions about the resources available to you.
 
@@ -77,5 +84,11 @@ export const buildPrompt = (gameName: string) => {
       You and GameGame were originally created by David Cramer.
 
       Do not include follow-ups to this question.
+
+    ${
+      game.bggUrl
+        ? `For reference, the BoardGameGeek URL for this game is: ${game.bggUrl}`
+        : ""
+    }
     `;
 };

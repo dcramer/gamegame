@@ -8,10 +8,18 @@ import { auth } from "@/auth";
 
 export const getGame = async (input: string) => {
   const [game] = await db
-    .select()
+    .select({
+      id: games.id,
+      name: games.name,
+      imageUrl: games.imageUrl,
+      bggUrl: games.bggUrl,
+    })
     .from(games)
     .where(eq(games.id, input))
     .limit(1);
+  if (!game) {
+    throw new Error("Game not found");
+  }
 
   const [{ count: resourceCount }] = await db
     .select({ count: sql<number>`count(*)` })
@@ -20,9 +28,7 @@ export const getGame = async (input: string) => {
     .limit(1);
 
   return {
-    id: game.id,
-    name: game.name,
-    imageUrl: game.imageUrl,
+    ...game,
     resourceCount,
   };
 };
@@ -33,6 +39,7 @@ export const getAllGames = async (withResources: boolean = true) => {
       id: games.id,
       name: games.name,
       imageUrl: games.imageUrl,
+      bggUrl: games.bggUrl,
       hasResources: exists(
         db.select().from(resources).where(eq(resources.gameId, games.id))
       ),
@@ -55,14 +62,18 @@ export const createGame = async (input: NewGameParams) => {
     throw new Error("Unauthorized");
   }
 
-  const { name, imageUrl } = insertGameSchema.parse(input);
+  const parsedInput = insertGameSchema.parse(input);
 
-  const [game] = await db.insert(games).values({ name, imageUrl }).returning();
+  const [game] = await db.insert(games).values(parsedInput).returning({
+    id: games.id,
+    name: games.name,
+    imageUrl: games.imageUrl,
+    bggUrl: games.bggUrl,
+  });
 
   return {
-    id: game.id,
-    name: game.name,
-    imageUrl: game.imageUrl,
+    ...game,
+    hasResources: false,
   };
 };
 
@@ -71,6 +82,7 @@ export const updateGame = async (
   input: {
     name?: string;
     imageUrl?: string;
+    bggUrl?: string;
   }
 ) => {
   const session = await auth();
@@ -79,7 +91,12 @@ export const updateGame = async (
   }
 
   const [game] = await db
-    .select()
+    .select({
+      id: games.id,
+      name: games.name,
+      imageUrl: games.imageUrl,
+      bggUrl: games.bggUrl,
+    })
     .from(games)
     .where(eq(games.id, gameId))
     .limit(1);
@@ -87,12 +104,26 @@ export const updateGame = async (
     throw new Error("Game not found");
   }
 
-  await db.update(games).set(input).where(eq(games.id, gameId));
+  const parsedInput = insertGameSchema.partial().parse(input);
+  console.log(input, parsedInput);
+  if (Object.keys(parsedInput).length === 0) {
+    return game;
+  }
+
+  const newGame = await db
+    .update(games)
+    .set(parsedInput)
+    .where(eq(games.id, gameId))
+    .returning({
+      id: games.id,
+      name: games.name,
+      imageUrl: games.imageUrl,
+      bggUrl: games.bggUrl,
+    });
 
   return {
-    id: game.id,
-    name: game.name,
-    imageUrl: game.imageUrl,
+    ...game,
+    ...newGame,
   };
 };
 

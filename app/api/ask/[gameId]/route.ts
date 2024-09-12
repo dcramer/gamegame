@@ -40,7 +40,7 @@ export async function POST(
 
   const result = await streamText({
     model: openai(MODEL),
-    system: buildPrompt(game.name),
+    system: buildPrompt(game),
     messages: convertToCoreMessages(messages),
     tools: getTools(gameId),
     maxToolRoundtrips: 5,

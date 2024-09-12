@@ -10,6 +10,7 @@ export const games = pgTable("games", {
     .$defaultFn(() => nanoid()),
   name: text("name").notNull().unique(),
   imageUrl: text("url"),
+  bggUrl: text("bgg_url"),
 
   createdAt: timestamp("created_at")
     .notNull()
@@ -19,11 +20,16 @@ export const games = pgTable("games", {
     .default(sql`now()`),
 });
 
-export const insertGameSchema = createSelectSchema(games).extend({}).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const insertGameSchema = createSelectSchema(games)
+  .extend({
+    imageUrl: z.string().trim().url().nullable().default(null),
+    bggUrl: z.string().trim().url().nullable().default(null),
+  })
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  });
 
 export type NewGameParams = z.infer<typeof insertGameSchema>;
 

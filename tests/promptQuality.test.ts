@@ -19,7 +19,7 @@ async function makeCall(
 ) {
   return await generateText({
     model: openai(model),
-    system: buildPrompt(gameName),
+    system: buildPrompt({ id: gameId, name: gameName }),
     prompt: content,
     tools: getTools(gameId),
     maxToolRoundtrips: 5,

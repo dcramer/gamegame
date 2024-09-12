@@ -18,6 +18,7 @@ export default function Form({
     id: string;
     name: string;
     imageUrl: string | null;
+    bggUrl: string | null;
   };
 }) {
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -52,6 +53,16 @@ export default function Form({
           defaultValue={game.name}
           placeholder="Settlers of Catan"
           required
+        />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="bggUrl">BGG Url</Label>
+        <Input
+          id="bggUrl"
+          type="text"
+          name="bggUrl"
+          defaultValue={game.bggUrl ?? ""}
+          placeholder="e.g. https://boardgamegeek.com/boardgame/13/catan"
         />
       </div>
       <div className="grid gap-2">

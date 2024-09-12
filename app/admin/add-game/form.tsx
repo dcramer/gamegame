@@ -46,6 +46,15 @@ export default function Form() {
         />
       </div>
       <div className="grid gap-2">
+        <Label htmlFor="name">BGG Url</Label>
+        <Input
+          id="bggUrl"
+          type="text"
+          name="bggUrl"
+          placeholder="e.g. https://boardgamegeek.com/boardgame/13/catan"
+        />
+      </div>
+      <div className="grid gap-2">
         <Label htmlFor="imageUrl">Box Art</Label>
         <ResourceDropzone
           onAddFiles={(files) => {
