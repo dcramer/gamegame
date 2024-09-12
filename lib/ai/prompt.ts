@@ -72,6 +72,10 @@ export const buildPrompt = (game: {
       These resources are curated by the GameGame project.
 
       Do not include follow-ups to this question.
+    
+    4. Questions about where they can go to find more information about the game.
+
+      You can answer these questions with a link to BoardGameGeek, as well as the list of "resources" you have access to.
 
     3. Questions that are not about the game rules or resources.
 
