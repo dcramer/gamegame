@@ -18,7 +18,6 @@ import { Message, useChat } from "ai/react";
 import Markdown from "react-markdown";
 import { useEffect, useRef } from "react";
 import Image from "next/image";
-import bggImage from "@/public/bgg.png";
 
 const SystemMessage = ({
   message,
@@ -190,6 +189,12 @@ export function Chat({
     }
   }, []);
 
+  const defaultQuestions = [
+    "How do you answer questions?",
+    "Where can I find more information about this game?",
+    "How does setup work?",
+  ];
+
   return (
     <>
       <Card className="flex-1 flex rounded-none lg:rounded-xl absolute inset-0 max-w-full overflow-hidden w-full">
@@ -220,7 +225,26 @@ export function Chat({
               ))
             ) : (
               <div className="flex-1 flex flex-col gap-6 items-center justify-center text-muted-foreground lg:text-lg">
-                <Dices className="w-24 h-24 opacity-20" />
+                <Dices className="w-24 h-24" />
+                <ul className="flex flex-col items-center gap-2 text-sm flex-wrap">
+                  {defaultQuestions.map((question) => (
+                    <li key={question}>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="whitespace-normal text-left py-2 block h-auto"
+                        onClick={() => {
+                          append({
+                            role: "user",
+                            content: question,
+                          });
+                        }}
+                      >
+                        {question}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
             {isLoading && (
