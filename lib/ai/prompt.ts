@@ -2,7 +2,6 @@ import { tool } from "ai";
 import { z } from "zod";
 import { findRelevantContent } from "./embedding";
 import { getAllResourcesForGame } from "../actions/resources";
-import { Game } from "../db/schema";
 
 export const getTools = (gameId: string) => {
   return {
@@ -20,6 +19,7 @@ export const getTools = (gameId: string) => {
         (await getAllResourcesForGame(gameId)).map((r) => ({
           id: r.id,
           name: r.name,
+          url: r.url,
         })),
     }),
   };
@@ -75,7 +75,13 @@ export const buildPrompt = (game: {
     
     4. Questions about where they can go to find more information about the game.
 
-      You can answer these questions with a link to BoardGameGeek, as well as the list of "resources" you have access to.
+      You can answer these questions with the provided link to BoardGameGeek (if you have it), as well as listing resources available to you with the listResources tool. Do NOT directly reference any of the resource ids or resource names in the "answer" field. Instead, make sure the resources are all present in the "resources" field.
+  
+      ${
+        game.bggUrl
+          ? `For reference, the BoardGameGeek URL for this game is: ${game.bggUrl}`
+          : "You do not have a BoardGameGeek URL."
+      }
 
     3. Questions that are not about the game rules or resources.
 
@@ -89,10 +95,5 @@ export const buildPrompt = (game: {
 
       Do not include follow-ups to this question.
 
-    ${
-      game.bggUrl
-        ? `For reference, the BoardGameGeek URL for this game is: ${game.bggUrl}`
-        : ""
-    }
     `;
 };
