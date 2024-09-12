@@ -20,6 +20,7 @@ export default function GameList({
     id: string;
     name: string;
     imageUrl: string | null;
+    bggUrl: string | null;
     hasResources: boolean | unknown; // TODO: Fix this
   }[];
 }) {
@@ -62,6 +63,13 @@ export default function GameList({
                   >
                     {game.name}
                   </Link>
+                  {!!game.bggUrl && (
+                    <div className="text-xs text-muted-foreground">
+                      <Link href={game.bggUrl} className="hover:underline">
+                        {game.bggUrl}
+                      </Link>
+                    </div>
+                  )}
                   {!game.hasResources ? (
                     <div className="text-red-400">No Resources</div>
                   ) : null}
