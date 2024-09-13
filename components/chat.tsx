@@ -19,6 +19,12 @@ import Markdown from "react-markdown";
 import { useEffect, useRef } from "react";
 import Image from "next/image";
 
+const defaultQuestions = [
+  "How does GameGame work?",
+  "Where can I find more information about this game?",
+  "How does setup work?",
+];
+
 const SystemMessage = ({
   message,
   isStreaming,
@@ -188,12 +194,6 @@ export function Chat({
       inputRef.current.focus();
     }
   }, []);
-
-  const defaultQuestions = [
-    "How do you answer questions?",
-    "Where can I find more information about this game?",
-    "How does setup work?",
-  ];
 
   return (
     <>

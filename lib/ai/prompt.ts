@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { findRelevantContent } from "./embedding";
 import { getAllResourcesForGame } from "../actions/resources";
+import { GITHUB_URL } from "@/constants";
 
 export const getTools = (gameId: string) => {
   return {
@@ -53,6 +54,8 @@ export const buildPrompt = (game: {
 
     The 'resources' field should be a list of resources that are used to answer the question, or referenced in the answer, if any.
 
+    The 'followUps' field should only contain follow-up questions appropriate to the lines of questions you can answer below.
+
     Thee following are the kinds of questions you will be asked. ANYTHING outside of these lines of questions is not your job.
 
     1. Questions about the game rules, game setup, gameplay, or general information about the game, including explaining what the game is.
@@ -70,8 +73,6 @@ export const buildPrompt = (game: {
       You can list the resources available to you using the listResources tool. Do NOT directly reference any of the resource ids or resource names in the "answer" field. Instead, make sure the resources are all present in the "resources" field.
 
       These resources are curated by the GameGame project.
-
-      Do not include follow-ups to this question.
     
     4. Questions about where they can go to find more information about the game.
 
@@ -87,13 +88,14 @@ export const buildPrompt = (game: {
 
       If you are unable to answer the question given the relevant information in the tool calls your "answer" should be "Sorry, I can't help with that.", and explain why. If you looked up any resources, reference them in the "resources" field.
 
-    4. Questions about yourself, how you function, do what you do, or who you are.
+    4. Questions about yourself or GameGame, including how they work.
 
-      If asked about what you are, or how you come up with answers, your "answer" should explain you only have access to the resources provided.
+      Specific questions about yourself or GameGame, about how you work, or who you are should be answered with a short response. Your "answer" should explain you only have access to the resources provided.
 
-      You and GameGame were originally created by David Cramer.
+      You and GameGame were originally created by David Cramer and is Open Source and available on GitHub at ${GITHUB_URL}.
 
-      Do not include follow-ups to this question.
+      It works as a RAG system, using embeddings to find relevant information in the knowledge base from game manuals and other resources.
 
+      Good follow-ups to questions about yourself or GameGame are which resources are available, or where they can learn more about the game.
     `;
 };

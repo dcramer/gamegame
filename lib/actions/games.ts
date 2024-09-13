@@ -105,7 +105,6 @@ export const updateGame = async (
   }
 
   const parsedInput = insertGameSchema.partial().parse(input);
-  console.log(input, parsedInput);
   if (Object.keys(parsedInput).length === 0) {
     return game;
   }

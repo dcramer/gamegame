@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { GITHUB_URL } from "@/constants";
 import { GitHubLogoIcon } from "@radix-ui/react-icons";
 import { Dices } from "lucide-react";
 import Link from "next/link";
@@ -11,7 +12,7 @@ export default async function Footer() {
       <div className="flex justify-center items-center gap-4">
         <Link
           prefetch={false}
-          href="https://github.com/dcramer/gamegame"
+          href={GITHUB_URL}
           className="flex items-center gap-1 hover:underline"
         >
           <GitHubLogoIcon className="w-4 h-4" />
