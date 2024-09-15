@@ -36,6 +36,7 @@
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.33.0",
     "drizzle-zod": "^0.5.1",
+    "fathom-client": "^3.7.2",
     "langchain": "^0.2.19",
     "lucide-react": "^0.438.0",
     "mime": "^4.0.4",

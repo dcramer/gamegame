@@ -3,6 +3,7 @@ import { Comfortaa } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import Providers from "./providers";
+import Fathom from "@/components/fathom";
 
 const comfortaa = Comfortaa({ subsets: ["latin"] });
 
@@ -29,6 +30,7 @@ export default function RootLayout({
       <body
         className={cn("bg-background text-foreground", comfortaa.className)}
       >
+        <Fathom />
         <Providers>{children}</Providers>
       </body>
     </html>
