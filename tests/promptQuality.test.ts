@@ -97,7 +97,9 @@ async function expectLLMResponse(
 
   expect(
     outcome.correct,
-    `${outcome.reason}\n\nAnswer: ${parsedResult.answer || "(no answer)"}`
+    `${outcome.reason}\n\nTool Calls: ${result.toolCalls.length}\nAnswer: ${
+      parsedResult.answer || "(no answer)"
+    }`
   ).toBe(true);
 }
 

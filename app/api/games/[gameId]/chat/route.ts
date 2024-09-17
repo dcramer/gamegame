@@ -41,7 +41,6 @@ export async function POST(
     messages: convertToCoreMessages(messages),
     tools: getTools(gameId),
     maxToolRoundtrips: 5,
-    temperature: 0,
   });
 
   return result.toDataStreamResponse({
