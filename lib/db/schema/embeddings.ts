@@ -9,6 +9,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { games } from "./games";
 import { resources } from "./resources";
+import { tsvector } from "../columns/tsvector";
 
 export const embeddings = pgTable(
   "embeddings",
@@ -27,6 +28,9 @@ export const embeddings = pgTable(
       })
       .notNull(),
     content: text("content").notNull(),
+    searchVector: tsvector("search_vector", {
+      sources: ["content"],
+    }).notNull(),
     embedding: vector("embedding", { dimensions: 1536 }).notNull(),
     version: integer("version").notNull().default(0),
   },
@@ -34,6 +38,10 @@ export const embeddings = pgTable(
     embeddingIndex: index("embeddingIndex").using(
       "hnsw",
       table.embedding.op("vector_cosine_ops")
+    ),
+    searchVectorIndex: index("searchVectorIndex").using(
+      "gin",
+      table.searchVector
     ),
   })
 );
