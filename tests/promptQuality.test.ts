@@ -3,7 +3,7 @@
  */
 
 import { MODEL } from "@/constants";
-import { buildPrompt, getTools } from "@/lib/ai/prompt";
+import { AnswerSchema, buildPrompt, getTools } from "@/lib/ai/prompt";
 import { openai } from "@ai-sdk/openai";
 import { generateText } from "ai";
 import { expect, test, describe } from "vitest";
@@ -22,29 +22,17 @@ async function makeCall(
     system: buildPrompt({ id: gameId, name: gameName }),
     prompt: content,
     tools: getTools(gameId),
-    maxToolRoundtrips: 5,
-    temperature: 0,
+    maxToolRoundtrips: 10,
   });
 }
-
-const AnswerSchema = z.object({
-  answer: z.string(),
-  resources: z
-    .array(
-      z.object({
-        name: z.string(),
-        id: z.string(),
-      })
-    )
-    .default([]),
-  followUps: z.array(z.string()).default([]),
-});
 
 async function expectLLMResponse(
   result: Awaited<ReturnType<typeof makeCall>>,
   expected: string
 ) {
   const { text } = result;
+
+  console.log(result);
 
   let parsedResult;
   try {
@@ -65,7 +53,7 @@ async function expectLLMResponse(
 
   const response = await generateText({
     model: openai(MODEL),
-    system: `You are responsible for verifying the output of an LLM, ensuring that answers a question accurately.
+    system: `You are responsible for verifying the output of an LLM, ensuring that it answers a question accurately.
     
     You response must ALWAYS be JSON matching the following format:
 

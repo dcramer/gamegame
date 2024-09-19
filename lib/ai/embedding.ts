@@ -57,21 +57,33 @@ export const findRelevantContent = async (
   userQuery: string
 ) => {
   const userQueryEmbedded = await generateEmbedding(userQuery);
-  const similarity = sql<number>`1 - (${cosineDistance(
-    embeddings.embedding,
-    userQueryEmbedded[0]
-  )})`;
-  const similarGuides = await db
-    .select({
-      content: embeddings.content,
-      similarity,
-      resourceName: resources.name,
-      resourceId: resources.id,
-    })
-    .from(embeddings)
-    .innerJoin(resources, eq(embeddings.resourceId, resources.id))
-    .where(and(gt(similarity, 0.5), eq(resources.gameId, gameId)))
-    .orderBy((t) => desc(t.similarity))
-    .limit(6);
-  return similarGuides;
+
+  const matchingContent = await db.execute(sql`
+    SELECT * FROM hybrid_search(
+      ${gameId},
+      ${userQuery},
+      ${userQueryEmbedded[0]},
+      10
+    )
+  `);
+
+  // const similarity = sql<number>`1 - (${cosineDistance(
+  //   embeddings.embedding,
+  //   userQueryEmbedded[0]
+  // )})`;
+  // const matchingContent = await db
+  //   .select({
+  //     content: embeddings.content,
+  //     similarity,
+  //     resourceName: resources.name,
+  //     resourceId: resources.id,
+  //   })
+  //   .from(embeddings)
+  //   .innerJoin(resources, eq(embeddings.resourceId, resources.id))
+  //   .where(and(gt(similarity, 0.5), eq(resources.gameId, gameId)))
+  //   .orderBy((t) => desc(t.similarity))
+  //   .limit(4);
+  console.log({ userQuery, matchingContent });
+
+  return matchingContent;
 };
