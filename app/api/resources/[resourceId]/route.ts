@@ -1,13 +1,8 @@
-import { getGame } from "@/lib/actions/games";
-import { Ratelimit } from "@upstash/ratelimit";
-import { kv } from "@vercel/kv";
-import { getAllResourcesForGame, getResource } from "@/lib/actions/resources";
+import { getResource } from "@/lib/actions/resources";
 import { NextResponse } from "next/server";
+import { getRateLimiter } from "@/lib/ratelimiter";
 
-const ratelimit = new Ratelimit({
-  redis: kv,
-  limiter: Ratelimit.slidingWindow(5, "60 s"),
-});
+const ratelimit = getRateLimiter(5, "60s");
 
 // export const maxDuration = 30;
 

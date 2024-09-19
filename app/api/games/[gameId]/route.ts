@@ -1,12 +1,8 @@
 import { getGame } from "@/lib/actions/games";
-import { Ratelimit } from "@upstash/ratelimit";
-import { kv } from "@vercel/kv";
+import { getRateLimiter } from "@/lib/ratelimiter";
 import { NextResponse } from "next/server";
 
-const ratelimit = new Ratelimit({
-  redis: kv,
-  limiter: Ratelimit.slidingWindow(5, "60 s"),
-});
+const ratelimit = getRateLimiter(5, "60s");
 
 export async function GET(
   req: Request,

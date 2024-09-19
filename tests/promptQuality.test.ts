@@ -1,6 +1,4 @@
-/**
- * @jest-environment node
- */
+// TODO: this currently requires type=module in package.json, which is incompat
 
 import { MODEL } from "@/constants";
 import { buildPrompt, getTools } from "@/lib/ai/prompt";

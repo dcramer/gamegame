@@ -1,3 +1,7 @@
+# GameGame
+
+GameGame is an LLM-powered board game assistant. It's built on top of [Vercel's AI SDK](https://github.com/vercel/ai) and [OpenAI's GPT models](https://platform.openai.com/docs/models).
+
 ## Adding a Game
 
 **If you want a game added, please open an issue and if you can provide a link to a PDF of the rulebook, that would be great!**
@@ -37,3 +41,15 @@ Publish it to the GPT Store, add the required fields to `constants.ts` and you'r
 There's a simple qualitative test suite that can be run via `pnpm test`. It relies the environment be configured to talk to the production datastores (or otherwise, have replicas of them running).
 
 It will utilize additional calls to the LLM in order to validate the responses from the original questions.
+
+## Contributing
+
+We're primarily running with cloud services, so your dev env is going to be a little tricky.
+
+1. Ensure you've got `pnpm` and `docker` installed.
+2. `cp .env.example .env` and fill in the correct values.
+3. `docker-compose up -d` to spin up local services where possible.
+4. `make setup` will pull in deps and setup the db.
+5. `pnpm db:migrate` to apply any migrations.
+
+Currently we require Vercel Blob to be available locally, but intend to make a local backend for it.

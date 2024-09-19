@@ -2,14 +2,11 @@ import { MODEL } from "@/constants";
 import { getGame } from "@/lib/actions/games";
 import { openai } from "@ai-sdk/openai";
 import { streamText, convertToCoreMessages } from "ai";
-import { Ratelimit } from "@upstash/ratelimit";
-import { kv } from "@vercel/kv";
 import { buildPrompt, getTools } from "@/lib/ai/prompt";
+import { getRateLimiter } from "@/lib/ratelimiter";
 
-const ratelimit = new Ratelimit({
-  redis: kv,
-  limiter: Ratelimit.slidingWindow(10, "30 s"),
-});
+const ratelimit = getRateLimiter(10, "30s");
+
 export const maxDuration = 30;
 
 export async function POST(

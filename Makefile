@@ -2,6 +2,8 @@ PG_CONTAINER=docker exec -t gamegame-postgres-1
 PG_DATABASE=gamegame
 PG_DATABASE_TEST=test_gamegame
 
+setup: install create-db
+
 install:
 	pnpm run install
 
