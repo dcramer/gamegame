@@ -1,6 +1,6 @@
 import { kv } from "@vercel/kv";
 import { type Duration, Ratelimit } from "@upstash/ratelimit";
-import { env } from "./env.mjs";
+import { env } from "@/lib/env.mjs";
 
 export class FauxRateLimiter {
   limit() {

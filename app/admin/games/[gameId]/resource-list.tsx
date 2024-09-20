@@ -19,7 +19,7 @@ import { nanoid } from "@/lib/utils";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { upload } from "@vercel/blob/client";
+import { upload } from "@/lib/uploads/client";
 import { useFlashMessages } from "@/components/flashMessages";
 
 type PendingResource = {

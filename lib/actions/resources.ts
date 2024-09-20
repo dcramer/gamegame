@@ -11,7 +11,7 @@ import { insertResourceSchema, resources } from "../db/schema/resources";
 import mime from "mime";
 import { asc, eq, sql } from "drizzle-orm";
 import { extractTextFromPdf_Marker, extractTextFromPdf_Pdfjs } from "../pdf";
-import { env } from "../env.mjs";
+import { env } from "@/lib/env.mjs";
 
 const extractTextFromPdf = async (
   buf: Buffer,

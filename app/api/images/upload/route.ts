@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
-import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
+import { handleUpload } from "@/lib/uploads/server";
+import { captureException } from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -8,22 +9,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = (await request.json()) as HandleUploadBody;
-
   try {
     const jsonResponse = await handleUpload({
-      body,
       request,
-      onBeforeGenerateToken: async (pathname: string) => {
-        return {
-          allowedContentTypes: ["image/webp"],
-        };
-      },
-      onUploadCompleted: async ({ blob, tokenPayload }) => {},
+      allowedContentTypes: ["image/webp"],
     });
 
     return NextResponse.json(jsonResponse);
   } catch (error) {
+    console.error(error);
+    captureException(error);
     return NextResponse.json(
       { error: (error as Error).message },
       { status: 400 }

@@ -52,4 +52,18 @@ We're primarily running with cloud services, so your dev env is going to be a li
 4. `make setup` will pull in deps and setup the db.
 5. `pnpm db:migrate` to apply any migrations.
 
-Currently we require Vercel Blob to be available locally, but intend to make a local backend for it.
+### Giving Yourself Admin
+
+You'll need to make sure you've configured email (TODO: make some kind of local auth), and then hit the login page via:
+
+```
+https://localhost:3000/login
+```
+
+Once your account is created, you can add the admin flag for yourself:
+
+```
+PGPASSWORD=postgres psql -h localhost -U postgres gamegame -c "UPDATE \"user\" SET admin = TRUE WHERE email = 'your-email@example.com';"
+```
+
+Then navigate to `https://localhost:3000/admin` (also linked in the footer).

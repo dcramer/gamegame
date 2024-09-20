@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createGameForm } from "@/lib/actions/forms";
-import { upload } from "@vercel/blob/client";
+import { upload } from "@/lib/uploads/client";
 import { Loader2 } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
