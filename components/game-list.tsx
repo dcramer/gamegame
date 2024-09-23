@@ -56,7 +56,7 @@ export default function GameList({
               </CardTitle>
             </CardHeader>
             <Link
-              href={`/ask/${game.id}`}
+              href={`/games/${game.id}`}
               prefetch={false}
               className="inset-0 absolute"
             />

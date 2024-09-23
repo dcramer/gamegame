@@ -171,7 +171,7 @@ export function Chat({
     handleInputChange,
     handleSubmit,
   } = useChat({
-    api: `/api/ask/${game.id}`,
+    api: `/api/games/${game.id}/chat`,
     maxToolRoundtrips: 2,
   });
 
