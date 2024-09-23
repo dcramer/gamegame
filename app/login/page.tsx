@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import Layout from "@/components/layout";
-import SignIn from "@/components/sign-in";
+import LayoutModal from "@/components/layout-modal";
+import LoginForm from "@/components/login-form";
 import { redirect } from "next/navigation";
 
 export default async function Page() {
@@ -8,8 +9,8 @@ export default async function Page() {
   if (session?.user) return redirect("/");
 
   return (
-    <Layout>
-      <SignIn />
-    </Layout>
+    <LayoutModal>
+      <LoginForm />
+    </LayoutModal>
   );
 }
