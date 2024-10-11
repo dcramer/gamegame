@@ -30,8 +30,6 @@ async function expectLLMResponse(
 ) {
   const { text } = result;
 
-  console.log(result);
-
   let parsedResult;
   try {
     parsedResult = AnswerSchema.parse(JSON.parse(text));
@@ -91,7 +89,8 @@ async function expectLLMResponse(
   ).toBe(true);
 }
 
-const ARCS_ID = "6791qkvb6wxutz0clqbmk";
+// TODO: make it find this dynamically
+const ARCS_ID = "nsgh3w0qdeyx5d40cdnlt";
 const ARCS_NAME = "Arcs";
 
 describe("dice rolling scenario", () => {

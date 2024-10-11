@@ -1,7 +1,7 @@
 import { embed, embedMany } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { db } from "../db";
-import { sql } from "drizzle-orm";
+import { innerProduct, sql } from "drizzle-orm";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { fragments, resources } from "../db/schema";
 
@@ -55,9 +55,12 @@ export const findRelevantContent = async (
   gameId: string,
   userQuery: string
 ): Promise<{ resourceId: string; resourceName: string; content: string }[]> => {
-  const userQueryEmbedded = await generateEmbedding(userQuery);
+  const [userQueryEmbedding] = await generateEmbedding(userQuery);
 
   const matchCount = 10;
+  const rrfK = 50; // we might put this into schema later, so just placeholder
+  const fullTextWeight = 1;
+  const semanticWeight = 1;
 
   const matchingContent = await db.execute<{
     resource_id: string;
@@ -69,7 +72,9 @@ export const findRelevantContent = async (
         ${fragments.id},
         -- Note: ts_rank_cd is not indexable but will only rank matches of the where clause
         -- which shouldn't be too big
-        row_number() over(order by ts_rank_cd(${fragments.searchVector}, websearch_to_tsquery(${userQuery})) desc) as rank_ix
+        row_number() over(order by ts_rank_cd(${
+          fragments.searchVector
+        }, websearch_to_tsquery(${userQuery})) desc) as rank_ix
       from
       ${fragments}
       where
@@ -81,7 +86,10 @@ export const findRelevantContent = async (
     semantic as (
       select
         ${fragments.id},
-        row_number() over (order by ${fragments.embedding} <#> ${userQueryEmbedded[0]}) as rank_ix
+        row_number() over (order by ${innerProduct(
+          fragments.embedding,
+          userQueryEmbedding
+        )}) as rank_ix
       from
         ${fragments}
       where
@@ -102,8 +110,8 @@ export const findRelevantContent = async (
       join ${resources}
         on ${fragments.resourceId} = ${resources.id}
     order by
-      coalesce(1.0 / (rrf_k + full_text.rank_ix), 0.0) * full_text_weight +
-      coalesce(1.0 / (rrf_k + semantic.rank_ix), 0.0) * semantic_weight
+      coalesce(1.0 / (${rrfK} + full_text.rank_ix), 0.0) * ${fullTextWeight} +
+      coalesce(1.0 / (${rrfK} + semantic.rank_ix), 0.0) * ${semanticWeight}
       desc
     limit ${matchCount}
   `);
