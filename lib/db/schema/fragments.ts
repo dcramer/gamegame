@@ -46,7 +46,7 @@ export const fragments = pgTable(
       "hnsw",
       table.embedding.op("vector_cosine_ops")
     ),
-    embeddingIp: index("idx_fragment_embedding").using(
+    embeddingIp: index("idx_fragment_embedding_ip").using(
       "hnsw",
       table.embedding.op("vector_ip_ops")
     ),

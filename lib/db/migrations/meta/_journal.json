@@ -71,6 +71,13 @@
       "when": 1728665398870,
       "tag": "0009_curious_omega_flight",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1728683194542,
+      "tag": "0010_romantic_vance_astro",
+      "breakpoints": true
     }
   ]
 }
