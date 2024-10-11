@@ -6,6 +6,7 @@ import {
   primaryKey,
   integer,
   varchar,
+  index,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
 import { nanoid } from "@/lib/utils";
@@ -45,13 +46,19 @@ export const accounts = pgTable(
   })
 );
 
-export const sessions = pgTable("session", {
-  sessionToken: text("sessionToken").primaryKey(),
-  userId: varchar("userId", { length: 191 })
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  expires: timestamp("expires", { mode: "date" }).notNull(),
-});
+export const sessions = pgTable(
+  "session",
+  {
+    sessionToken: text("sessionToken").primaryKey(),
+    userId: varchar("userId", { length: 191 })
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expires: timestamp("expires", { mode: "date" }).notNull(),
+  },
+  (table) => ({
+    userId: index("idx_session_user_id").on(table.userId),
+  })
+);
 
 export const verificationTokens = pgTable(
   "verificationToken",

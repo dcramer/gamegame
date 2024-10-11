@@ -40,8 +40,11 @@ export async function POST(
     system: buildPrompt(game),
     messages: convertToCoreMessages(messages),
     tools: getTools(gameId),
-    maxToolRoundtrips: 5,
-    temperature: 0,
+    maxToolRoundtrips: 3,
+    toolChoice: "required",
+    experimental_telemetry: {
+      isEnabled: true,
+    },
   });
 
   return result.toDataStreamResponse({

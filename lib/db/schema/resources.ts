@@ -5,36 +5,44 @@ import {
   timestamp,
   pgTable,
   integer,
+  index,
 } from "drizzle-orm/pg-core";
 import { createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 import { nanoid } from "@/lib/utils";
 import { games } from "./games";
 
-export const resources = pgTable("resources", {
-  id: varchar("id", { length: 191 })
-    .primaryKey()
-    .$defaultFn(() => nanoid()),
-  gameId: varchar("game_id", { length: 191 })
-    .references(() => games.id, {
-      onDelete: "cascade",
-    })
-    .notNull(),
-  // filename
-  name: text("name").notNull().unique(),
-  content: text("content"),
-  url: text("url").notNull(),
+export const resources = pgTable(
+  "resource",
+  {
+    id: varchar("id", { length: 191 })
+      .primaryKey()
+      .$defaultFn(() => nanoid()),
+    gameId: varchar("game_id", { length: 191 })
+      .references(() => games.id, {
+        onDelete: "cascade",
+      })
+      .notNull(),
 
-  // this is effectively min(SELECT version FROM embeddings WHERE resource_id = resources.id)
-  version: integer("version").notNull().default(0),
+    // filename
+    name: text("name").notNull().unique(),
+    content: text("content"),
+    url: text("url").notNull(),
 
-  createdAt: timestamp("created_at")
-    .notNull()
-    .default(sql`now()`),
-  updatedAt: timestamp("updated_at")
-    .notNull()
-    .default(sql`now()`),
-});
+    // this is effectively min(SELECT version FROM fragment WHERE resource_id = resources.id)
+    version: integer("version").notNull().default(0),
+
+    createdAt: timestamp("created_at")
+      .notNull()
+      .default(sql`now()`),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .default(sql`now()`),
+  },
+  (table) => ({
+    gameId: index("idx_resources_game_id").on(table.gameId),
+  })
+);
 
 export const insertResourceSchema = createSelectSchema(resources)
   .extend({
