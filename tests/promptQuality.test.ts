@@ -20,7 +20,8 @@ async function makeCall(
     system: buildPrompt({ id: gameId, name: gameName }),
     prompt: content,
     tools: getTools(gameId),
-    maxToolRoundtrips: 10,
+    maxToolRoundtrips: 5,
+    temperature: 0,
   });
 }
 
