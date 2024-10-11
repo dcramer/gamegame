@@ -4,7 +4,7 @@ import { z } from "zod";
 import { nanoid } from "@/lib/utils";
 import { sql } from "drizzle-orm";
 
-export const games = pgTable("games", {
+export const games = pgTable("game", {
   id: varchar("id", { length: 191 })
     .primaryKey()
     .$defaultFn(() => nanoid()),

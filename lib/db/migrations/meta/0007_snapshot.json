@@ -1,6 +1,6 @@
 {
-  "id": "5acf5534-19bd-41fe-a247-31135c6d32e6",
-  "prevId": "645b409f-43da-4fc0-a45a-4b60c05cf62d",
+  "id": "bf47273b-454b-475e-abc0-d02889ccac4d",
+  "prevId": "5acf5534-19bd-41fe-a247-31135c6d32e6",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -451,10 +451,10 @@
         }
       },
       "foreignKeys": {
-        "fragment_game_id_games_id_fk": {
-          "name": "fragment_game_id_games_id_fk",
+        "fragment_game_id_game_id_fk": {
+          "name": "fragment_game_id_game_id_fk",
           "tableFrom": "fragment",
-          "tableTo": "games",
+          "tableTo": "game",
           "columnsFrom": [
             "game_id"
           ],
@@ -481,8 +481,8 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {}
     },
-    "public.games": {
-      "name": "games",
+    "public.game": {
+      "name": "game",
       "schema": "",
       "columns": {
         "id": {
@@ -528,8 +528,8 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "games_name_unique": {
-          "name": "games_name_unique",
+        "game_name_unique": {
+          "name": "game_name_unique",
           "nullsNotDistinct": false,
           "columns": [
             "name"
@@ -611,10 +611,10 @@
         }
       },
       "foreignKeys": {
-        "resources_game_id_games_id_fk": {
-          "name": "resources_game_id_games_id_fk",
+        "resources_game_id_game_id_fk": {
+          "name": "resources_game_id_game_id_fk",
           "tableFrom": "resources",
-          "tableTo": "games",
+          "tableTo": "game",
           "columnsFrom": [
             "game_id"
           ],

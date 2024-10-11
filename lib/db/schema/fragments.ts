@@ -11,8 +11,12 @@ import { games } from "./games";
 import { resources } from "./resources";
 import { tsvector } from "../columns/tsvector";
 
-export const embeddings = pgTable(
-  "embeddings",
+/**
+ * Fragments are portions of a document. Ideally they are at minimum a paragraph, and at
+ * maximum a full page covering a concept.
+ */
+export const fragments = pgTable(
+  "fragment",
   {
     id: varchar("id", { length: 191 })
       .primaryKey()
@@ -28,18 +32,21 @@ export const embeddings = pgTable(
       })
       .notNull(),
     content: text("content").notNull(),
+
+    embedding: vector("embedding", { dimensions: 1536 }).notNull(),
     searchVector: tsvector("search_vector", {
       sources: ["content"],
     }).notNull(),
-    embedding: vector("embedding", { dimensions: 1536 }).notNull(),
     version: integer("version").notNull().default(0),
   },
   (table) => ({
-    embeddingIndex: index("embeddingIndex").using(
+    gameId: index("idx_fragment_game_id").on(table.gameId),
+    resourceId: index("idx_fragment_resource_id").on(table.resourceId),
+    embedding: index("idx_fragment_embedding").using(
       "hnsw",
       table.embedding.op("vector_cosine_ops")
     ),
-    searchVectorIndex: index("searchVectorIndex").using(
+    searchVector: index("idx_fragment_search_vector").using(
       "gin",
       table.searchVector
     ),

@@ -1,12 +1,9 @@
 "use server";
 
 import { auth } from "@/auth";
-import { generateEmbeddings } from "../ai/embedding";
+import { generateEmbeddings } from "../ai/search";
 import { db } from "../db";
-import {
-  embeddings,
-  embeddings as embeddingsTable,
-} from "../db/schema/embeddings";
+import { fragments as fragmentsTable } from "../db/schema/fragments";
 import { insertResourceSchema, resources } from "../db/schema/resources";
 import mime from "mime";
 import { asc, eq, sql } from "drizzle-orm";
@@ -74,14 +71,14 @@ export const createResource = async (input: {
 
     // dont batch this to avoid timeouts
     for (const embedding of embeddings) {
-      await tx.insert(embeddingsTable).values({
+      await tx.insert(fragmentsTable).values({
         gameId: resource.gameId,
         resourceId: resource.id,
         ...embedding,
         version,
       });
     }
-    // await tx.insert(embeddingsTable).values(
+    // await tx.insert(fragmentsTable).values(
     //   embeddings.map((embedding) => ({
     //     gameId: resource.gameId,
     //     resourceId: resource.id,
@@ -141,8 +138,8 @@ export async function getResource(resourceId: string, withContent = false) {
 
   const [{ count: embeddingCount }] = await db
     .select({ count: sql<number>`count(*)` })
-    .from(embeddings)
-    .where(eq(embeddings.resourceId, resource.id))
+    .from(fragmentsTable)
+    .where(eq(fragmentsTable.resourceId, resource.id))
     .limit(1);
 
   return {
@@ -214,9 +211,9 @@ export const updateResource = async (
         });
 
       await tx
-        .delete(embeddingsTable)
-        .where(eq(embeddingsTable.resourceId, resource.id));
-      await tx.insert(embeddingsTable).values(
+        .delete(fragmentsTable)
+        .where(eq(fragmentsTable.resourceId, resource.id));
+      await tx.insert(fragmentsTable).values(
         embeddings.map((embedding) => ({
           gameId: resource.gameId,
           resourceId: resource.id,
@@ -282,9 +279,9 @@ export const reprocessResource = async (
     }
 
     await tx
-      .delete(embeddingsTable)
-      .where(eq(embeddingsTable.resourceId, resource.id));
-    await tx.insert(embeddingsTable).values(
+      .delete(fragmentsTable)
+      .where(eq(fragmentsTable.resourceId, resource.id));
+    await tx.insert(fragmentsTable).values(
       embeddings.map((embedding) => ({
         gameId: resource.gameId,
         resourceId: resource.id,
