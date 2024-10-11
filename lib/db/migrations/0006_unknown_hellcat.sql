@@ -5,7 +5,7 @@ CREATE INDEX IF NOT EXISTS "searchVectorIndex" ON "embeddings" USING gin ("searc
 create or replace function hybrid_search(
   game_id string,
   query_text text,
-  query_embedding vector(512),
+  query_embedding vector(1536),
   match_count int,
   full_text_weight float = 1,
   semantic_weight float = 1,

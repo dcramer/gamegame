@@ -1,9 +1,7 @@
 import { embed, embedMany } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { db } from "../db";
-import { and, cosineDistance, desc, eq, gt, sql } from "drizzle-orm";
-import { embeddings } from "../db/schema/embeddings";
-import { resources } from "../db/schema";
+import { sql } from "drizzle-orm";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 
 const splitter = RecursiveCharacterTextSplitter.fromLanguage("markdown", {
