@@ -1,6 +1,6 @@
 {
-  "id": "5acf5534-19bd-41fe-a247-31135c6d32e6",
-  "prevId": "645b409f-43da-4fc0-a45a-4b60c05cf62d",
+  "id": "39e4d78d-cdd8-47a4-b54d-d11a85087b16",
+  "prevId": "9fb5d79f-7a62-4e2a-a7d7-9fdce1e6b6c0",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -377,7 +377,8 @@
           "name": "search_vector",
           "type": "tsvector generated always as (to_tsvector('english', content)) stored",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "to_tsvector('english', '')"
         },
         "version": {
           "name": "version",
@@ -388,8 +389,8 @@
         }
       },
       "indexes": {
-        "idx_embeddings_game_id": {
-          "name": "idx_embeddings_game_id",
+        "idx_fragment_game_id": {
+          "name": "idx_fragment_game_id",
           "columns": [
             {
               "expression": "game_id",
@@ -403,8 +404,8 @@
           "method": "btree",
           "with": {}
         },
-        "idx_embeddings_resource_id": {
-          "name": "idx_embeddings_resource_id",
+        "idx_fragment_resource_id": {
+          "name": "idx_fragment_resource_id",
           "columns": [
             {
               "expression": "resource_id",
@@ -418,8 +419,8 @@
           "method": "btree",
           "with": {}
         },
-        "idx_embeddings_embedding": {
-          "name": "idx_embeddings_embedding",
+        "idx_fragment_embedding": {
+          "name": "idx_fragment_embedding",
           "columns": [
             {
               "expression": "embedding",
@@ -427,6 +428,22 @@
               "asc": true,
               "nulls": "last",
               "opclass": "vector_cosine_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "hnsw",
+          "with": {}
+        },
+        "idx_fragment_embedding_ip": {
+          "name": "idx_fragment_embedding_ip",
+          "columns": [
+            {
+              "expression": "embedding",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "vector_ip_ops"
             }
           ],
           "isUnique": false,
@@ -451,10 +468,10 @@
         }
       },
       "foreignKeys": {
-        "fragment_game_id_games_id_fk": {
-          "name": "fragment_game_id_games_id_fk",
+        "fragment_game_id_game_id_fk": {
+          "name": "fragment_game_id_game_id_fk",
           "tableFrom": "fragment",
-          "tableTo": "games",
+          "tableTo": "game",
           "columnsFrom": [
             "game_id"
           ],
@@ -464,10 +481,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "fragment_resource_id_resources_id_fk": {
-          "name": "fragment_resource_id_resources_id_fk",
+        "fragment_resource_id_resource_id_fk": {
+          "name": "fragment_resource_id_resource_id_fk",
           "tableFrom": "fragment",
-          "tableTo": "resources",
+          "tableTo": "resource",
           "columnsFrom": [
             "resource_id"
           ],
@@ -481,8 +498,8 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {}
     },
-    "public.games": {
-      "name": "games",
+    "public.game": {
+      "name": "game",
       "schema": "",
       "columns": {
         "id": {
@@ -528,8 +545,8 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "games_name_unique": {
-          "name": "games_name_unique",
+        "game_name_unique": {
+          "name": "game_name_unique",
           "nullsNotDistinct": false,
           "columns": [
             "name"
@@ -537,8 +554,8 @@
         }
       }
     },
-    "public.resources": {
-      "name": "resources",
+    "public.resource": {
+      "name": "resource",
       "schema": "",
       "columns": {
         "id": {
@@ -611,10 +628,10 @@
         }
       },
       "foreignKeys": {
-        "resources_game_id_games_id_fk": {
-          "name": "resources_game_id_games_id_fk",
-          "tableFrom": "resources",
-          "tableTo": "games",
+        "resource_game_id_game_id_fk": {
+          "name": "resource_game_id_game_id_fk",
+          "tableFrom": "resource",
+          "tableTo": "game",
           "columnsFrom": [
             "game_id"
           ],
@@ -627,8 +644,8 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "resources_name_unique": {
-          "name": "resources_name_unique",
+        "resource_name_unique": {
+          "name": "resource_name_unique",
           "nullsNotDistinct": false,
           "columns": [
             "name"

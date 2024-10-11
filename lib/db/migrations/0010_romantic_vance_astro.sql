@@ -1,2 +1,0 @@
-ALTER TABLE "fragment" ALTER COLUMN "search_vector" SET DEFAULT to_tsvector('english', '');--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_fragment_embedding_ip" ON "fragment" USING hnsw ("embedding" vector_ip_ops);

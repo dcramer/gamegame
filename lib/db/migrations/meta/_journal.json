@@ -47,36 +47,8 @@
     {
       "idx": 6,
       "version": "7",
-      "when": 1728665180958,
-      "tag": "0006_opposite_lady_bullseye",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1728665194436,
-      "tag": "0007_lonely_toxin",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1728665207328,
-      "tag": "0008_melted_the_enforcers",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1728665398870,
-      "tag": "0009_curious_omega_flight",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1728683194542,
-      "tag": "0010_romantic_vance_astro",
+      "when": 1728683339573,
+      "tag": "0006_rapid_marrow",
       "breakpoints": true
     }
   ]
