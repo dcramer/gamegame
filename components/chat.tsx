@@ -16,8 +16,9 @@ import {
 import Link from "next/link";
 import { Message, useChat } from "ai/react";
 import Markdown from "react-markdown";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { motion, AnimatePresence } from "framer-motion";
 
 const defaultQuestions = [
   "How does GameGame work?",
@@ -201,57 +202,67 @@ export function Chat({
         <CardContent className="flex-1 flex items-stretch flex-col pt-20 lg:pt-32 pb-4 px-4">
           {error && <ErrorMessage error={error} />}
           <div className="flex-1 overflow-y-auto mb-4 gap-2 flex flex-col">
-            {visibleMessages.length > 0 ? (
-              visibleMessages.map((m, index) => (
-                <div key={m.id} className="flex flex-col gap-0">
-                  {m.role === "user" ? (
-                    <UserMessage message={m} />
-                  ) : (
-                    <SystemMessage
-                      message={m}
-                      isStreaming={
-                        index === visibleMessages.length - 1 && isLoading
-                      }
-                      isCurrent={index === visibleMessages.length - 1}
-                      onFollowUp={(followUp) => {
-                        append({
-                          role: "user",
-                          content: followUp,
-                        });
-                      }}
-                    />
-                  )}
-                </div>
-              ))
-            ) : (
-              <div className="flex-1 flex flex-col gap-6 items-center justify-center text-muted-foreground lg:text-lg">
-                <Dices className="w-24 h-24" />
-                <ul className="flex flex-col items-center gap-2 text-sm flex-wrap">
-                  {defaultQuestions.map((question) => (
-                    <li key={question}>
-                      <Button
-                        variant="default"
-                        size="sm"
-                        className="whitespace-normal text-left py-2 block h-auto"
-                        onClick={() => {
+            <AnimatePresence>
+              {visibleMessages.length > 0 ? (
+                visibleMessages.map((m, index) => (
+                  <motion.div
+                    key={m.id}
+                    className="flex flex-col gap-0"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    {m.role === "user" ? (
+                      <UserMessage message={m} />
+                    ) : (
+                      <SystemMessage
+                        message={m}
+                        isStreaming={
+                          index === visibleMessages.length - 1 && isLoading
+                        }
+                        isCurrent={index === visibleMessages.length - 1}
+                        onFollowUp={(followUp) => {
                           append({
                             role: "user",
-                            content: question,
+                            content: followUp,
                           });
                         }}
-                      >
-                        {question}
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+                      />
+                    )}
+                  </motion.div>
+                ))
+              ) : (
+                <div className="flex-1 flex flex-col gap-6 items-center justify-center text-muted-foreground lg:text-lg">
+                  <Dices className="w-24 h-24" />
+                  <ul className="flex flex-col items-center gap-2 text-sm flex-wrap">
+                    {defaultQuestions.map((question) => (
+                      <li key={question}>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          className="whitespace-normal text-left py-2 block h-auto"
+                          onClick={() => {
+                            append({
+                              role: "user",
+                              content: question,
+                            });
+                          }}
+                        >
+                          {question}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </AnimatePresence>
             {isLoading && (
-              <div className="flex flex-row items-center">
-                <DotIcon className="w-5 h-5 animate-pulse" />
-                <DotIcon className="w-5 h-5 animate-pulse" />
-                <DotIcon className="w-5 h-5 animate-pulse" />
+              <div>
+                <div className="inline-flex flex-row items-center bg-muted text-muted-foreground rounded p-4">
+                  <DotIcon className="w-5 h-5 animate-pulse" />
+                  <DotIcon className="w-5 h-5 animate-pulse" />
+                  <DotIcon className="w-5 h-5 animate-pulse" />
+                </div>
               </div>
             )}
             <div ref={ref} />
