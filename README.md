@@ -67,3 +67,9 @@ PGPASSWORD=postgres psql -h localhost -U postgres gamegame -c "UPDATE \"user\" S
 ```
 
 Then navigate to `https://localhost:3000/admin` (also linked in the footer).
+
+### Database Migrations
+
+We use Drizzle for migrations. To generate a new one, run `pnpm db:genrate`.
+
+**Note:** Migrations do not automatically apply in production.
