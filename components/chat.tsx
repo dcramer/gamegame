@@ -146,7 +146,7 @@ const ErrorMessage = ({ error }: { error: Error }) => {
   }
 
   return (
-    <div className="bg-destructive text-destructive-foreground font-bold p-4 rounded mb-4">
+    <div className="bg-destructive text-destructive-foreground font-bold p-2 lg:p-3 rounded mb-4">
       {message}
     </div>
   );
@@ -258,7 +258,7 @@ export function Chat({
             </AnimatePresence>
             {isLoading && (
               <div>
-                <div className="inline-flex flex-row items-center bg-muted text-muted-foreground rounded p-4">
+                <div className="inline-flex flex-row items-center bg-muted text-muted-foreground rounded p-2 lg:p-3">
                   <DotIcon className="w-5 h-5 animate-pulse" />
                   <DotIcon className="w-5 h-5 animate-pulse" />
                   <DotIcon className="w-5 h-5 animate-pulse" />
