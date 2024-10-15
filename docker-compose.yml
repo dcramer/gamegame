@@ -16,6 +16,11 @@ services:
       - postgres-data:/var/lib/postgresql
     healthcheck:
       test: "PGPASSWORD=postgres pg_isready -h 127.0.0.1 -U postgres -d postgres"
+  spotlight:
+    image: ghcr.io/getsentry/spotlight:latest
+    restart: on-failure
+    ports:
+      - "8969:8969"
 
 volumes:
   postgres-data:
