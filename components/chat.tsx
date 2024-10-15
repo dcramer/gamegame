@@ -19,6 +19,7 @@ import Markdown from "react-markdown";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
+import LoadingIndicator from "./loadingIndicator";
 
 const defaultQuestions = [
   "How does GameGame work?",
@@ -259,9 +260,7 @@ export function Chat({
             {isLoading && (
               <div>
                 <div className="inline-flex flex-row items-center bg-muted text-muted-foreground rounded p-2 lg:p-3">
-                  <DotIcon className="w-5 h-5 animate-pulse" />
-                  <DotIcon className="w-5 h-5 animate-pulse" />
-                  <DotIcon className="w-5 h-5 animate-pulse" />
+                  <LoadingIndicator />
                 </div>
               </div>
             )}
