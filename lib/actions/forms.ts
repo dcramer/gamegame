@@ -7,8 +7,8 @@ import { updateResource } from "./resources";
 export const createGameForm = async (formData: FormData) => {
   const game = await createGame({
     name: formData.get("name") as string,
-    imageUrl: (formData.get("imageUrl") as string) ?? null,
-    bggUrl: (formData.get("bggUrl") as string) ?? null,
+    imageUrl: (formData.get("imageUrl") as string) || null,
+    bggUrl: (formData.get("bggUrl") as string) || null,
   });
   redirect(`/admin/games/${game.id}`);
 };
