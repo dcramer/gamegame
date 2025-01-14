@@ -173,7 +173,7 @@ export function Chat({
     handleSubmit,
   } = useChat({
     api: `/api/games/${game.id}/chat`,
-    maxToolRoundtrips: 2,
+    maxSteps: 2,
   });
 
   const ref = useRef<HTMLDivElement | null>(null);

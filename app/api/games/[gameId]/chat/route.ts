@@ -40,7 +40,7 @@ export async function POST(
     system: buildPrompt(game),
     messages: convertToCoreMessages(messages),
     tools: getTools(gameId),
-    maxToolRoundtrips: 5,
+    maxSteps: 5,
     temperature: 0,
     // toolChoice: "required",
     experimental_telemetry: {
