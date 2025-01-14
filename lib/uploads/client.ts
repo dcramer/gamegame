@@ -11,7 +11,7 @@ export async function upload(
 ) {
   // TODO: this should look at config, but its not available on the client
   if (process.env.NODE_ENV === "development") {
-    // if we're local, we're just pushing the file dirctly to the endpoint
+    // if we're local, we're just pushing the file directly to the endpoint
     const formData = new FormData();
     formData.append("file", file);
 

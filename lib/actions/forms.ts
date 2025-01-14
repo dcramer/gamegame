@@ -13,11 +13,17 @@ export const createGameForm = async (formData: FormData) => {
   redirect(`/admin/games/${game.id}`);
 };
 
+const parseOptionalValue = (v: string | undefined) => {
+  if (v === undefined) return v;
+  if (v === "" || !v) return null;
+  return v;
+};
+
 export const updateGameForm = async (gameId: string, formData: FormData) => {
   const game = await updateGame(gameId, {
     name: (formData.get("name") as string) ?? undefined,
-    imageUrl: (formData.get("imageUrl") as string) ?? undefined,
-    bggUrl: (formData.get("bggUrl") as string) ?? undefined,
+    imageUrl: parseOptionalValue(formData.get("imageUrl") as string),
+    bggUrl: parseOptionalValue(formData.get("bggUrl") as string),
   });
   redirect(`/admin/games/${game.id}`);
 };

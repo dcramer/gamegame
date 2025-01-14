@@ -81,8 +81,8 @@ export const updateGame = async (
   gameId: string,
   input: {
     name?: string;
-    imageUrl?: string;
-    bggUrl?: string;
+    imageUrl?: string | null;
+    bggUrl?: string | null;
   }
 ) => {
   const session = await auth();
