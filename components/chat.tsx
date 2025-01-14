@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dices,
-  DotIcon,
   ExternalLink,
   ImageIcon,
   LoaderCircleIcon,
@@ -16,7 +15,7 @@ import {
 import Link from "next/link";
 import { Message, useChat } from "ai/react";
 import Markdown from "react-markdown";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import LoadingIndicator from "./loadingIndicator";
