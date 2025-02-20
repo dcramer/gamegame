@@ -6,10 +6,13 @@ const ratelimit = getRateLimiter(5, "60s");
 
 // export const maxDuration = 30;
 
-export async function GET(
-  req: Request,
-  { params: { resourceId } }: { params: { resourceId: string } }
-) {
+export async function GET(req: Request, props: { params: Promise<{ resourceId: string }> }) {
+  const params = await props.params;
+
+  const {
+    resourceId
+  } = params;
+
   const ip = (req.headers.get("x-forwarded-for") ?? "127.0.0.1").split(",")[0];
   const { limit, reset, remaining } = await ratelimit.limit(ip);
   const headers = {

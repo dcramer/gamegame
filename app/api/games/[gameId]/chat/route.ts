@@ -9,10 +9,13 @@ const ratelimit = getRateLimiter(10, "30s");
 
 export const maxDuration = 30;
 
-export async function POST(
-  req: Request,
-  { params: { gameId } }: { params: { gameId: string } }
-) {
+export async function POST(req: Request, props: { params: Promise<{ gameId: string }> }) {
+  const params = await props.params;
+
+  const {
+    gameId
+  } = params;
+
   const ip = (req.headers.get("x-forwarded-for") ?? "127.0.0.1").split(",")[0];
   const { limit, reset, remaining } = await ratelimit.limit(ip);
   if (remaining <= 0) {

@@ -7,11 +7,12 @@ import ResourceForm from "./form";
 
 export const maxDuration = 300;
 
-export default async function Page({
-  params,
-}: {
-  params: { gameId: string; resourceId: string };
-}) {
+export default async function Page(
+  props: {
+    params: Promise<{ gameId: string; resourceId: string }>;
+  }
+) {
+  const params = await props.params;
   const resource = await getResource(params.resourceId, true);
   if (!resource) {
     notFound();

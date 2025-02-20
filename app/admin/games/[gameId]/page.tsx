@@ -6,7 +6,8 @@ import { getAllResourcesForGame } from "@/lib/actions/resources";
 
 export const maxDuration = 300;
 
-export default async function Page({ params }: { params: { gameId: string } }) {
+export default async function Page(props: { params: Promise<{ gameId: string }> }) {
+  const params = await props.params;
   const game = await getGame(params.gameId);
   if (!game) {
     notFound();

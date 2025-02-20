@@ -5,10 +5,13 @@ import { getRateLimiter } from "@/lib/ratelimiter";
 
 const ratelimit = getRateLimiter(5, "60s");
 
-export async function GET(
-  req: Request,
-  { params: { gameId } }: { params: { gameId: string } }
-) {
+export async function GET(req: Request, props: { params: Promise<{ gameId: string }> }) {
+  const params = await props.params;
+
+  const {
+    gameId
+  } = params;
+
   const ip = (req.headers.get("x-forwarded-for") ?? "127.0.0.1").split(",")[0];
   const { limit, reset, remaining } = await ratelimit.limit(ip);
   const headers = {
