@@ -13,9 +13,10 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { Message, useChat } from "ai/react";
+import { useChat, type UIMessage } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 import Markdown from "react-markdown";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import LoadingIndicator from "./loadingIndicator";
@@ -32,14 +33,34 @@ const SystemMessage = ({
   isCurrent,
   onFollowUp,
 }: {
-  message: Message;
+  message: UIMessage;
   isStreaming: boolean;
   isCurrent: boolean;
   onFollowUp: (followUp: string) => void;
 }) => {
+  // Extract text content from message parts
+  const textContent = message.parts
+    ?.filter((part) => part.type === "text")
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("");
+
+  if (!textContent) {
+    if (isStreaming) return null;
+    console.error("no text content in message", message);
+    return (
+      <ErrorMessage
+        error={
+          new Error(
+            "There was an error processing your request. Please try again."
+          )
+        }
+      />
+    );
+  }
+
   let parsed;
   try {
-    parsed = JSON.parse(message.content);
+    parsed = JSON.parse(textContent);
   } catch (err) {
     if (isStreaming) return null;
     console.error("invalid payload", message);
@@ -74,16 +95,63 @@ const SystemMessage = ({
       />
     );
   }
+
+  // Extract attachment URLs from markdown
+  // Match markdown images: ![alt](url) where url contains /attachments/
+  const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  const attachments: Array<{ url: string; alt: string }> = [];
+  let match;
+
+  while ((match = imageRegex.exec(answer)) !== null) {
+    const alt = match[1];
+    const url = match[2];
+
+    // Only include URLs that are attachments (contain /attachments/ in path)
+    if (url.includes('/attachments/')) {
+      attachments.push({ url, alt });
+    }
+  }
+
   return (
     <div className="flex flex-col">
-      <Markdown className="prose prose-invert lg:prose-base prose-sm">
-        {answer}
-      </Markdown>
+      <div className="prose prose-invert lg:prose-base prose-sm">
+        <Markdown>{answer}</Markdown>
+      </div>
+      {!!attachments.length && (
+        <div className="mt-4 flex flex-col gap-2 text-sm">
+          <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground inline-flex items-center gap-1.5">
+            <ImageIcon className="w-3 h-3" />
+            Attachments
+          </h4>
+          <div className="flex flex-row gap-2 flex-wrap">
+            {attachments.map((attachment, index) => (
+              <a
+                key={`${attachment.url}-${index}`}
+                href={attachment.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="relative w-24 h-24 border border-border rounded overflow-hidden hover:border-primary transition-colors"
+                title={attachment.alt || "Attachment"}
+              >
+                <Image
+                  src={attachment.url}
+                  alt={attachment.alt || "Attachment"}
+                  fill
+                  style={{
+                    objectFit: "cover",
+                  }}
+                  sizes="96px"
+                />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
       {!!resources?.length && (
         <div className="mt-4 flex flex-col gap-2 text-sm flex-wrap">
-          <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground flex items-center gap-2">
-            Resources
+          <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground inline-flex items-center gap-1.5">
             <ExternalLink className="w-3 h-3" />
+            Resources
           </h4>
           <ul className="flex flex-row gap-2 text-xs flex-wrap">
             {resources.map((resource) => (
@@ -103,9 +171,9 @@ const SystemMessage = ({
       )}
       {isCurrent && !!followUps?.length && (
         <div className="mt-4 flex flex-col gap-2 text-sm flex-wrap">
-          <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground flex items-center gap-2">
-            Follow Ups
+          <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground inline-flex items-center gap-1.5">
             <MessageCircleQuestion className="w-3 h-3" />
+            Follow Ups
           </h4>
           <ul className="flex flex-col gap-2 text-sm flex-wrap">
             {followUps.map((followUp) => (
@@ -127,12 +195,17 @@ const SystemMessage = ({
   );
 };
 
-const UserMessage = ({ message }: { message: Message }) => {
+const UserMessage = ({ message }: { message: UIMessage }) => {
+  const textContent = message.parts
+    ?.filter((part) => part.type === "text")
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("");
+
   return (
     <div className="font-semibold rounded bg-muted text-muted-foreground self-end p-2 lg:p-3">
-      <Markdown className="prose prose-invert lg:prose-base prose-sm">
-        {message.content}
-      </Markdown>
+      <div className="prose prose-invert lg:prose-base prose-sm">
+        <Markdown>{textContent}</Markdown>
+      </div>
     </div>
   );
 };
@@ -163,27 +236,32 @@ export function Chat({
     resourceCount: number;
   };
 }) {
+  const [input, setInput] = useState("");
+
   const {
     messages,
-    input,
     error,
-    append,
-    isLoading,
-    handleInputChange,
-    handleSubmit,
+    sendMessage,
+    status,
   } = useChat({
-    api: `/api/games/${game.id}/chat`,
-    maxSteps: 2,
+    transport: new DefaultChatTransport({
+      api: `/api/games/${game.id}/chat`,
+    }),
   });
 
   const ref = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  const isLoading = status === "streaming" || status === "submitted";
+
   const visibleMessages = messages.filter(
-    (m, index) =>
-      m.content &&
-      m.content !== "" &&
-      (index !== messages.length - 1 || !isLoading || m.role === "user")
+    (m, index) => {
+      const hasContent = m.parts && m.parts.length > 0;
+      return (
+        hasContent &&
+        (index !== messages.length - 1 || !isLoading || m.role === "user")
+      );
+    }
   );
 
   useEffect(() => {
@@ -222,10 +300,7 @@ export function Chat({
                         }
                         isCurrent={index === visibleMessages.length - 1}
                         onFollowUp={(followUp) => {
-                          append({
-                            role: "user",
-                            content: followUp,
-                          });
+                          sendMessage({ text: followUp });
                         }}
                       />
                     )}
@@ -242,10 +317,7 @@ export function Chat({
                           size="sm"
                           className="whitespace-normal text-left py-2 block h-auto"
                           onClick={() => {
-                            append({
-                              role: "user",
-                              content: question,
-                            });
+                            sendMessage({ text: question });
                           }}
                         >
                           {question}
@@ -266,14 +338,20 @@ export function Chat({
             <div ref={ref} />
           </div>
           <form
-            onSubmit={handleSubmit}
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (input.trim()) {
+                sendMessage({ text: input });
+                setInput("");
+              }
+            }}
             className="flex items-center gap-2 h-12"
           >
             <Input
               className="bg-background text-foreground placeholder-text-muted-foreground px-3 py-3 lg:py-5 h-full lg:text-base text-lg"
               value={input}
               placeholder={`Ask about ${game.name}...`}
-              onChange={handleInputChange}
+              onChange={(e) => setInput(e.target.value)}
               ref={inputRef}
             />
             <Button type="submit" disabled={isLoading} className="gap-2 h-full">
@@ -330,10 +408,7 @@ export function Chat({
                   size="sm"
                   variant="link"
                   onClick={() => {
-                    append({
-                      role: "user",
-                      content: "What resources are you using?",
-                    });
+                    sendMessage({ text: "What resources are you using?" });
                   }}
                 >
                   What are they?

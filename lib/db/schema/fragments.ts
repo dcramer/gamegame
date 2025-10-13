@@ -6,6 +6,7 @@ import {
   text,
   varchar,
   vector,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { games } from "./games";
 import { resources } from "./resources";
@@ -38,6 +39,19 @@ export const fragments = pgTable(
       sources: ["content"],
     }).notNull(),
     version: integer("version").notNull().default(0),
+
+    // Metadata for citations and structure
+    pageNumber: integer("page_number"), // Primary page this fragment is from
+    pageRange: jsonb("page_range").$type<[number, number]>(), // If fragment spans multiple pages [start, end]
+    section: text("section"), // Heading hierarchy: "Setup > Player Setup > Deal Cards"
+    images: jsonb("images").$type<
+      Array<{
+        id: string; // Unique identifier for the image
+        url: string; // URL to image in blob storage
+        bbox?: number[]; // Bounding box [x1, y1, x2, y2] if available
+        caption?: string; // Optional caption or alt text
+      }>
+    >(), // Array of image references associated with this fragment
   },
   (table) => ({
     gameId: index("idx_fragment_game_id").on(table.gameId),

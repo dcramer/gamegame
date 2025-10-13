@@ -66,7 +66,31 @@ export default function Form({
         />
       </div>
       <div className="grid gap-2">
-        <Label htmlFor="imageUrl">Box Art</Label>
+        <div className="flex items-center justify-between">
+          <Label htmlFor="imageUrl">Box Art</Label>
+          {imageUrl && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = "image/*";
+                input.onchange = (e) => {
+                  const file = (e.target as HTMLInputElement).files?.[0];
+                  if (!file) return;
+                  const url = URL.createObjectURL(file);
+                  setImageUrl(url);
+                  setImageFile(file);
+                };
+                input.click();
+              }}
+            >
+              Upload Image
+            </Button>
+          )}
+        </div>
         <ResourceDropzone
           onAddFiles={(files) => {
             const file = files[0];
@@ -76,8 +100,8 @@ export default function Form({
             setImageFile(file);
           }}
         >
-          <Card className="relative max-h-96 max-w-96">
-            <CardContent className="flex flex-col items-center">
+          <Card className="relative max-h-96 max-w-96" onClick={imageUrl ? (e) => e.stopPropagation() : undefined}>
+            <CardContent className="flex flex-col items-center" style={imageUrl ? { pointerEvents: 'none' } : undefined}>
               {imageUrl ? (
                 <div className="w-full aspect-[3/2] overflow-hidden relative">
                   <Image

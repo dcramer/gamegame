@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { findRelevantContent } from "./search";
 import { getAllResourcesForGame } from "../actions/resources";
+import { getAttachment } from "../actions/attachments";
 import { GITHUB_URL } from "@/constants";
 
 export const AnswerSchema = z.object({
@@ -21,20 +22,40 @@ export const getTools = (gameId: string) => {
   return {
     getKnowledge: tool({
       description: `get information from your knowledge base to help answer questions.`,
-      parameters: z.object({
+      inputSchema: z.object({
         question: z.string().describe("the users question"),
       }),
-      execute: async ({ question }) => findRelevantContent(gameId, question),
+      execute: async ({ question }: { question: string }) => findRelevantContent(gameId, question),
     }),
     listResources: tool({
-      description: `list the resources available to you`,
-      parameters: z.object({}),
+      description: `list the resources available to you with their statistics`,
+      inputSchema: z.object({}),
       execute: async () =>
         (await getAllResourcesForGame(gameId)).map((r) => ({
           id: r.id,
           name: r.name,
           url: r.url,
+          pageCount: r.stats?.pageCount || null,
+          imageCount: r.stats?.imageCount || 0,
+          wordCount: r.stats?.wordCount || 0,
         })),
+    }),
+    getAttachment: tool({
+      description: `retrieve an attachment (image, diagram, etc.) by its ID to include in your response. Use this when you find attachment:// references in the knowledge base content.`,
+      inputSchema: z.object({
+        attachmentId: z.string().describe("the attachment ID from attachment:// URL"),
+      }),
+      execute: async ({ attachmentId }: { attachmentId: string }) => {
+        const attachment = await getAttachment(attachmentId);
+        return {
+          id: attachment.id,
+          type: attachment.type,
+          url: attachment.url,
+          mimeType: attachment.mimeType || "image/png",
+          caption: attachment.caption,
+          pageNumber: attachment.pageNumber,
+        };
+      },
     }),
   };
 };
@@ -70,7 +91,7 @@ export const buildPrompt = (game: {
 
     The 'resources' field should be a list of resources that are used to answer the question, or referenced in the answer, if any.
 
-    The 'followUps' field should only contain follow-up questions appropriate to the lines of questions you can answer below.
+    The 'followUps' field should contain suggested questions that the USER can ask YOU as follow-ups to continue the conversation. These should be questions the user might want to ask next, not questions you are asking the user. Only include follow-up questions appropriate to the lines of questions you can answer below.
 
     ## Answer the Question
 
@@ -81,10 +102,17 @@ export const buildPrompt = (game: {
     ### Gameplay Questions
 
     **Description:** Questions about the game rules, game setup, gameplay, or general information about the game, including explaining what the game is.
-    
-    Before answering this question, you MUST ALWAYS use the "getKnowledge" tool to find relevant information in the knowledge base. Cite the resources in your response.
-    
-    If the rule appears ambiguous, respond with the rule text, and explain that it is ambiguous.
+
+    Before answering this question, you MUST ALWAYS use the "getKnowledge" tool to find relevant information in the knowledge base.
+
+    **Attachments (Images/Diagrams)**:
+    - When the knowledge base content contains "attachment://{id}" references, these are images or diagrams from the rulebook
+    - Use the "getAttachment" tool to retrieve the attachment URL
+    - Include helpful images in your response by replacing attachment:// URLs with the actual image URLs: ![description](https://actual-url.com/image.png)
+    - Only include images that directly help answer the user's question - don't include every image from the knowledge base
+    - Add descriptive alt text that explains what the image shows
+
+    If the rule appears ambiguous, respond with the rule text, explain that it is ambiguous, and cite the specific page and section where it appears.
 
     You are strictly answering questions about **${game.name}**.
 

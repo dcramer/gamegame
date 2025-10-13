@@ -63,7 +63,13 @@ https://localhost:3000/login
 Once your account is created, you can add the admin flag for yourself:
 
 ```
-PGPASSWORD=postgres psql -h localhost -U postgres gamegame -c "UPDATE \"user\" SET admin = TRUE WHERE email = 'your-email@example.com';"
+make grant-admin
+```
+
+Or manually via psql:
+
+```
+PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres gamegame -c "UPDATE \"user\" SET admin = TRUE WHERE email = 'your-email@example.com';"
 ```
 
 Then navigate to `https://localhost:3000/admin` (also linked in the footer).

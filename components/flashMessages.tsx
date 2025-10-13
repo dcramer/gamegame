@@ -109,7 +109,7 @@ export default function FlashMessages({ children }: { children: ReactNode }) {
               setMessages((messages) => {
                 return messages.map((m) => {
                   if (m.id === newFlash.id) {
-                    const updatedFlash = {
+                    return {
                       ...m,
                       message,
                       type: type ?? m.type,
@@ -120,10 +120,6 @@ export default function FlashMessages({ children }: { children: ReactNode }) {
                           ? new Date().getTime() + options?.removeAfter
                           : m.removeAfter,
                     };
-
-                    console.log(updatedFlash);
-
-                    return updatedFlash;
                   } else {
                     return m;
                   }

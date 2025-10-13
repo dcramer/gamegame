@@ -1,7 +1,9 @@
 ARG PG_MAJOR=15
 
 # Use the PostGIS image as the base
-FROM postgis/postgis:$PG_MAJOR-3.4
+# https://github.com/postgis/docker-postgis/issues/216
+# FROM postgis/postgis:$PG_MAJOR-3.4
+FROM imresamu/postgis:$PG_MAJOR-3.4
 ARG PG_MAJOR
 ARG PG_VECTOR=0.7.2
 

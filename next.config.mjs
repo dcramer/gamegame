@@ -1,6 +1,7 @@
 import { withSentryConfig } from "@sentry/nextjs";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  devIndicators: false,
   experimental: {
     serverActions: {
       bodySizeLimit: "100mb",
@@ -31,7 +32,10 @@ const nextConfig = {
             value: "strict-origin-when-cross-origin",
           },
           { key: "Access-Control-Allow-Credentials", value: "true" },
-          { key: "Access-Control-Allow-Origin", value: "https://gamegame.ai" }, // replace this your actual origin
+          {
+            key: "Access-Control-Allow-Origin",
+            value: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+          },
           {
             key: "Access-Control-Allow-Methods",
             value: "GET,DELETE,PATCH,POST,PUT",

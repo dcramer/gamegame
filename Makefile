@@ -5,7 +5,7 @@ PG_DATABASE_TEST=test_gamegame
 setup: install create-db
 
 install:
-	pnpm run install
+	pnpm install
 
 reset-db:
 	$(MAKE) drop-db
@@ -33,3 +33,7 @@ create-db-test:
 
 wipe-node-modules:
 	find . | grep node_modules$ | xargs rm -rf
+
+grant-admin:
+	@read -p "Enter email address: " email; \
+	$(PG_CONTAINER) psql -h 127.0.0.1 -p 5432 -U postgres $(PG_DATABASE) -c "UPDATE \"user\" SET admin = TRUE WHERE email = '$$email';"

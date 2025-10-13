@@ -3,7 +3,7 @@
 import { MODEL } from "@/constants";
 import { AnswerSchema, buildPrompt, getTools } from "@/lib/ai/prompt";
 import { openai } from "@ai-sdk/openai";
-import { generateText } from "ai";
+import { generateText, stepCountIs } from "ai";
 import { expect, test, describe } from "vitest";
 import { z } from "zod";
 
@@ -20,8 +20,7 @@ async function makeCall(
     system: buildPrompt({ id: gameId, name: gameName }),
     prompt: content,
     tools: getTools(gameId),
-    maxToolRoundtrips: 5,
-    temperature: 0,
+    stopWhen: stepCountIs(5),
   });
 }
 

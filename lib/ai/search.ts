@@ -4,37 +4,99 @@ import { db } from "../db";
 import { innerProduct, sql } from "drizzle-orm";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { fragments, resources } from "../db/schema";
+import type { StructuredPDFContent, PDFChunk } from "../types/pdf";
+import { chunkStructuredPDF } from "../services/chunking";
 
 const splitter = RecursiveCharacterTextSplitter.fromLanguage("markdown", {
   chunkSize: 1000,
-  chunkOverlap: 0,
+  chunkOverlap: 100, // Match structured chunking for consistency
 });
 
 const embeddingModel = openai.embedding("text-embedding-3-small");
 
-export const CURRENT_INDEX_VERSION: number = 2;
+export const CURRENT_INDEX_VERSION: number = 3; // Bumped for new metadata
 
+/**
+ * Generate chunks from plain text (fallback for non-structured content)
+ */
 const generateChunks = async (input: string): Promise<[string[], number]> => {
   const output = await splitter.createDocuments([input]);
   return [output.map((i) => i.pageContent), CURRENT_INDEX_VERSION];
-  // return input
-  //   .trim()
-  //   .split("\n")
-  //   .filter((i) => i !== "");
 };
 
+/**
+ * Generate embeddings with metadata preservation
+ * @param value Plain text content
+ * @param structured Optional structured PDF content with metadata
+ * @returns Array of embeddings with metadata and version number
+ */
 export const generateEmbeddings = async (
-  value: string
-): Promise<[{ embedding: number[]; content: string }[], number]> => {
-  const [chunks, version] = await generateChunks(value);
+  value: string,
+  structured?: StructuredPDFContent
+): Promise<
+  [
+    Array<{
+      embedding: number[];
+      content: string;
+      pageNumber?: number;
+      pageRange?: [number, number];
+      section?: string;
+      images?: Array<{
+        id: string;
+        url: string;
+        bbox?: number[];
+        caption?: string;
+      }>;
+    }>,
+    number
+  ]
+> => {
+  let chunks: PDFChunk[];
+  let version: number;
+
+  if (structured) {
+    // Use smart chunking with metadata preservation
+    chunks = await chunkStructuredPDF(structured);
+    version = CURRENT_INDEX_VERSION;
+  } else {
+    // Fallback to simple text chunking
+    const [textChunks, v] = await generateChunks(value);
+    version = v;
+    chunks = textChunks.map((content): PDFChunk => ({
+      content,
+      pageNumber: 1, // Default to page 1 for unstructured content
+      images: [],
+    }));
+  }
+
+  // Filter out empty chunks before embedding
+  const validChunks = chunks.filter((c) => c.content.trim().length > 0);
+
+  if (validChunks.length === 0) {
+    throw new Error("No valid content to embed after filtering empty chunks");
+  }
+
+  // Generate embeddings for all chunks
   const { embeddings } = await embedMany({
     model: embeddingModel,
-    values: chunks,
+    values: validChunks.map((c) => c.content),
   });
+
+  // Verify embeddings match chunks (defensive check)
+  if (embeddings.length !== validChunks.length) {
+    throw new Error(
+      `Embedding count mismatch: expected ${validChunks.length} embeddings, got ${embeddings.length}`
+    );
+  }
+
   return [
     embeddings.map((e, i) => ({
-      content: chunks[i],
+      content: validChunks[i].content,
       embedding: e,
+      pageNumber: validChunks[i].pageNumber,
+      pageRange: validChunks[i].pageRange,
+      section: validChunks[i].section,
+      images: validChunks[i].images,
     })),
     version,
   ];
@@ -43,7 +105,7 @@ export const generateEmbeddings = async (
 export const generateEmbedding = async (
   value: string
 ): Promise<[number[], number]> => {
-  const input = value.replaceAll("\\n", " ");
+  const input = value.replaceAll("\n", " ");
   const { embedding } = await embed({
     model: embeddingModel,
     value: input,
@@ -54,7 +116,21 @@ export const generateEmbedding = async (
 export const findRelevantContent = async (
   gameId: string,
   userQuery: string
-): Promise<{ resourceId: string; resourceName: string; content: string }[]> => {
+): Promise<
+  Array<{
+    resourceId: string;
+    resourceName: string;
+    content: string;
+    pageNumber?: number;
+    section?: string;
+    images?: Array<{
+      id: string;
+      url: string;
+      bbox?: number[];
+      caption?: string;
+    }>;
+  }>
+> => {
   const [userQueryEmbedding] = await generateEmbedding(userQuery);
 
   const matchCount = 10;
@@ -66,6 +142,14 @@ export const findRelevantContent = async (
     resource_id: string;
     resource_name: string;
     content: string;
+    page_number: number | null;
+    section: string | null;
+    images: Array<{
+      id: string;
+      url: string;
+      bbox?: number[];
+      caption?: string;
+    }> | null;
   }>(sql`
     with full_text as (
       select
@@ -89,7 +173,7 @@ export const findRelevantContent = async (
         row_number() over (order by ${innerProduct(
           fragments.embedding,
           userQueryEmbedding
-        )}) as rank_ix
+        )} desc) as rank_ix
       from
         ${fragments}
       where
@@ -100,7 +184,10 @@ export const findRelevantContent = async (
     select
       ${resources.id} as resource_id,
       ${resources.name} as resource_name,
-      ${fragments.content}
+      ${fragments.content},
+      ${fragments.pageNumber} as page_number,
+      ${fragments.section},
+      ${fragments.images}
     from
       full_text
       full outer join semantic
@@ -120,5 +207,8 @@ export const findRelevantContent = async (
     resourceId: i.resource_id,
     resourceName: i.resource_name,
     content: i.content,
+    pageNumber: i.page_number ?? undefined,
+    section: i.section ?? undefined,
+    images: i.images ?? undefined,
   }));
 };

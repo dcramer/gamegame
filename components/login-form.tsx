@@ -43,7 +43,7 @@ export default function LoginForm() {
           {isLoading && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
         </Button>
         <p className="text-xs text-muted-foreground">
-          We'll automatically create an account if you don't have one.
+          We&apos;ll automatically create an account if you don&apos;t have one.
         </p>
       </form>
     </div>

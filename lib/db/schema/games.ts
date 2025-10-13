@@ -22,7 +22,16 @@ export const games = pgTable("game", {
 
 export const insertGameSchema = createSelectSchema(games)
   .extend({
-    imageUrl: z.string().trim().url().nullable().default(null),
+    // Accept absolute URLs (https://...) or relative paths (/uploads/...)
+    imageUrl: z
+      .string()
+      .trim()
+      .refine(
+        (val) => val.startsWith("/") || val.startsWith("http://") || val.startsWith("https://"),
+        "Must be a valid URL or path"
+      )
+      .nullable()
+      .default(null),
     bggUrl: z.string().trim().url().nullable().default(null),
   })
   .omit({

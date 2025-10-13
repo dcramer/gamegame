@@ -10,6 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import Link from "next/link";
+import Image from "next/image";
 import { deleteGame } from "@/lib/actions/games";
 import { useEffect, useState } from "react";
 
@@ -21,7 +22,7 @@ export default function GameList({
     name: string;
     imageUrl: string | null;
     bggUrl: string | null;
-    hasResources: boolean | unknown; // TODO: Fix this
+    hasResources: boolean;
   }[];
 }) {
   const [activeGameList, setGameList] = useState(gameList);
@@ -47,6 +48,7 @@ export default function GameList({
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-[80px]">Image</TableHead>
             <TableHead>Name</TableHead>
             <TableHead className="w-[200px] text-center">Actions</TableHead>
           </TableRow>
@@ -55,6 +57,30 @@ export default function GameList({
           {activeGameList.map((game) => {
             return (
               <TableRow key={game.id}>
+                <TableCell>
+                  <Link
+                    href={`/admin/games/${game.id}`}
+                    prefetch={false}
+                  >
+                    {game.imageUrl ? (
+                      <div className="w-16 h-16 relative rounded overflow-hidden bg-muted">
+                        <Image
+                          src={game.imageUrl}
+                          alt={game.name}
+                          fill
+                          sizes="64px"
+                          style={{
+                            objectFit: "cover",
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-16 h-16 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                        No image
+                      </div>
+                    )}
+                  </Link>
+                </TableCell>
                 <TableCell className="font-medium relative">
                   <Link
                     href={`/admin/games/${game.id}`}

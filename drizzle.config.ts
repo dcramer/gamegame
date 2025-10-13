@@ -8,6 +8,6 @@ export default {
   dbCredentials: {
     url:
       env.DATABASE_URL ||
-      "postgres://postgres:postgres@localhost:5432/postgres",
+      "postgres://postgres:postgres@localhost:5433/postgres",
   },
 } satisfies Config;

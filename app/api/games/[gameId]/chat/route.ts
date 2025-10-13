@@ -1,7 +1,7 @@
 import { MODEL } from "@/constants";
 import { getGame } from "@/lib/actions/games";
 import { openai } from "@ai-sdk/openai";
-import { streamText, convertToCoreMessages } from "ai";
+import { streamText, convertToCoreMessages, stepCountIs } from "ai";
 import { buildPrompt, getTools } from "@/lib/ai/prompt";
 import { getRateLimiter } from "@/lib/ratelimiter";
 
@@ -43,15 +43,14 @@ export async function POST(req: Request, props: { params: Promise<{ gameId: stri
     system: buildPrompt(game),
     messages: convertToCoreMessages(messages),
     tools: getTools(gameId),
-    maxSteps: 5,
-    temperature: 0,
+    stopWhen: stepCountIs(5),
     // toolChoice: "required",
     experimental_telemetry: {
       isEnabled: true,
     },
   });
 
-  return result.toDataStreamResponse({
+  return result.toUIMessageStreamResponse({
     headers: {
       "X-RateLimit-Limit": limit.toString(),
       "X-RateLimit-Remaining": remaining.toString(),

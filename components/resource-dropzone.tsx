@@ -30,7 +30,11 @@ export default function ResourceDropzone({
     [onAddFiles]
   );
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop });
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    noClick: true, // Disable click to open file dialog
+    noKeyboard: true, // Disable keyboard to open file dialog
+  });
 
   return (
     <div className="relative" {...getRootProps()}>

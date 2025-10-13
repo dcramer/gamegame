@@ -1,102 +1,227 @@
-"use server";
+import { env } from "./env.mjs";
+import type {
+  PDFExtractionResult,
+  StructuredPDFContent,
+  PDFPage,
+  PDFImage,
+  PDFSection,
+} from "./types/pdf";
+import { cleanupMarkdownBatch } from "./services/markdown-cleanup";
 
-import PDFParser from "pdf2json";
+/**
+ * Replace inline image markdown with custom syntax for database lookup
+ * Converts: ![alt](img-0.jpeg) or ![alt](data:image/...)
+ * To: ![alt](attachment://{attachmentId})
+ */
+export function replaceImageReferences(
+  markdown: string,
+  images: PDFImage[]
+): string {
+  // Find all markdown images: ![alt](url)
+  const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
 
-function forEachItem(pdf: any, handler: any) {
-  var Pages = pdf.Pages || pdf.formImage.Pages;
-  for (var p in Pages) {
-    var page = Pages[p];
-    for (var t in page.Texts) {
-      var item = page.Texts[t];
-      item.text = decodeURIComponent(item.R[0].T);
-      handler(item);
+  let result = markdown;
+
+  // Build maps for looking up images by various keys
+  // Use image index to ensure uniqueness even with duplicate filenames
+  const imageByFilename = new Map<string, PDFImage[]>();
+  const imageById = new Map<string, PDFImage>();
+
+  images.forEach((img, index) => {
+    // Always map by ID (unique)
+    imageById.set(img.id, img);
+
+    if (img.originalFilename) {
+      // Map by filename (may have duplicates)
+      if (!imageByFilename.has(img.originalFilename)) {
+        imageByFilename.set(img.originalFilename, []);
+      }
+      imageByFilename.get(img.originalFilename)!.push(img);
+
+      // Also map by filename without extension
+      const nameWithoutExt = img.originalFilename.replace(/\.[^.]+$/, '');
+      if (!imageByFilename.has(nameWithoutExt)) {
+        imageByFilename.set(nameWithoutExt, []);
+      }
+      imageByFilename.get(nameWithoutExt)!.push(img);
     }
-  }
+  });
+
+  // Track which images have been matched to avoid reusing
+  const usedImages = new Set<string>();
+
+  // Process each image reference in the markdown
+  result = result.replace(imageRegex, (fullMatch, alt, url) => {
+    // Skip attachments that are already processed (attachment:// URLs) or external URLs
+    if (url.startsWith('attachment://') || url.startsWith('http://') || url.startsWith('https://')) {
+      return fullMatch;
+    }
+
+    // Try to find matching image by URL/filename
+    let matchedImage: PDFImage | undefined;
+
+    // First try by ID (if the URL is actually an ID)
+    matchedImage = imageById.get(url);
+
+    // If no match, try by filename
+    if (!matchedImage) {
+      const filename = url.split('/').pop() || url;
+      const candidates = imageByFilename.get(filename);
+      if (candidates && candidates.length > 0) {
+        // Find first unused image
+        matchedImage = candidates.find((img) => !usedImages.has(img.id));
+      }
+    }
+
+    if (matchedImage) {
+      // Mark this image as used to avoid duplicate matches
+      usedImages.add(matchedImage.id);
+      // Replace with custom syntax using the attachment's ID (will be database ID after storage)
+      return `![${alt || ''}](attachment://${matchedImage.id})`;
+    }
+
+    // If no match found, log warning and keep original
+    console.warn(`No matching attachment found for reference: ${url}`);
+    return fullMatch;
+  });
+
+  return result;
 }
 
-export const extractTextFromPdf_Pdfjs = async (buf: Buffer) => {
-  console.log("extracting text from pdf with pdfjs");
-  return await new Promise<string>((resolve, reject) => {
-    const rows: string[] = [];
-    const pdfParser = new PDFParser();
-    pdfParser.on("pdfParser_dataError", (errData) =>
-      reject(errData.parserError)
-    );
-    pdfParser.on("pdfParser_dataReady", (data) => {
-      forEachItem(data, (item: any) => {
-        if (item?.text) {
-          rows.push(item.text);
-        }
+/**
+ * Parse markdown headings from text and build hierarchy
+ */
+export function parseMarkdownHeadings(
+  markdown: string,
+  pageNumber: number
+): PDFSection[] {
+  const lines = markdown.split("\n");
+  const sections: PDFSection[] = [];
+  const headingStack: Array<{ level: number; text: string }> = [];
+
+  for (const line of lines) {
+    const match = line.match(/^(#{1,6})\s+(.+)$/);
+    if (match) {
+      const level = match[1].length;
+      const text = match[2].trim();
+
+      // Pop headings that are same level or deeper
+      while (
+        headingStack.length > 0 &&
+        headingStack[headingStack.length - 1].level >= level
+      ) {
+        headingStack.pop();
+      }
+
+      // Add new heading to stack
+      headingStack.push({ level, text });
+
+      // Build hierarchy string
+      const hierarchy = headingStack.map((h) => h.text).join(" > ");
+
+      sections.push({
+        level,
+        text,
+        hierarchy,
+        pageNumber,
       });
-      resolve(rows.join(" "));
-    });
-    pdfParser.parseBuffer(buf);
-  });
-};
+    }
+  }
 
-export const extractTextFromPdf_Marker = async (
+  return sections;
+}
+
+/**
+ * Extract text and structured metadata from a PDF using Mistral OCR
+ */
+export const extractTextFromPdf = async (
   buf: Buffer
-): Promise<string> => {
-  console.log("extracting text from pdf with marker");
+): Promise<PDFExtractionResult> => {
+  if (!env.MISTRAL_API_KEY) {
+    throw new Error(
+      "MISTRAL_API_KEY environment variable is required for PDF extraction with Mistral OCR"
+    );
+  }
 
-  const headers = {
-    "X-Api-Key": process.env.DATALAB_API_KEY || "",
+  const { Mistral } = await import("@mistralai/mistralai");
+
+  const client = new Mistral({
+    apiKey: env.MISTRAL_API_KEY,
+  });
+
+  const base64 = buf.toString("base64");
+
+  const result = await client.ocr.process({
+    model: "mistral-ocr-latest",
+    document: {
+      type: "document_url",
+      documentUrl: `data:application/pdf;base64,${base64}`,
+    },
+    includeImageBase64: true, // Extract images for storage
+  });
+
+  // Step 1: Prepare all pages with raw markdown for cleanup
+  const rawPages = result.pages.map((page) => ({
+    markdown: page.markdown,
+    pageNumber: page.index + 1,
+    images: page.images,
+    dimensions: page.dimensions,
+  }));
+
+  // Step 2: Batch cleanup all markdown to remove tables of contents, headers, etc.
+  const cleanedMarkdownArray = await cleanupMarkdownBatch(
+    rawPages.map((p) => ({ markdown: p.markdown, pageNumber: p.pageNumber }))
+  );
+
+  // Step 3: Process each page with cleaned markdown
+  const pages: PDFPage[] = rawPages.map((rawPage, index) => {
+    const pageNumber = rawPage.pageNumber;
+    const cleanedMarkdown = cleanedMarkdownArray[index];
+
+    // Parse images from Mistral response
+    const images: PDFImage[] = (rawPage.images || []).map(
+      (img: any, imgIndex: number) => ({
+        id: img.id || `temp_page${pageNumber}_img${imgIndex}`, // Temporary ID, will be replaced with DB ID
+        originalFilename: img.id || `img-${imgIndex}.jpeg`, // Preserve Mistral's filename for matching
+        bbox: img.bbox,
+        base64: img.imageBase64,
+        pageNumber,
+      })
+    );
+
+    // Replace image references in cleaned markdown with custom syntax
+    const processedMarkdown = replaceImageReferences(cleanedMarkdown, images);
+
+    // Parse sections from processed markdown
+    const sections = parseMarkdownHeadings(processedMarkdown, pageNumber);
+
+    return {
+      pageNumber,
+      markdown: processedMarkdown,
+      images,
+      sections,
+      metadata: rawPage.dimensions
+        ? {
+            width: rawPage.dimensions.width,
+            height: rawPage.dimensions.height,
+            dpi: rawPage.dimensions.dpi,
+          }
+        : undefined,
+    };
+  });
+
+  const structured: StructuredPDFContent = {
+    pages,
+    pageCount: pages.length,
   };
 
-  const formData = new FormData();
+  // Combine all pages' cleaned markdown into a single string (backward compatible)
+  const markdown = pages
+    .map((page) => `<!-- Page ${page.pageNumber} -->\n${page.markdown}`)
+    .join("\n\n");
 
-  formData.append(
-    "file",
-    new Blob([buf], { type: "application/pdf" }),
-    "resource.pdf"
-  );
-  formData.append("langs", "English");
-  formData.append("force_ocr", "false");
-  formData.append("paginate", "false");
-  formData.append("extract_images", "false");
-
-  const response = await fetch("https://www.datalab.to/api/v1/marker", {
-    method: "POST",
-    body: formData,
-    headers,
-  });
-
-  const json = await response.json();
-  if (response.status !== 200) {
-    console.log(json);
-    throw new Error(
-      json.detail || "Failed to extract text from PDF - bad response"
-    );
-  }
-
-  const checkUrl = json.request_check_url;
-  if (!checkUrl) {
-    console.log(json);
-    throw new Error("Failed to extract text from PDF - no check url");
-  }
-  const maxPolls = 300;
-
-  for (let i = 0; i < maxPolls; i++) {
-    const response = await fetch(checkUrl, {
-      headers,
-    });
-    const json = await response.json();
-    if (response.status !== 200) {
-      throw new Error(
-        "Failed to extract text from PDF - invalid http response"
-      );
-    }
-    if (json.status === "complete") {
-      if (!json.success) {
-        throw new Error(
-          json.error || "Failed to extract text from PDF - took too long"
-        );
-      }
-      return json.markdown as string;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-
-  // :pray: we dont have to setup webhooks for this
-  throw new Error("Failed to extract text from PDF - took too long");
+  return {
+    text: markdown,
+    structured,
+  };
 };
