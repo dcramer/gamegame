@@ -7,6 +7,7 @@ import { GITHUB_URL } from "@/constants";
 
 export const AnswerSchema = z.object({
   answer: z.string(),
+  questionType: z.enum(["gameplay", "knowledge", "external", "gamegame"]).optional(),
   resources: z
     .array(
       z.object({

@@ -8,12 +8,16 @@ import path from "node:path";
 import { env } from "@/lib/env.mjs";
 import { nanoid } from "@/lib/utils";
 
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+
 export async function handleUpload({
   request,
   allowedContentTypes,
+  maxSize = MAX_FILE_SIZE,
 }: {
-  request: any;
+  request: Request;
   allowedContentTypes: string[];
+  maxSize?: number;
 }) {
   if (!env.BLOB_READ_WRITE_TOKEN) {
     // if we're local, we're just writing the file directly to disk
@@ -23,6 +27,18 @@ export async function handleUpload({
     const file = formData.get("file") as File;
     if (!file) {
       throw new Error("No file provided");
+    }
+
+    // Validate file size
+    if (file.size > maxSize) {
+      throw new Error(`File too large. Maximum size is ${Math.round(maxSize / 1024 / 1024)}MB`);
+    }
+
+    // Validate content type
+    if (allowedContentTypes.length > 0 && !allowedContentTypes.includes(file.type)) {
+      throw new Error(
+        `Invalid file type "${file.type}". Allowed types: ${allowedContentTypes.join(", ")}`
+      );
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
