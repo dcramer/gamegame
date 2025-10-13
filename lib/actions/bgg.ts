@@ -9,7 +9,7 @@ import {
 import type { BGGSearchResult, BGGGameDetails } from "../types/bgg";
 import { upload } from "../uploads/server";
 import { createGame } from "./games";
-import { auth } from "@/auth";
+import { requireAdmin } from "../auth/require-admin";
 import { deleteImage } from "../services/images";
 
 /**
@@ -18,10 +18,7 @@ import { deleteImage } from "../services/images";
 export async function searchBGG(
   query: string
 ): Promise<BGGSearchResult[]> {
-  const session = await auth();
-  if (!session?.user?.admin) {
-    throw new Error("Unauthorized");
-  }
+  await requireAdmin();
 
   if (!query || query.trim().length < 2) {
     return [];
@@ -44,10 +41,7 @@ export async function fetchBGGGame(bggId: string): Promise<{
   details: BGGGameDetails;
   imageUrl: string | null;
 }> {
-  const session = await auth();
-  if (!session?.user?.admin) {
-    throw new Error("Unauthorized");
-  }
+  await requireAdmin();
 
   try {
     const details = await getBGGGameDetails(bggId);
@@ -86,10 +80,7 @@ export async function fetchBGGGame(bggId: string): Promise<{
  * Fetches from BGG (caching in database), downloads image, and creates game record
  */
 export async function createGameFromBGG(bggId: string) {
-  const session = await auth();
-  if (!session?.user?.admin) {
-    throw new Error("Unauthorized");
-  }
+  await requireAdmin();
 
   let uploadedImageUrl: string | null = null;
 

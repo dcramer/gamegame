@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@/auth";
+import { requireAdmin } from "../auth/require-admin";
 import { generateEmbeddings } from "../ai/search";
 import { db } from "../db";
 import { fragments as fragmentsTable } from "../db/schema/fragments";
@@ -10,12 +10,16 @@ import mime from "mime";
 import { asc, eq, sql } from "drizzle-orm";
 import { extractTextFromPdf } from "../pdf";
 import {
-  uploadPDFImageToBlob,
-  createAttachmentRecord,
   storePDFImages,
   deleteImages,
   deleteResourceImages,
 } from "../services/images";
+import {
+  uploadResourceImages,
+  processResourceContent,
+  calculateResourceStats,
+  cleanupBlobsOnError,
+} from "../services/resource-processor";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { env } from "../env.mjs";
@@ -52,10 +56,7 @@ export const createResource = async (input: {
   const startTime = performance.now();
   console.log(`[Resource Processing] Starting: "${input.name}" (gameId: ${input.gameId})`);
 
-  const session = await auth();
-  if (!session?.user?.admin) {
-    throw new Error("Unauthorized");
-  }
+  await requireAdmin();
 
   const mimeType = mime.getType(input.name);
 
@@ -84,21 +85,7 @@ export const createResource = async (input: {
   });
 
   // Step 1: Upload images to blob storage BEFORE transaction to avoid leaks
-  const uploadedBlobs: Array<{ tempId: string; url: string; mimeType: string; image: PDFImage }> = [];
-  if (structured) {
-    const allImages = structured.pages.flatMap((p) => p.images).filter((img) => img.base64);
-
-    if (allImages.length > 0) {
-      // Upload all images in parallel
-      const blobUploads = await Promise.all(
-        allImages.map(async (img) => {
-          const { url, mimeType } = await uploadPDFImageToBlob(img, input.id || 'temp', img.id);
-          return { tempId: img.id, url, mimeType, image: img };
-        })
-      );
-      uploadedBlobs.push(...blobUploads);
-    }
-  }
+  const uploadedBlobs = await uploadResourceImages(structured, input.id || 'temp');
 
   // Step 2: Start transaction and create DB records
   let resource;
@@ -120,49 +107,18 @@ export const createResource = async (input: {
         throw new Error("Failed to create resource");
       }
 
-      // Create attachment records for uploaded blobs
-      let finalContent = newContent;
-      if (uploadedBlobs.length > 0) {
-        const storedImages = await Promise.all(
-          uploadedBlobs.map((blob) =>
-            createAttachmentRecord(blob.image, input.gameId, resource.id, blob.url, blob.mimeType, tx)
-          )
-        );
-
-        // Build mapping of temp ID -> database ID
-        const idMapping = new Map<string, string>();
-        uploadedBlobs.forEach((blob, index) => {
-          const stored = storedImages[index];
-          if (stored) {
-            idMapping.set(blob.tempId, stored.id);
-            // Update image in structured content
-            blob.image.id = stored.id;
-            blob.image.url = stored.url;
-          }
-        });
-
-        // Replace temp IDs in markdown with database IDs
-        // Match only valid ID characters (alphanumeric, underscore, hyphen)
-        finalContent = newContent.replace(/attachment:\/\/([a-zA-Z0-9_-]+)/g, (match, tempId) => {
-          const dbId = idMapping.get(tempId);
-          return dbId ? `attachment://${dbId}` : match;
-        });
-      }
-
-      // Generate embeddings with metadata (using final content with database IDs)
-      const [embeddings, version] = await generateEmbeddings(finalContent, structured);
-      if (!embeddings.length) {
-        throw new Error("Failed to generate embeddings");
-      }
+      // Process content: attachments, embeddings, and fragments
+      const { finalContent, embeddings, version } = await processResourceContent(
+        newContent,
+        structured,
+        uploadedBlobs,
+        input.gameId,
+        resource.id,
+        tx
+      );
 
       // Calculate stats from structured content
-      const pageCount = structured?.pageCount || null;
-      const imageCount = structured
-        ? structured.pages.reduce((sum, p) => sum + p.images.length, 0)
-        : 0;
-      const wordCount = newContent
-        ? newContent.split(/\s+/).filter((w) => w.length > 0).length
-        : 0;
+      const stats = calculateResourceStats(newContent, structured);
 
       // Update resource with correct version, stats, and final content with database IDs
       const [updatedResource] = await tx
@@ -170,9 +126,7 @@ export const createResource = async (input: {
         .set({
           content: finalContent,
           version,
-          pageCount,
-          imageCount,
-          wordCount,
+          ...stats,
         })
         .where(eq(resources.id, resource.id))
         .returning({
@@ -187,31 +141,11 @@ export const createResource = async (input: {
           wordCount: resources.wordCount,
         });
 
-      // dont batch this to avoid timeouts
-      for (const embedding of embeddings) {
-        await tx.insert(fragmentsTable).values({
-          gameId: resource.gameId,
-          resourceId: resource.id,
-          content: embedding.content,
-          embedding: embedding.embedding,
-          version,
-          pageNumber: embedding.pageNumber || null,
-          pageRange: embedding.pageRange || null,
-          section: embedding.section || null,
-          images: embedding.images || null,
-        });
-      }
-
       return [updatedResource, embeddings.length] as const;
     });
   } catch (error) {
-    // If transaction failed, clean up orphaned blob files (best effort)
-    if (uploadedBlobs.length > 0) {
-      const blobUrls = uploadedBlobs.map((b) => b.url);
-      await deleteImages(blobUrls).catch((cleanupError) => {
-        console.error('[Resource] Failed to cleanup blobs after transaction failure:', cleanupError);
-      });
-    }
+    // If transaction failed, clean up orphaned blob files
+    await cleanupBlobsOnError(uploadedBlobs, 'Resource');
     throw error;
   }
 
@@ -306,6 +240,8 @@ export async function getResource(resourceId: string, withContent = false) {
 }
 
 export const getAllResourcesForGame = async (gameId: string) => {
+  // Use a single query with LEFT JOIN and GROUP BY to get fragment counts
+  // This eliminates the N+1 query problem
   const resourceList = await db
     .select({
       id: resources.id,
@@ -314,44 +250,33 @@ export const getAllResourcesForGame = async (gameId: string) => {
       version: resources.version,
       pdfExtractor: resources.pdfExtractor,
       processedAt: resources.processedAt,
-      content: resources.content,
       hasContent: sql<boolean>`${resources.content} != '' AND ${resources.content} is not null`,
       pageCount: resources.pageCount,
       imageCount: resources.imageCount,
       wordCount: resources.wordCount,
+      fragmentCount: sql<number>`count(${fragmentsTable.id})`,
     })
     .from(resources)
+    .leftJoin(fragmentsTable, eq(resources.id, fragmentsTable.resourceId))
     .where(eq(resources.gameId, gameId))
+    .groupBy(resources.id)
     .orderBy(asc(resources.name));
 
-  // Get fragment count for each resource (only stat not denormalized)
-  const enriched = await Promise.all(
-    resourceList.map(async (resource) => {
-      const [{ count: fragmentCount }] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(fragmentsTable)
-        .where(eq(fragmentsTable.resourceId, resource.id))
-        .limit(1);
-
-      return {
-        id: resource.id,
-        name: resource.name,
-        url: resource.url,
-        version: resource.version,
-        pdfExtractor: resource.pdfExtractor,
-        processedAt: resource.processedAt,
-        hasContent: resource.hasContent,
-        stats: {
-          fragmentCount: Number(fragmentCount),
-          pageCount: resource.pageCount,
-          imageCount: resource.imageCount ?? 0,
-          wordCount: resource.wordCount ?? 0,
-        },
-      };
-    })
-  );
-
-  return enriched;
+  return resourceList.map((resource) => ({
+    id: resource.id,
+    name: resource.name,
+    url: resource.url,
+    version: resource.version,
+    pdfExtractor: resource.pdfExtractor,
+    processedAt: resource.processedAt,
+    hasContent: resource.hasContent,
+    stats: {
+      fragmentCount: Number(resource.fragmentCount),
+      pageCount: resource.pageCount,
+      imageCount: resource.imageCount ?? 0,
+      wordCount: resource.wordCount ?? 0,
+    },
+  }));
 };
 
 export const updateResource = async (
@@ -362,10 +287,7 @@ export const updateResource = async (
     // url?: string;
   }
 ) => {
-  const session = await auth();
-  if (!session?.user?.admin) {
-    throw new Error("Unauthorized");
-  }
+  await requireAdmin();
 
   const [resource] = await db
     .select({
@@ -440,10 +362,7 @@ export const updateResource = async (
 };
 
 export const deleteResource = async (resourceId: string) => {
-  const session = await auth();
-  if (!session?.user?.admin) {
-    throw new Error("Unauthorized");
-  }
+  await requireAdmin();
 
   // Get all attachments for this resource to find blob URLs before deletion
   const resourceAttachments = await db
@@ -469,10 +388,7 @@ export const deleteResource = async (resourceId: string) => {
 };
 
 export const reprocessResource = async (resourceId: string) => {
-  const session = await auth();
-  if (!session?.user?.admin) {
-    throw new Error("Unauthorized");
-  }
+  await requireAdmin();
 
   const [resource] = await db
     .select()
@@ -513,21 +429,7 @@ export const reprocessResource = async (resourceId: string) => {
     .where(eq(attachments.resourceId, resource.id));
 
   // Step 2: Upload new images to blob storage BEFORE transaction
-  const uploadedBlobs: Array<{ tempId: string; url: string; mimeType: string; image: PDFImage }> = [];
-  if (structured) {
-    const allImages = structured.pages.flatMap((p) => p.images).filter((img) => img.base64);
-
-    if (allImages.length > 0) {
-      // Upload all images in parallel
-      const blobUploads = await Promise.all(
-        allImages.map(async (img) => {
-          const { url, mimeType } = await uploadPDFImageToBlob(img, resource.id, img.id);
-          return { tempId: img.id, url, mimeType, image: img };
-        })
-      );
-      uploadedBlobs.push(...blobUploads);
-    }
-  }
+  const uploadedBlobs = await uploadResourceImages(structured, resource.id);
 
   // Step 3: Transaction - update DB
   let result;
@@ -545,63 +447,18 @@ export const reprocessResource = async (resourceId: string) => {
         .delete(fragmentsTable)
         .where(eq(fragmentsTable.resourceId, resource.id));
 
-      // Create new attachment records for uploaded blobs
-      let finalContent = newContent;
-      if (uploadedBlobs.length > 0) {
-        const storedImages = await Promise.all(
-          uploadedBlobs.map((blob) =>
-            createAttachmentRecord(blob.image, resource.gameId, resource.id, blob.url, blob.mimeType, tx)
-          )
-        );
-
-        // Build mapping of temp ID -> database ID
-        const idMapping = new Map<string, string>();
-        uploadedBlobs.forEach((blob, index) => {
-          const stored = storedImages[index];
-          if (stored) {
-            idMapping.set(blob.tempId, stored.id);
-            // Update image in structured content
-            blob.image.id = stored.id;
-            blob.image.url = stored.url;
-          }
-        });
-
-        // Replace temp IDs in markdown with database IDs
-        // Match only valid ID characters (alphanumeric, underscore, hyphen)
-        finalContent = newContent.replace(/attachment:\/\/([a-zA-Z0-9_-]+)/g, (match, tempId) => {
-          const dbId = idMapping.get(tempId);
-          return dbId ? `attachment://${dbId}` : match;
-        });
-      }
-
-      const [embeddings, version] = await generateEmbeddings(finalContent, structured);
-      if (!embeddings.length) {
-        throw new Error("Failed to generate embeddings");
-      }
-
-      // Insert fragments with metadata
-      for (const embedding of embeddings) {
-        await tx.insert(fragmentsTable).values({
-          gameId: resource.gameId,
-          resourceId: resource.id,
-          content: embedding.content,
-          embedding: embedding.embedding,
-          version,
-          pageNumber: embedding.pageNumber || null,
-          pageRange: embedding.pageRange || null,
-          section: embedding.section || null,
-          images: embedding.images || null,
-        });
-      }
+      // Process content: attachments, embeddings, and fragments
+      const { finalContent, embeddings, version } = await processResourceContent(
+        newContent,
+        structured,
+        uploadedBlobs,
+        resource.gameId,
+        resource.id,
+        tx
+      );
 
       // Calculate stats from structured content
-      const pageCount = structured?.pageCount || null;
-      const imageCount = structured
-        ? structured.pages.reduce((sum, p) => sum + p.images.length, 0)
-        : 0;
-      const wordCount = newContent
-        ? newContent.split(/\s+/).filter((w) => w.length > 0).length
-        : 0;
+      const stats = calculateResourceStats(newContent, structured);
 
       const now = new Date();
       const [newResource] = await tx
@@ -612,9 +469,7 @@ export const reprocessResource = async (resourceId: string) => {
           pdfExtractor: "mistral",
           processedAt: now,
           updatedAt: now,
-          pageCount,
-          imageCount,
-          wordCount,
+          ...stats,
         })
         .where(eq(resources.id, resourceId))
         .returning({
@@ -632,13 +487,8 @@ export const reprocessResource = async (resourceId: string) => {
       return [newResource, embeddings.length] as const;
     });
   } catch (error) {
-    // If transaction failed, clean up newly uploaded blob files (best effort)
-    if (uploadedBlobs.length > 0) {
-      const blobUrls = uploadedBlobs.map((b) => b.url);
-      await deleteImages(blobUrls).catch((cleanupError) => {
-        console.error('[Reprocess] Failed to cleanup blobs after transaction failure:', cleanupError);
-      });
-    }
+    // If transaction failed, clean up newly uploaded blob files
+    await cleanupBlobsOnError(uploadedBlobs, 'Reprocess');
     throw error;
   }
 

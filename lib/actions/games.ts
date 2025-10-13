@@ -5,7 +5,7 @@ import { db } from "../db";
 import { games, insertGameSchema, NewGameParams } from "../db/schema/games";
 import { resources } from "../db/schema/resources";
 import { attachments } from "../db/schema/attachments";
-import { auth } from "@/auth";
+import { requireAdmin } from "../auth/require-admin";
 import { deleteImage, deleteImages } from "../services/images";
 
 export const getGame = async (input: string) => {
@@ -57,10 +57,7 @@ export const getAllGames = async (withResources: boolean = true) => {
 };
 
 export const createGame = async (input: NewGameParams) => {
-  const session = await auth();
-  if (!session?.user?.admin) {
-    throw new Error("Unauthorized");
-  }
+  await requireAdmin();
 
   const parsedInput = insertGameSchema.parse(input);
 
@@ -85,10 +82,7 @@ export const updateGame = async (
     bggUrl?: string | null;
   }
 ) => {
-  const session = await auth();
-  if (!session?.user?.admin) {
-    throw new Error("Unauthorized");
-  }
+  await requireAdmin();
 
   const [game] = await db
     .select({
@@ -136,10 +130,7 @@ export const updateGame = async (
 };
 
 export const deleteGame = async (gameId: string) => {
-  const session = await auth();
-  if (!session?.user?.admin) {
-    throw new Error("Unauthorized");
-  }
+  await requireAdmin();
 
   // Get game image URL and all attachments before deletion
   const [game] = await db

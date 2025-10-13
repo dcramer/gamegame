@@ -1,11 +1,12 @@
-import { auth } from "@/auth";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import { handleUpload } from "@/lib/uploads/server";
 import { captureException } from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const session = await auth();
-  if (!session?.user?.admin) {
+  try {
+    await requireAdmin();
+  } catch {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
