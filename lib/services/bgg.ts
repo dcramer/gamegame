@@ -6,27 +6,106 @@ import { bggGames } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { logger, logTiming } from "../logger";
 import { withRetry } from "../retry";
+import { kv } from "@vercel/kv";
+import { env } from "../env.mjs";
 
 // Re-export types for convenience
 export type { BGGSearchResult, BGGGameDetails };
 
-// Rate limiting queue
+/**
+ * Rate limiting queue for BGG API requests
+ * Uses Vercel KV as a distributed lock when available to ensure
+ * only one request happens every 5 seconds across all serverless instances.
+ * Falls back to in-memory rate limiting in development.
+ */
 class BGGRequestQueue {
-  private lastRequestTime: number = 0;
   private readonly MIN_DELAY = 5000; // 5 seconds as recommended by BGG
+  private readonly KV_KEY = "bgg:ratelimit";
+  private readonly MAX_WAIT = 30000; // 30 seconds max wait
+  private lastRequestTime: number = 0; // In-memory fallback
 
   async enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    // If KV is not available, fall back to simple in-memory rate limiting
+    if (!env.KV_REST_API_TOKEN) {
+      logger.debug("BGG rate limit: using in-memory mode (KV not available)");
+      return this.enqueueInMemory(fn);
+    }
+
+    // Use KV-based distributed locking
+    return this.enqueueDistributed(fn);
+  }
+
+  /**
+   * In-memory rate limiting (used when KV is unavailable)
+   * Only protects within a single serverless instance
+   */
+  private async enqueueInMemory<T>(fn: () => Promise<T>): Promise<T> {
     const now = Date.now();
     const timeSinceLastRequest = now - this.lastRequestTime;
 
     if (timeSinceLastRequest < this.MIN_DELAY) {
       const delay = this.MIN_DELAY - timeSinceLastRequest;
-      logger.debug({ delay, timeSinceLastRequest }, "BGG rate limit: delaying request");
+      logger.debug(
+        { delay, timeSinceLastRequest },
+        "BGG rate limit (in-memory): delaying request"
+      );
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
     this.lastRequestTime = Date.now();
     return fn();
+  }
+
+  /**
+   * KV-based distributed rate limiting
+   * Uses Redis SET NX with expiry to create a distributed lock
+   * that ensures only one request happens every 5 seconds across all instances
+   */
+  private async enqueueDistributed<T>(fn: () => Promise<T>): Promise<T> {
+    const startWait = Date.now();
+
+    // Try to acquire the lock
+    while (true) {
+      // Timeout check
+      if (Date.now() - startWait > this.MAX_WAIT) {
+        logger.error(
+          { waitTime: Date.now() - startWait },
+          "BGG rate limit: exceeded maximum wait time, falling back to in-memory"
+        );
+        return this.enqueueInMemory(fn);
+      }
+
+      try {
+        // Try to set a lock that expires in 5 seconds
+        // SET with NX (only set if not exists) and PX (expire milliseconds)
+        const wasSet = await kv.set(this.KV_KEY, Date.now(), {
+          nx: true, // Only set if key doesn't exist
+          px: this.MIN_DELAY, // Expire after 5 seconds
+        });
+
+        if (wasSet) {
+          // We got the lock! Make the request
+          logger.debug("BGG rate limit: acquired distributed lock");
+          try {
+            return await fn();
+          } finally {
+            // Lock will auto-expire after 5 seconds, no need to delete
+          }
+        }
+
+        // Lock exists, someone else is making a request
+        // Wait a bit and retry
+        const waitTime = Date.now() - startWait;
+        logger.debug({ waitTime }, "BGG rate limit: waiting for distributed lock");
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error) {
+        logger.error(
+          { err: error },
+          "BGG rate limit: KV error, falling back to in-memory"
+        );
+        return this.enqueueInMemory(fn);
+      }
+    }
   }
 }
 
