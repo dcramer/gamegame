@@ -11,6 +11,7 @@ import { upload } from "../uploads/server";
 import { createGame } from "./games";
 import { requireAdmin } from "../auth/require-admin";
 import { deleteImage } from "../services/images";
+import { logger } from "../logger";
 
 /**
  * Search BoardGameGeek for games
@@ -29,7 +30,7 @@ export async function searchBGG(
     // Takes 25+ seconds to fetch 5 thumbnails (5 second delay between each)
     return await searchBGGGames(query.trim(), { fetchThumbnails: false });
   } catch (error) {
-    console.error("[BGG] Search error:", error);
+    logger.error({ err: error, query }, "BGG search failed");
     throw new Error("Failed to search BoardGameGeek");
   }
 }
@@ -60,7 +61,7 @@ export async function fetchBGGGame(bggId: string): Promise<{
 
         imageUrl = blob.url;
       } catch (imageError) {
-        console.error("[BGG] Image processing error:", imageError);
+        logger.error({ err: imageError, bggId, imageUrl: details.imageUrl }, "BGG image processing failed");
         // Continue without image - user can upload manually
       }
     }
@@ -70,7 +71,7 @@ export async function fetchBGGGame(bggId: string): Promise<{
       imageUrl,
     };
   } catch (error) {
-    console.error("[BGG] Fetch game error:", error);
+    logger.error({ err: error, bggId }, "Failed to fetch game from BGG");
     throw new Error("Failed to fetch game from BoardGameGeek");
   }
 }
@@ -100,11 +101,11 @@ export async function createGameFromBGG(bggId: string) {
     // Clean up uploaded image blob if game creation failed
     if (uploadedImageUrl) {
       await deleteImage(uploadedImageUrl).catch((cleanupError) => {
-        console.error('[createGameFromBGG] Failed to cleanup image blob after error:', cleanupError);
+        logger.error({ err: cleanupError, imageUrl: uploadedImageUrl }, "Failed to cleanup image blob after error");
       });
     }
 
-    console.error("[BGG] Create game from BGG error:", error);
+    logger.error({ err: error, bggId }, "Failed to create game from BGG");
 
     // Check if it's a duplicate name error
     if (error instanceof Error && error.message.includes("unique constraint")) {

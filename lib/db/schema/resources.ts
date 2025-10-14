@@ -46,7 +46,8 @@ export const resources = pgTable(
       .default(sql`now()`),
     updatedAt: timestamp("updated_at")
       .notNull()
-      .default(sql`now()`),
+      .default(sql`now()`)
+      .$onUpdate(() => new Date()),
     processedAt: timestamp("processed_at"),
   },
   (table) => ({

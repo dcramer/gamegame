@@ -23,6 +23,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { env } from "../env.mjs";
 import type { PDFImage } from "../types/pdf";
+import { logger, logTiming } from "../logger";
 
 /**
  * Fetch file content, handling both absolute URLs and relative paths
@@ -52,8 +53,13 @@ export const createResource = async (input: {
   name: string;
   url: string;
 }) => {
-  const startTime = performance.now();
-  console.log(`[Resource Processing] Starting: "${input.name}" (gameId: ${input.gameId})`);
+  const endTimer = logTiming("resource-processing");
+  const log = logger.child({
+    operation: "createResource",
+    resourceName: input.name,
+    gameId: input.gameId
+  });
+  log.info("Starting resource processing");
 
   await requireAdmin();
 
@@ -153,14 +159,13 @@ export const createResource = async (input: {
 
   const [newResource, fragmentCount] = resource;
 
-  const elapsedTime = ((performance.now() - startTime) / 1000).toFixed(2);
-
-  console.log(
-    `[Resource Processing] Completed: "${input.name}" - ` +
-    `${fragmentCount} fragments, ${newResource.pageCount || 0} pages, ` +
-    `${newResource.imageCount || 0} images, ${newResource.wordCount || 0} words ` +
-    `(${elapsedTime}s)`
-  );
+  endTimer({
+    fragmentCount,
+    pageCount: newResource.pageCount || 0,
+    imageCount: newResource.imageCount || 0,
+    wordCount: newResource.wordCount || 0,
+    success: true,
+  });
 
   return {
     id: newResource.id,
@@ -291,6 +296,11 @@ export const updateResource = async (
 ) => {
   await requireAdmin();
 
+  const log = logger.child({
+    operation: "updateResource",
+    resourceId,
+  });
+
   const [resource] = await db
     .select({
       id: resources.id,
@@ -308,8 +318,11 @@ export const updateResource = async (
 
   // If content is being updated, regenerate embeddings
   if (input.content && input.content !== resource.content) {
+    log.info("Regenerating embeddings for content update");
+    const endTimer = logTiming("resource-content-update");
+
     const updatedContent = input.content; // TypeScript narrowing
-    const newResource = await db.transaction(async (tx) => {
+    const [newResource, fragmentCount] = await db.transaction(async (tx) => {
       // Set transaction timeout to prevent long-running locks
       await tx.execute(sql`SET LOCAL statement_timeout = '60s'`);
 
@@ -343,13 +356,19 @@ export const updateResource = async (
         }))
       );
 
-      return newResource;
+      return [newResource, embeddings.length] as const;
+    });
+
+    endTimer({
+      fragmentCount,
+      success: true,
     });
 
     return newResource;
   }
 
   // Otherwise, just update the name (no need to regenerate embeddings)
+  log.info("Updating resource metadata (no content change)");
   const [updatedResource] = await db
     .update(resources)
     .set(parsedInput)
@@ -369,6 +388,11 @@ export const updateResource = async (
 export const deleteResource = async (resourceId: string) => {
   await requireAdmin();
 
+  const log = logger.child({
+    operation: "deleteResource",
+    resourceId,
+  });
+
   // Get all attachments for this resource to find blob URLs before deletion
   const resourceAttachments = await db
     .select({ url: attachments.url })
@@ -384,11 +408,12 @@ export const deleteResource = async (resourceId: string) => {
   if (resourceAttachments.length > 0) {
     const blobUrls = resourceAttachments.map((a) => a.url);
     await deleteImages(blobUrls).catch((cleanupError) => {
-      console.error('[deleteResource] Failed to cleanup blobs:', cleanupError);
+      log.error({ err: cleanupError, blobCount: blobUrls.length }, "Failed to cleanup blobs");
       // Don't fail the operation if blob cleanup fails
     });
   }
 
+  log.info({ attachmentCount: resourceAttachments.length }, "Resource deleted");
   return {};
 };
 
@@ -404,8 +429,14 @@ export const reprocessResource = async (resourceId: string) => {
     throw new Error("Resource not found");
   }
 
-  const startTime = performance.now();
-  console.log(`[Resource Reprocessing] Starting: "${resource.name}" (resourceId: ${resourceId})`);
+  const endTimer = logTiming("resource-reprocessing");
+  const log = logger.child({
+    operation: "reprocessResource",
+    resourceId,
+    resourceName: resource.name,
+    gameId: resource.gameId,
+  });
+  log.info("Starting resource reprocessing");
 
   const mimeType = mime.getType(resource.name);
 
@@ -505,18 +536,18 @@ export const reprocessResource = async (resourceId: string) => {
   if (oldAttachments.length > 0) {
     const oldBlobUrls = oldAttachments.map((a) => a.url);
     await deleteImages(oldBlobUrls).catch((cleanupError) => {
-      console.error('[Reprocess] Failed to cleanup old blobs:', cleanupError);
+      log.error({ err: cleanupError }, "Failed to cleanup old blobs");
       // Don't fail the operation if cleanup fails
     });
   }
 
-  const elapsedTime = ((performance.now() - startTime) / 1000).toFixed(2);
-  console.log(
-    `[Resource Reprocessing] Completed: "${newResource.name}" - ` +
-    `${embeddingCount} fragments, ${newResource.pageCount || 0} pages, ` +
-    `${newResource.imageCount || 0} images, ${newResource.wordCount || 0} words ` +
-    `(${elapsedTime}s)`
-  );
+  endTimer({
+    fragmentCount: embeddingCount,
+    pageCount: newResource.pageCount || 0,
+    imageCount: newResource.imageCount || 0,
+    wordCount: newResource.wordCount || 0,
+    success: true,
+  });
 
   return {
     id: newResource.id,

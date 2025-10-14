@@ -1,6 +1,7 @@
 import { kv } from "@vercel/kv";
 import { type Duration, Ratelimit } from "@upstash/ratelimit";
 import { env } from "@/lib/env.mjs";
+import { logger } from "@/lib/logger";
 
 export class FauxRateLimiter {
   limit() {
@@ -14,8 +15,9 @@ export class FauxRateLimiter {
 
 export function getRateLimiter(tokens: number, window: Duration) {
   if (!env.KV_REST_API_TOKEN) {
-    console.warn(
-      "No KV_REST_API_TOKEN found, no rate limits will be enforced."
+    logger.warn(
+      { tokens, window },
+      "No KV_REST_API_TOKEN found, rate limiting disabled (FauxRateLimiter in use)"
     );
     return new FauxRateLimiter();
   }

@@ -7,6 +7,8 @@ import type {
   PDFSection,
 } from "./types/pdf";
 import { cleanupMarkdownBatch } from "./services/markdown-cleanup";
+import { logger, logTiming } from "./logger";
+import { withRetry } from "./retry";
 
 /**
  * Replace inline image markdown with custom syntax for database lookup
@@ -81,7 +83,7 @@ export function replaceImageReferences(
     }
 
     // If no match found, log warning and keep original
-    console.warn(`No matching attachment found for reference: ${url}`);
+    logger.warn({ url, alt }, "No matching attachment found for image reference");
     return fullMatch;
   });
 
@@ -137,6 +139,13 @@ export function parseMarkdownHeadings(
 export const extractTextFromPdf = async (
   buf: Buffer
 ): Promise<PDFExtractionResult> => {
+  const endTimer = logTiming("pdf-extraction");
+  const log = logger.child({
+    operation: "extractTextFromPdf",
+    bufferSize: buf.length,
+  });
+  log.info("Starting PDF extraction with Mistral OCR");
+
   if (!env.MISTRAL_API_KEY) {
     throw new Error(
       "MISTRAL_API_KEY environment variable is required for PDF extraction with Mistral OCR"
@@ -151,14 +160,27 @@ export const extractTextFromPdf = async (
 
   const base64 = buf.toString("base64");
 
-  const result = await client.ocr.process({
-    model: "mistral-ocr-latest",
-    document: {
-      type: "document_url",
-      documentUrl: `data:application/pdf;base64,${base64}`,
-    },
-    includeImageBase64: true, // Extract images for storage
-  });
+  log.debug("Calling Mistral OCR API");
+  const ocrStartTime = Date.now();
+  const result = await withRetry(
+    () =>
+      client.ocr.process({
+        model: "mistral-ocr-latest",
+        document: {
+          type: "document_url",
+          documentUrl: `data:application/pdf;base64,${base64}`,
+        },
+        includeImageBase64: true, // Extract images for storage
+      }),
+    {
+      operationName: "mistral-ocr",
+      maxRetries: 3,
+      initialDelay: 2000, // Mistral may need more time
+      maxDelay: 10000,
+    }
+  );
+  const ocrDuration = Date.now() - ocrStartTime;
+  log.info({ ocrDuration, pageCount: result.pages.length }, "Mistral OCR completed");
 
   // Step 1: Prepare all pages with raw markdown for cleanup
   const rawPages = result.pages.map((page) => ({
@@ -169,11 +191,19 @@ export const extractTextFromPdf = async (
   }));
 
   // Step 2: Batch cleanup all markdown to remove tables of contents, headers, etc.
+  log.debug("Starting markdown cleanup");
+  const cleanupStartTime = Date.now();
   const cleanedMarkdownArray = await cleanupMarkdownBatch(
     rawPages.map((p) => ({ markdown: p.markdown, pageNumber: p.pageNumber }))
   );
+  const cleanupDuration = Date.now() - cleanupStartTime;
+  log.info({ cleanupDuration }, "Markdown cleanup completed");
 
   // Step 3: Process each page with cleaned markdown
+  log.debug("Processing pages with cleaned markdown");
+  let totalImages = 0;
+  let totalSections = 0;
+
   const pages: PDFPage[] = rawPages.map((rawPage, index) => {
     const pageNumber = rawPage.pageNumber;
     const cleanedMarkdown = cleanedMarkdownArray[index];
@@ -188,12 +218,14 @@ export const extractTextFromPdf = async (
         pageNumber,
       })
     );
+    totalImages += images.length;
 
     // Replace image references in cleaned markdown with custom syntax
     const processedMarkdown = replaceImageReferences(cleanedMarkdown, images);
 
     // Parse sections from processed markdown
     const sections = parseMarkdownHeadings(processedMarkdown, pageNumber);
+    totalSections += sections.length;
 
     return {
       pageNumber,
@@ -219,6 +251,18 @@ export const extractTextFromPdf = async (
   const markdown = pages
     .map((page) => `<!-- Page ${page.pageNumber} -->\n${page.markdown}`)
     .join("\n\n");
+
+  const wordCount = markdown.split(/\s+/).filter(Boolean).length;
+
+  endTimer({
+    pageCount: pages.length,
+    imageCount: totalImages,
+    sectionCount: totalSections,
+    wordCount,
+    ocrDuration,
+    cleanupDuration,
+    success: true,
+  });
 
   return {
     text: markdown,

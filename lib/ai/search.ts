@@ -6,6 +6,7 @@ import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { fragments, resources } from "../db/schema";
 import type { StructuredPDFContent, PDFChunk } from "../types/pdf";
 import { chunkStructuredPDF } from "../services/chunking";
+import { withRetry } from "../retry";
 
 const splitter = RecursiveCharacterTextSplitter.fromLanguage("markdown", {
   chunkSize: 1000,
@@ -77,10 +78,18 @@ export const generateEmbeddings = async (
   }
 
   // Generate embeddings for all chunks
-  const { embeddings } = await embedMany({
-    model: embeddingModel,
-    values: validChunks.map((c) => c.content),
-  });
+  const { embeddings } = await withRetry(
+    () =>
+      embedMany({
+        model: embeddingModel,
+        values: validChunks.map((c) => c.content),
+      }),
+    {
+      operationName: "openai-embedMany",
+      maxRetries: 3,
+      initialDelay: 1000,
+    }
+  );
 
   // Verify embeddings match chunks (defensive check)
   if (embeddings.length !== validChunks.length) {
@@ -116,10 +125,18 @@ export const generateEmbedding = async (
   value: string
 ): Promise<[number[], number]> => {
   const input = value.replaceAll("\n", " ");
-  const { embedding } = await embed({
-    model: embeddingModel,
-    value: input,
-  });
+  const { embedding } = await withRetry(
+    () =>
+      embed({
+        model: embeddingModel,
+        value: input,
+      }),
+    {
+      operationName: "openai-embed",
+      maxRetries: 3,
+      initialDelay: 1000,
+    }
+  );
 
   // Validate embedding dimensions (must be 1536 for text-embedding-3-small)
   const expectedDimensions = 1536;
@@ -134,7 +151,11 @@ export const generateEmbedding = async (
 
 export const findRelevantContent = async (
   gameId: string,
-  userQuery: string
+  userQuery: string,
+  options?: {
+    limit?: number;
+    offset?: number;
+  }
 ): Promise<
   Array<{
     resourceId: string;
@@ -152,7 +173,10 @@ export const findRelevantContent = async (
 > => {
   const [userQueryEmbedding] = await generateEmbedding(userQuery);
 
-  const matchCount = 10;
+  const limit = options?.limit ?? 10;
+  const offset = options?.offset ?? 0;
+  // Fetch enough candidates for RRF fusion (need more than limit+offset since fusion reduces results)
+  const candidateCount = (limit + offset) * 2;
   const rrfK = 50; // we might put this into schema later, so just placeholder
   const fullTextWeight = 1;
   const semanticWeight = 1;
@@ -184,7 +208,7 @@ export const findRelevantContent = async (
         ${fragments.searchVector} @@ websearch_to_tsquery(${userQuery})
         and ${fragments.gameId} = ${gameId}
       order by rank_ix
-      limit ${matchCount} * 2
+      limit ${candidateCount}
     ),
     semantic as (
       select
@@ -198,7 +222,7 @@ export const findRelevantContent = async (
       where
         ${fragments.gameId} = ${gameId}
       order by rank_ix
-      limit ${matchCount} * 2
+      limit ${candidateCount}
     )
     select
       ${resources.id} as resource_id,
@@ -219,7 +243,8 @@ export const findRelevantContent = async (
       coalesce(1.0 / (${rrfK} + full_text.rank_ix), 0.0) * ${fullTextWeight} +
       coalesce(1.0 / (${rrfK} + semantic.rank_ix), 0.0) * ${semanticWeight}
       desc
-    limit ${matchCount}
+    limit ${limit}
+    offset ${offset}
   `);
 
   return matchingContent.rows.map((i) => ({

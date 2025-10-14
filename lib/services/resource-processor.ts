@@ -1,5 +1,3 @@
-"use server";
-
 import type { PDFImage, StructuredPDFContent } from "../types/pdf";
 import {
   uploadPDFImageToBlob,
@@ -9,6 +7,8 @@ import {
 import { generateEmbeddings } from "../ai/search";
 import { db } from "../db";
 import { fragments as fragmentsTable } from "../db/schema/fragments";
+import { env } from "../env.mjs";
+import { logger } from "../logger";
 
 /**
  * Type-safe transaction type extracted from the database instance
@@ -143,6 +143,7 @@ export async function processAttachments(
 
 /**
  * Insert fragments in batches to avoid timeouts
+ * Batch size is configurable via FRAGMENT_BATCH_SIZE env var (default: 100)
  */
 export async function insertFragments(
   embeddings: Array<{
@@ -158,10 +159,26 @@ export async function insertFragments(
   version: number,
   tx: DbTransaction
 ): Promise<void> {
-  const BATCH_SIZE = 100;
+  const BATCH_SIZE = env.FRAGMENT_BATCH_SIZE;
+  const log = logger.child({
+    operation: "insertFragments",
+    totalEmbeddings: embeddings.length,
+    batchSize: BATCH_SIZE,
+    resourceId,
+  });
+
+  log.debug("Starting batch fragment insertion");
 
   for (let i = 0; i < embeddings.length; i += BATCH_SIZE) {
     const batch = embeddings.slice(i, i + BATCH_SIZE);
+    const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+    const totalBatches = Math.ceil(embeddings.length / BATCH_SIZE);
+
+    log.debug(
+      { batchNumber, totalBatches, batchLength: batch.length },
+      `Inserting batch ${batchNumber}/${totalBatches}`
+    );
+
     await tx.insert(fragmentsTable).values(
       batch.map((embedding) => ({
         gameId,
@@ -176,6 +193,8 @@ export async function insertFragments(
       }))
     );
   }
+
+  log.info({ totalEmbeddings: embeddings.length }, "Fragment insertion completed");
 }
 
 /**
@@ -234,8 +253,19 @@ export async function cleanupBlobsOnError(
 ): Promise<void> {
   if (uploadedBlobs.length === 0) return;
 
+  const log = logger.child({
+    operation: "cleanupBlobsOnError",
+    context,
+    blobCount: uploadedBlobs.length,
+  });
+
   const blobUrls = uploadedBlobs.map((b) => b.url);
+  log.info("Cleaning up orphaned blobs after error");
+
   await deleteImages(blobUrls).catch((cleanupError) => {
-    console.error(`[${context}] Failed to cleanup blobs after transaction failure:`, cleanupError);
+    log.error(
+      { err: cleanupError },
+      "Failed to cleanup blobs after transaction failure"
+    );
   });
 }

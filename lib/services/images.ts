@@ -6,15 +6,19 @@ import type { PDFImage } from "../types/pdf";
 import { db } from "../db";
 import { attachments } from "../db/schema/attachments";
 import { eq } from "drizzle-orm";
+import { logger } from "../logger";
 
 /**
  * Detect image format from buffer magic bytes
+ * @throws Error if format is unrecognized or buffer is invalid
  */
 export function detectImageFormat(buffer: Buffer): { extension: string; mimeType: string } {
-  // Ensure buffer has enough bytes to check
+  // Ensure buffer has enough bytes to check magic bytes
   if (buffer.length < 4) {
-    // For very small buffers, default to JPEG
-    return { extension: 'jpeg', mimeType: 'image/jpeg' };
+    throw new Error(
+      `Invalid image buffer: too small (${buffer.length} bytes). ` +
+      `Minimum 4 bytes required for format detection.`
+    );
   }
 
   // Check magic bytes for common image formats
@@ -30,8 +34,16 @@ export function detectImageFormat(buffer: Buffer): { extension: string; mimeType
   if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46) {
     return { extension: 'webp', mimeType: 'image/webp' };
   }
-  // Default to JPEG (most common from Mistral OCR)
-  return { extension: 'jpeg', mimeType: 'image/jpeg' };
+
+  // Unrecognized format - throw error instead of guessing
+  const magicBytes = Array.from(buffer.slice(0, 4))
+    .map(b => `0x${b.toString(16).toUpperCase().padStart(2, '0')}`)
+    .join(' ');
+
+  throw new Error(
+    `Unrecognized image format. Magic bytes: ${magicBytes}. ` +
+    `Supported formats: JPEG, PNG, GIF, WebP.`
+  );
 }
 
 /**
@@ -44,6 +56,13 @@ export async function uploadPDFImageToBlob(
   resourceId: string,
   tempId: string
 ): Promise<{ url: string; mimeType: string; buffer: Buffer }> {
+  const log = logger.child({
+    operation: "uploadPDFImageToBlob",
+    resourceId,
+    tempId,
+    pageNumber: image.pageNumber,
+  });
+
   if (!image.base64) {
     throw new Error("Image must have base64 data to be stored");
   }
@@ -60,12 +79,14 @@ export async function uploadPDFImageToBlob(
 
   // Detect actual image format from buffer
   const { extension, mimeType } = detectImageFormat(buffer);
+  log.debug({ extension, mimeType, size: buffer.length }, "Image format detected");
 
   // Use temp ID for filename (will be replaced with DB ID later)
   const filename = `resources/${resourceId}/attachments/${tempId}.${extension}`;
 
   // Upload to blob storage
   const { url } = await upload(filename, buffer);
+  log.debug({ url, size: buffer.length }, "Image uploaded to blob storage");
 
   return { url, mimeType, buffer };
 }
@@ -116,6 +137,12 @@ export async function createAttachmentRecord(
  * @param url The URL of the image to delete
  */
 export async function deleteImage(url: string): Promise<void> {
+  const log = logger.child({
+    operation: "deleteImage",
+    url,
+    isProduction: !!env.BLOB_READ_WRITE_TOKEN,
+  });
+
   if (!env.BLOB_READ_WRITE_TOKEN) {
     // Local development: delete from public/uploads
     try {
@@ -140,16 +167,18 @@ export async function deleteImage(url: string): Promise<void> {
 
       const filePath = path.join("public/uploads", filename);
       await unlink(filePath);
+      log.debug({ filePath }, "Local image file deleted");
     } catch (error) {
-      console.error(`[deleteImage] Failed to delete local file ${url}:`, error);
+      log.error({ err: error }, "Failed to delete local image file");
     }
   } else {
     // Production: use Vercel Blob del()
     try {
       const { del } = await import("@vercel/blob");
       await del(url);
+      log.debug("Blob image deleted");
     } catch (error) {
-      console.error(`[deleteImage] Failed to delete blob ${url}:`, error);
+      log.error({ err: error }, "Failed to delete blob image");
     }
   }
 }
@@ -161,7 +190,15 @@ export async function deleteImage(url: string): Promise<void> {
 export async function deleteImages(urls: string[]): Promise<void> {
   if (urls.length === 0) return;
 
+  const log = logger.child({
+    operation: "deleteImages",
+    count: urls.length,
+  });
+  log.info("Deleting multiple images");
+
   await Promise.all(urls.map((url) => deleteImage(url)));
+
+  log.info({ count: urls.length }, "Batch image deletion completed");
 }
 
 /**
@@ -189,7 +226,15 @@ export async function deleteResourceImages(
     }
   }
 
+  const log = logger.child({
+    operation: "deleteResourceImages",
+    imageCount: imageUrls.size,
+  });
+
   if (imageUrls.size > 0) {
+    log.info("Deleting resource images");
     await deleteImages(Array.from(imageUrls));
+  } else {
+    log.debug("No resource images to delete");
   }
 }

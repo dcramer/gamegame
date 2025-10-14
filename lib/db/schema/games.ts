@@ -17,7 +17,8 @@ export const games = pgTable("game", {
     .default(sql`now()`),
   updatedAt: timestamp("updated_at")
     .notNull()
-    .default(sql`now()`),
+    .default(sql`now()`)
+    .$onUpdate(() => new Date()),
 });
 
 export const insertGameSchema = createSelectSchema(games)

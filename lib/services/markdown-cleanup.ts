@@ -2,6 +2,7 @@
 
 import { openai } from "@ai-sdk/openai";
 import { generateText } from "ai";
+import { logger } from "../logger";
 
 /**
  * Clean up markdown content using an LLM to remove unusable sections
@@ -57,15 +58,21 @@ OUTPUT FORMAT:
     // Safety check: if the LLM removed too much content (>80% reduction),
     // return original to avoid data loss
     if (cleaned.length > 0 && cleaned.length < markdown.length * 0.2) {
-      console.warn(
-        `Cleanup removed >80% of content on page ${pageNumber}, using original`
+      logger.warn(
+        {
+          pageNumber,
+          originalLength: markdown.length,
+          cleanedLength: cleaned.length,
+          reductionPercent: Math.round((1 - cleaned.length / markdown.length) * 100),
+        },
+        "Markdown cleanup removed >80% of content, using original"
       );
       return markdown;
     }
 
     return cleaned;
   } catch (error) {
-    console.error(`Failed to cleanup markdown for page ${pageNumber}:`, error);
+    logger.error({ err: error, pageNumber }, "Failed to cleanup markdown, using original");
     // On error, return original markdown rather than failing the entire extraction
     return markdown;
   }

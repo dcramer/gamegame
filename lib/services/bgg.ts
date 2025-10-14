@@ -4,6 +4,8 @@ import type { BGGSearchResult, BGGGameDetails } from "../types/bgg";
 import { db } from "../db";
 import { bggGames } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
+import { logger, logTiming } from "../logger";
+import { withRetry } from "../retry";
 
 // Re-export types for convenience
 export type { BGGSearchResult, BGGGameDetails };
@@ -19,6 +21,7 @@ class BGGRequestQueue {
 
     if (timeSinceLastRequest < this.MIN_DELAY) {
       const delay = this.MIN_DELAY - timeSinceLastRequest;
+      logger.debug({ delay, timeSinceLastRequest }, "BGG rate limit: delaying request");
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
@@ -49,46 +52,67 @@ export async function searchBGGGames(
     maxResults?: number; // Default 10
   } = {}
 ): Promise<BGGSearchResult[]> {
+  const endTimer = logTiming("bgg-search");
+  const log = logger.child({
+    operation: "searchBGGGames",
+    query,
+    fetchThumbnails: options.fetchThumbnails,
+    maxResults: options.maxResults,
+  });
+  log.info("Searching BGG for games");
+
   const { fetchThumbnails = true, maxResults = 10 } = options;
 
   const results = await requestQueue.enqueue(async () => {
-    const url = new URL("https://boardgamegeek.com/xmlapi2/search");
-    url.searchParams.set("query", query);
-    url.searchParams.set("type", "boardgame,boardgameexpansion");
+    return await withRetry(
+      async () => {
+        const url = new URL("https://boardgamegeek.com/xmlapi2/search");
+        url.searchParams.set("query", query);
+        url.searchParams.set("type", "boardgame,boardgameexpansion");
 
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error(`BGG API error: ${response.statusText}`);
-    }
+        const response = await fetch(url.toString());
+        if (!response.ok) {
+          throw new Error(`BGG API error: ${response.statusText}`);
+        }
 
-    const xml = await response.text();
-    const parser = new XMLParser({
-      ignoreAttributes: false,
-      attributeNamePrefix: "@_",
-    });
-    const parsed = parser.parse(xml);
+        const xml = await response.text();
+        const parser = new XMLParser({
+          ignoreAttributes: false,
+          attributeNamePrefix: "@_",
+        });
+        const parsed = parser.parse(xml);
 
-    // Handle case where no results found
-    if (!parsed.items || !parsed.items.item) {
-      return [];
-    }
+        // Handle case where no results found
+        if (!parsed.items || !parsed.items.item) {
+          return [];
+        }
 
-    // Ensure items.item is always an array
-    const items = Array.isArray(parsed.items.item)
-      ? parsed.items.item
-      : [parsed.items.item];
+        // Ensure items.item is always an array
+        const items = Array.isArray(parsed.items.item)
+          ? parsed.items.item
+          : [parsed.items.item];
 
-    return items.slice(0, maxResults).map((item: any) => ({
-      id: item["@_id"],
-      name: item.name?.["@_value"] || item.name,
-      yearPublished: parseIntSafe(item.yearpublished?.["@_value"]),
-      type: item["@_type"] as "boardgame" | "boardgameexpansion",
-    }));
+        return items.slice(0, maxResults).map((item: any) => ({
+          id: item["@_id"],
+          name: item.name?.["@_value"] || item.name,
+          yearPublished: parseIntSafe(item.yearpublished?.["@_value"]),
+          type: item["@_type"] as "boardgame" | "boardgameexpansion",
+        }));
+      },
+      {
+        operationName: "bgg-search",
+        maxRetries: 2, // BGG is rate-limited, fewer retries
+        initialDelay: 3000,
+      }
+    );
   });
+
+  log.info({ resultCount: results.length }, "BGG search completed");
 
   // Fetch thumbnails for top results to help with disambiguation
   if (fetchThumbnails && results.length > 0) {
     const topResults = results.slice(0, Math.min(5, results.length));
+    log.debug({ thumbnailCount: topResults.length }, "Fetching thumbnails for top results");
 
     // Fetch thumbnails for top results
     for (const result of topResults) {
@@ -108,12 +132,13 @@ export async function searchBGGGames(
           result.thumbnailUrl = details.thumbnailUrl;
         }
       } catch (error) {
-        console.error(`[BGG] Failed to fetch thumbnail for ${result.id}:`, error);
+        log.error({ err: error, bggId: result.id }, "Failed to fetch thumbnail");
         // Continue without thumbnail
       }
     }
   }
 
+  endTimer({ resultCount: results.length, success: true });
   return results;
 }
 
@@ -124,6 +149,11 @@ export async function searchBGGGames(
 export async function getBGGGameDetails(
   bggId: string
 ): Promise<BGGGameDetails> {
+  const log = logger.child({
+    operation: "getBGGGameDetails",
+    bggId,
+  });
+
   // Check database cache first
   const cachedGame = await db
     .select()
@@ -132,6 +162,7 @@ export async function getBGGGameDetails(
     .limit(1);
 
   if (cachedGame.length > 0) {
+    log.debug("BGG game found in database cache");
     const game = cachedGame[0];
     return {
       id: game.bggId,
@@ -148,80 +179,91 @@ export async function getBGGGameDetails(
     };
   }
 
+  log.info("BGG game not in cache, fetching from API");
+
   const details = await requestQueue.enqueue(async () => {
-    const url = new URL("https://boardgamegeek.com/xmlapi2/thing");
-    url.searchParams.set("id", bggId);
-    url.searchParams.set("stats", "1");
+    return await withRetry(
+      async () => {
+        const url = new URL("https://boardgamegeek.com/xmlapi2/thing");
+        url.searchParams.set("id", bggId);
+        url.searchParams.set("stats", "1");
 
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error(`BGG API error: ${response.statusText}`);
-    }
+        const response = await fetch(url.toString());
+        if (!response.ok) {
+          throw new Error(`BGG API error: ${response.statusText}`);
+        }
 
-    const xml = await response.text();
-    const parser = new XMLParser({
-      ignoreAttributes: false,
-      attributeNamePrefix: "@_",
-    });
-    const parsed = parser.parse(xml);
+        const xml = await response.text();
+        const parser = new XMLParser({
+          ignoreAttributes: false,
+          attributeNamePrefix: "@_",
+        });
+        const parsed = parser.parse(xml);
 
-    const item = parsed.items.item;
+        const item = parsed.items.item;
 
-    // Extract name (prefer primary name)
-    const names = Array.isArray(item.name) ? item.name : [item.name];
-    const primaryName = names.find((n: any) => n["@_type"] === "primary");
-    const name = primaryName?.["@_value"] || names[0]?.["@_value"] || "Unknown";
+        // Extract name (prefer primary name)
+        const names = Array.isArray(item.name) ? item.name : [item.name];
+        const primaryName = names.find((n: any) => n["@_type"] === "primary");
+        const name = primaryName?.["@_value"] || names[0]?.["@_value"] || "Unknown";
 
-    // Extract description
-    const description = item.description || "";
+        // Extract description
+        const description = item.description || "";
 
-    // Extract year
-    const yearPublished = parseIntSafe(item.yearpublished?.["@_value"]);
+        // Extract year
+        const yearPublished = parseIntSafe(item.yearpublished?.["@_value"]);
 
-    // Extract player counts
-    const minPlayers = parseIntSafe(item.minplayers?.["@_value"]);
-    const maxPlayers = parseIntSafe(item.maxplayers?.["@_value"]);
+        // Extract player counts
+        const minPlayers = parseIntSafe(item.minplayers?.["@_value"]);
+        const maxPlayers = parseIntSafe(item.maxplayers?.["@_value"]);
 
-    // Extract playing time
-    const playingTime = parseIntSafe(item.playingtime?.["@_value"]);
+        // Extract playing time
+        const playingTime = parseIntSafe(item.playingtime?.["@_value"]);
 
-    // Extract images (handle // prefix)
-    let imageUrl = item.image || null;
-    if (imageUrl && imageUrl.startsWith("//")) {
-      imageUrl = `https:${imageUrl}`;
-    }
+        // Extract images (handle // prefix)
+        let imageUrl = item.image || null;
+        if (imageUrl && imageUrl.startsWith("//")) {
+          imageUrl = `https:${imageUrl}`;
+        }
 
-    let thumbnailUrl = item.thumbnail || null;
-    if (thumbnailUrl && thumbnailUrl.startsWith("//")) {
-      thumbnailUrl = `https:${thumbnailUrl}`;
-    }
+        let thumbnailUrl = item.thumbnail || null;
+        if (thumbnailUrl && thumbnailUrl.startsWith("//")) {
+          thumbnailUrl = `https:${thumbnailUrl}`;
+        }
 
-    // Extract publishers
-    const links = Array.isArray(item.link) ? item.link : item.link ? [item.link] : [];
-    const publishers = links
-      .filter((link: any) => link["@_type"] === "boardgamepublisher")
-      .map((link: any) => link["@_value"])
-      .slice(0, 5); // Limit to 5 publishers
+        // Extract publishers
+        const links = Array.isArray(item.link) ? item.link : item.link ? [item.link] : [];
+        const publishers = links
+          .filter((link: any) => link["@_type"] === "boardgamepublisher")
+          .map((link: any) => link["@_value"])
+          .slice(0, 5); // Limit to 5 publishers
 
-    // Extract designers
-    const designers = links
-      .filter((link: any) => link["@_type"] === "boardgamedesigner")
-      .map((link: any) => link["@_value"])
-      .slice(0, 5); // Limit to 5 designers
+        // Extract designers
+        const designers = links
+          .filter((link: any) => link["@_type"] === "boardgamedesigner")
+          .map((link: any) => link["@_value"])
+          .slice(0, 5); // Limit to 5 designers
 
-    return {
-      id: bggId,
-      name,
-      description,
-      yearPublished,
-      minPlayers,
-      maxPlayers,
-      playingTime,
-      imageUrl,
-      thumbnailUrl,
-      publishers,
-      designers,
-    };
+        return {
+          id: bggId,
+          name,
+          description,
+          yearPublished,
+          minPlayers,
+          maxPlayers,
+          playingTime,
+          imageUrl,
+          thumbnailUrl,
+          publishers,
+          designers,
+        };
+      },
+      {
+        operationName: "bgg-game-details",
+        maxRetries: 2, // BGG is rate-limited, fewer retries
+        initialDelay: 3000,
+      }
+    );
   });
 
   // Save to database cache for future lookups
@@ -258,11 +300,13 @@ export async function getBGGGameDetails(
           cachedAt: sql`now()`,
         },
       });
+    log.debug("BGG game cached to database");
   } catch (error) {
-    console.error(`[BGG] Failed to cache game ${bggId}:`, error);
+    log.error({ err: error }, "Failed to cache BGG game to database");
     // Continue even if caching fails
   }
 
+  log.info({ name: details.name }, "BGG game details fetched successfully");
   return details;
 }
 
@@ -277,6 +321,14 @@ export async function downloadAndConvertImage(
     quality?: number;
   } = {}
 ): Promise<Buffer> {
+  const endTimer = logTiming("bgg-image-download");
+  const log = logger.child({
+    operation: "downloadAndConvertImage",
+    sourceUrl,
+    options,
+  });
+  log.info("Downloading and converting BGG image");
+
   const {
     width = 900,
     height = 600,
@@ -284,15 +336,27 @@ export async function downloadAndConvertImage(
   } = options;
 
   // Download the image
-  const response = await fetch(sourceUrl);
-  if (!response.ok) {
-    throw new Error(`Failed to download image: ${response.statusText}`);
-  }
+  log.debug("Fetching image from source URL");
+  const buffer = await withRetry(
+    async () => {
+      const response = await fetch(sourceUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to download image: ${response.statusText}`);
+      }
 
-  const arrayBuffer = await response.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+      const arrayBuffer = await response.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    },
+    {
+      operationName: "bgg-image-fetch",
+      maxRetries: 3,
+      initialDelay: 1000,
+    }
+  );
+  log.debug({ originalSize: buffer.length }, "Image downloaded");
 
   // Process with sharp: resize and convert to WebP
+  log.debug("Converting image to WebP");
   const processed = await sharp(buffer)
     .resize(width, height, {
       fit: "cover", // Crop to fit aspect ratio
@@ -300,6 +364,12 @@ export async function downloadAndConvertImage(
     })
     .webp({ quality })
     .toBuffer();
+
+  endTimer({
+    originalSize: buffer.length,
+    processedSize: processed.length,
+    success: true,
+  });
 
   return processed;
 }

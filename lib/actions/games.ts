@@ -7,6 +7,7 @@ import { resources } from "../db/schema/resources";
 import { attachments } from "../db/schema/attachments";
 import { requireAdmin } from "../auth/require-admin";
 import { deleteImage, deleteImages } from "../services/images";
+import { logger } from "../logger";
 
 export const getGame = async (input: string) => {
   const [game] = await db
@@ -121,7 +122,7 @@ export const updateGame = async (
   // Clean up old image blob if imageUrl changed (best effort)
   if (isImageChanging && oldImageUrl) {
     await deleteImage(oldImageUrl).catch((cleanupError) => {
-      console.error('[updateGame] Failed to cleanup old image blob:', cleanupError);
+      logger.error({ err: cleanupError, gameId, oldImageUrl }, "Failed to cleanup old image blob");
       // Don't fail the operation if blob cleanup fails
     });
   }
@@ -164,7 +165,7 @@ export const deleteGame = async (gameId: string) => {
 
   if (blobUrls.length > 0) {
     await deleteImages(blobUrls).catch((cleanupError) => {
-      console.error('[deleteGame] Failed to cleanup blobs:', cleanupError);
+      logger.error({ err: cleanupError, gameId, blobCount: blobUrls.length }, "Failed to cleanup game blobs");
       // Don't fail the operation if blob cleanup fails
     });
   }
