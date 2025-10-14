@@ -89,6 +89,16 @@ export const generateEmbeddings = async (
     );
   }
 
+  // Validate embedding dimensions (must be 1536 for text-embedding-3-small)
+  const expectedDimensions = 1536;
+  embeddings.forEach((embedding, index) => {
+    if (embedding.length !== expectedDimensions) {
+      throw new Error(
+        `Embedding dimension mismatch at index ${index}: expected ${expectedDimensions} dimensions, got ${embedding.length}`
+      );
+    }
+  });
+
   return [
     embeddings.map((e, i) => ({
       content: validChunks[i].content,
@@ -110,6 +120,15 @@ export const generateEmbedding = async (
     model: embeddingModel,
     value: input,
   });
+
+  // Validate embedding dimensions (must be 1536 for text-embedding-3-small)
+  const expectedDimensions = 1536;
+  if (embedding.length !== expectedDimensions) {
+    throw new Error(
+      `Embedding dimension mismatch: expected ${expectedDimensions} dimensions, got ${embedding.length}`
+    );
+  }
+
   return [embedding, CURRENT_INDEX_VERSION];
 };
 

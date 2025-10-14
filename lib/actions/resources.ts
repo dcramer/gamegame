@@ -10,7 +10,6 @@ import mime from "mime";
 import { asc, eq, sql } from "drizzle-orm";
 import { extractTextFromPdf } from "../pdf";
 import {
-  storePDFImages,
   deleteImages,
   deleteResourceImages,
 } from "../services/images";
@@ -91,6 +90,9 @@ export const createResource = async (input: {
   let resource;
   try {
     resource = await db.transaction(async (tx) => {
+      // Set transaction timeout to prevent long-running locks
+      await tx.execute(sql`SET LOCAL statement_timeout = '60s'`);
+
       // Create resource first to get ID
       const now = new Date();
       const [resource] = await tx
@@ -308,6 +310,9 @@ export const updateResource = async (
   if (input.content && input.content !== resource.content) {
     const updatedContent = input.content; // TypeScript narrowing
     const newResource = await db.transaction(async (tx) => {
+      // Set transaction timeout to prevent long-running locks
+      await tx.execute(sql`SET LOCAL statement_timeout = '60s'`);
+
       const [embeddings, version] = await generateEmbeddings(updatedContent);
       if (!embeddings.length) {
         throw new Error("Failed to generate embeddings");
@@ -435,6 +440,9 @@ export const reprocessResource = async (resourceId: string) => {
   let result;
   try {
     result = await db.transaction(async (tx) => {
+      // Set transaction timeout to prevent long-running locks
+      await tx.execute(sql`SET LOCAL statement_timeout = '60s'`);
+
       // Delete old attachments (CASCADE will not work here since we're updating, not deleting resource)
       if (oldAttachments.length > 0) {
         await tx

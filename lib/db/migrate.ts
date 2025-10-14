@@ -6,7 +6,12 @@ import postgres from "postgres";
 
 const runMigrate = async () => {
   // env.DATABASE_URL is now guaranteed to exist (validated in env.mjs)
-  const connection = postgres(env.DATABASE_URL, { max: 1 });
+  // Disable prepared statements for compatibility with Supabase Transaction mode (port 6543)
+  // or any other connection pooler that doesn't support prepared statements
+  const connection = postgres(env.DATABASE_URL, {
+    max: 1,
+    prepare: false, // Required for Supabase Transaction mode pooling
+  });
 
   const db = drizzle(connection);
 
@@ -19,6 +24,9 @@ const runMigrate = async () => {
   const end = Date.now();
 
   console.log("✅ Migrations completed in", end - start, "ms");
+
+  // Close the connection before exiting to avoid hanging
+  await connection.end();
 
   process.exit(0);
 };

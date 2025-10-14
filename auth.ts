@@ -33,6 +33,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const newUrl = new URL("/login", request.nextUrl.origin);
         return Response.redirect(newUrl);
       }
+      return true;
     },
   },
 });

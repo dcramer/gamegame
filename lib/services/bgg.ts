@@ -29,12 +29,6 @@ class BGGRequestQueue {
 
 const requestQueue = new BGGRequestQueue();
 
-// Simple in-memory cache (could be replaced with KV)
-const cache = new Map<
-  string,
-  { data: any; expiresAt: number }
->();
-
 /**
  * Safely parse integer from string, returning null if invalid
  */
@@ -42,23 +36,6 @@ function parseIntSafe(value: string | undefined | null): number | null {
   if (!value) return null;
   const parsed = parseInt(value, 10);
   return isNaN(parsed) ? null : parsed;
-}
-
-function getFromCache<T>(key: string): T | null {
-  const cached = cache.get(key);
-  if (!cached) return null;
-  if (Date.now() > cached.expiresAt) {
-    cache.delete(key);
-    return null;
-  }
-  return cached.data as T;
-}
-
-function setCache(key: string, data: any, ttlMs: number) {
-  cache.set(key, {
-    data,
-    expiresAt: Date.now() + ttlMs,
-  });
 }
 
 /**
@@ -73,11 +50,6 @@ export async function searchBGGGames(
   } = {}
 ): Promise<BGGSearchResult[]> {
   const { fetchThumbnails = true, maxResults = 10 } = options;
-  const cacheKey = `bgg:search:${query.toLowerCase()}:${fetchThumbnails}`;
-  const cached = getFromCache<BGGSearchResult[]>(cacheKey);
-  if (cached) {
-    return cached;
-  }
 
   const results = await requestQueue.enqueue(async () => {
     const url = new URL("https://boardgamegeek.com/xmlapi2/search");
@@ -142,8 +114,6 @@ export async function searchBGGGames(
     }
   }
 
-  // Cache for 1 hour
-  setCache(cacheKey, results, 60 * 60 * 1000);
   return results;
 }
 

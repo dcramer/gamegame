@@ -9,6 +9,11 @@ const ratelimit = getRateLimiter(10, "30s");
 
 export const maxDuration = 30;
 
+/**
+ * Chat endpoint is intentionally PUBLIC to reduce friction for users.
+ * Abuse is prevented through IP-based rate limiting (10 requests per 30s).
+ * This design prioritizes user engagement over strict cost control.
+ */
 export async function POST(req: Request, props: { params: Promise<{ gameId: string }> }) {
   const params = await props.params;
 

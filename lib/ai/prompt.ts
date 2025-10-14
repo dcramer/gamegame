@@ -47,15 +47,24 @@ export const getTools = (gameId: string) => {
         attachmentId: z.string().describe("the attachment ID from attachment:// URL"),
       }),
       execute: async ({ attachmentId }: { attachmentId: string }) => {
-        const attachment = await getAttachment(attachmentId);
-        return {
-          id: attachment.id,
-          type: attachment.type,
-          url: attachment.url,
-          mimeType: attachment.mimeType || "image/png",
-          caption: attachment.caption,
-          pageNumber: attachment.pageNumber,
-        };
+        try {
+          const attachment = await getAttachment(attachmentId);
+          return {
+            success: true,
+            id: attachment.id,
+            type: attachment.type,
+            url: attachment.url,
+            mimeType: attachment.mimeType || "image/png",
+            caption: attachment.caption,
+            pageNumber: attachment.pageNumber,
+          };
+        } catch (error) {
+          // Return error object instead of throwing to prevent AI response failure
+          return {
+            success: false,
+            error: `Attachment not found or unavailable: ${attachmentId}`,
+          };
+        }
       },
     }),
   };

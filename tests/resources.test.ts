@@ -14,9 +14,15 @@ vi.mock("@/lib/db", () => ({
 }));
 
 vi.mock("@/lib/services/images", () => ({
-  storePDFImages: vi.fn(),
   deleteImages: vi.fn(),
   deleteResourceImages: vi.fn(),
+}));
+
+vi.mock("@/lib/services/resource-processor", () => ({
+  uploadResourceImages: vi.fn(),
+  processResourceContent: vi.fn(),
+  calculateResourceStats: vi.fn(),
+  cleanupBlobsOnError: vi.fn(),
 }));
 
 vi.mock("@/lib/ai/search", () => ({
@@ -33,10 +39,14 @@ vi.mock("@/auth", () => ({
 
 import { db } from "@/lib/db";
 import {
-  storePDFImages,
   deleteImages,
   deleteResourceImages,
 } from "@/lib/services/images";
+import {
+  uploadResourceImages,
+  processResourceContent,
+  calculateResourceStats,
+} from "@/lib/services/resource-processor";
 import { generateEmbeddings } from "@/lib/ai/search";
 import { extractTextFromPdf } from "@/lib/pdf";
 import { auth } from "@/auth";
@@ -123,22 +133,6 @@ describe("Resource Actions - Image Cleanup", () => {
     test("should delete all old images when reprocessing", async () => {
       const resourceId = "resource-1";
 
-      // Mock: Existing resource
-      vi.mocked(db.select).mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue([
-              {
-                id: resourceId,
-                name: "Manual.pdf",
-                url: "http://example.com/manual.pdf",
-                gameId: "game-1",
-              },
-            ]),
-          }),
-        }),
-      } as any);
-
       // Mock: Fetch PDF content
       global.fetch = vi.fn().mockResolvedValue({
         arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(100)),
@@ -166,21 +160,27 @@ describe("Resource Actions - Image Cleanup", () => {
         },
       });
 
-      // Mock: Image storage returns URLs
-      vi.mocked(storePDFImages).mockResolvedValue([
+      // Mock: Image upload to blob storage
+      vi.mocked(uploadResourceImages).mockResolvedValue([
         {
-          id: "new-img1",
+          tempId: "new-img1",
           url: "http://example.com/resources/resource-1/images/new-img1.png",
-          pageNumber: 1,
+          mimeType: "image/png",
+          image: {
+            id: "new-img1",
+            base64: "base64data",
+            pageNumber: 1,
+          },
         },
       ]);
 
-      // Mock: Generate embeddings
-      vi.mocked(generateEmbeddings).mockResolvedValue([
-        [
+      // Mock: Process resource content (attachments + embeddings)
+      vi.mocked(processResourceContent).mockResolvedValue({
+        finalContent: "New content",
+        embeddings: [
           {
             content: "chunk1",
-            embedding: [0.1, 0.2],
+            embedding: new Array(1536).fill(0.1),
             pageNumber: 1,
             images: [
               {
@@ -190,39 +190,43 @@ describe("Resource Actions - Image Cleanup", () => {
             ],
           },
         ],
-        3, // version
-      ]);
+        version: 3,
+      });
 
-      // Mock: Transaction - old fragments have different images
-      const oldFragments = [
+      // Mock: Calculate stats
+      vi.mocked(calculateResourceStats).mockReturnValue({
+        pageCount: 2,
+        imageCount: 1,
+        wordCount: 2,
+      });
+
+      // Mock: Old attachments for cleanup
+      const oldAttachments = [
         {
-          images: [
-            {
-              id: "old-img1",
-              url: "http://example.com/resources/resource-1/images/old-img1.png",
-            },
-            {
-              id: "old-img2",
-              url: "http://example.com/resources/resource-1/images/old-img2.png",
-            },
-          ],
+          id: "old-img1",
+          url: "http://example.com/resources/resource-1/images/old-img1.png",
+        },
+        {
+          id: "old-img2",
+          url: "http://example.com/resources/resource-1/images/old-img2.png",
         },
       ];
+
+      // Mock db.select for getting old attachments (before transaction)
+      const mockSelectForAttachments = vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(oldAttachments),
+        }),
+      });
 
       const mockTransaction = vi.fn(async (callback) => {
         // Setup mocks for transaction context
         const txMock = {
-          select: vi.fn().mockReturnValue({
-            from: vi.fn().mockReturnValue({
-              where: vi.fn().mockResolvedValue(oldFragments),
-            }),
-          }),
+          select: vi.fn(),
           delete: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue(undefined),
           }),
-          insert: vi.fn().mockReturnValue({
-            values: vi.fn().mockResolvedValue(undefined),
-          }),
+          execute: vi.fn().mockResolvedValue(undefined), // For SET LOCAL statement_timeout
           update: vi.fn().mockReturnValue({
             set: vi.fn().mockReturnValue({
               where: vi.fn().mockReturnValue({
@@ -234,6 +238,9 @@ describe("Resource Actions - Image Cleanup", () => {
                     version: 3,
                     pdfExtractor: "mistral",
                     processedAt: new Date(),
+                    pageCount: 2,
+                    imageCount: 1,
+                    wordCount: 2,
                   },
                 ]),
               }),
@@ -244,7 +251,7 @@ describe("Resource Actions - Image Cleanup", () => {
         // Call the callback to execute the transaction logic
         await callback(txMock);
 
-        // Return what the transaction should return: [newResource, embeddingCount, oldFragments]
+        // Return what the transaction should return: [newResource, embeddingCount]
         return [
           {
             id: resourceId,
@@ -253,18 +260,43 @@ describe("Resource Actions - Image Cleanup", () => {
             version: 3,
             pdfExtractor: "mistral",
             processedAt: new Date(),
+            pageCount: 2,
+            imageCount: 1,
+            wordCount: 2,
           },
           1, // embeddingCount
-          oldFragments,
         ];
       });
 
+      // Setup db.select to handle multiple calls in order
+      const mockSelect = vi.fn();
+      mockSelect
+        .mockReturnValueOnce({ // First call: initial resource fetch
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockResolvedValue([
+                {
+                  id: resourceId,
+                  name: "Manual.pdf",
+                  url: "http://example.com/manual.pdf",
+                  gameId: "game-1",
+                },
+              ]),
+            }),
+          }),
+        })
+        .mockReturnValueOnce(mockSelectForAttachments()); // Second call: get old attachments
+
+      vi.mocked(db.select).mockImplementation(mockSelect);
       vi.mocked(db.transaction).mockImplementation(mockTransaction as any);
 
       await reprocessResource(resourceId);
 
-      // Should call deleteResourceImages with the old fragments
-      expect(deleteResourceImages).toHaveBeenCalledWith(oldFragments);
+      // Should call deleteImages with the old attachment URLs
+      expect(deleteImages).toHaveBeenCalledWith([
+        "http://example.com/resources/resource-1/images/old-img1.png",
+        "http://example.com/resources/resource-1/images/old-img2.png",
+      ]);
     });
   });
 
