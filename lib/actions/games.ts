@@ -43,7 +43,7 @@ export const getAllGames = async (withResources: boolean = true) => {
       name: games.name,
       imageUrl: games.imageUrl,
       bggUrl: games.bggUrl,
-      hasResources: sql<boolean>`EXISTS (SELECT 1 FROM ${resources} WHERE ${resources.gameId} = ${games.id})`,
+      hasResources: sql<boolean>`(${db.$count(resources, eq(resources.gameId, games.id))} > 0)`,
     })
     .from(games)
     .orderBy(asc(games.name))

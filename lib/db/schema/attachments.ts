@@ -56,6 +56,12 @@ export const attachments = pgTable(
     // MIME type
     mimeType: varchar("mime_type", { length: 100 }),
 
+    // AI-generated description of the image content
+    description: text("description"),
+
+    // Quality assessment: null = not analyzed, true = good quality, false = bad quality (poor crop, etc.)
+    isGoodQuality: varchar("is_good_quality", { length: 10 }).$type<"good" | "bad" | null>(),
+
     createdAt: timestamp("created_at")
       .notNull()
       .default(sql`now()`),

@@ -115,6 +115,8 @@ export async function createAttachmentRecord(
       bbox: image.bbox,
       caption: image.caption,
       mimeType,
+      description: image.description,
+      isGoodQuality: image.isGoodQuality,
     })
     .returning();
 

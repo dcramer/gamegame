@@ -6,6 +6,7 @@ import { db } from "../db";
 import { fragments as fragmentsTable } from "../db/schema/fragments";
 import { attachments } from "../db/schema/attachments";
 import { insertResourceSchema, resources } from "../db/schema/resources";
+import { games } from "../db/schema/games";
 import mime from "mime";
 import { asc, eq, sql } from "drizzle-orm";
 import { extractTextFromPdf } from "../pdf";
@@ -19,6 +20,7 @@ import {
   calculateResourceStats,
   cleanupBlobsOnError,
 } from "../services/resource-processor";
+import { enrichPDFImagesWithVision } from "../services/vision";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { env } from "../env.mjs";
@@ -80,8 +82,27 @@ export const createResource = async (input: {
       throw new Error(`Unsupported mime type: ${mimeType}. Only PDF files are currently supported.`);
   }
 
-  const newContent = extractionResult.text;
+  let newContent = extractionResult.text;
   const structured = extractionResult.structured;
+
+  // Enrich images with vision analysis (descriptions and quality assessment)
+  if (structured) {
+    // Fetch game name for context
+    const [game] = await db
+      .select({ name: games.name })
+      .from(games)
+      .where(eq(games.id, input.gameId))
+      .limit(1);
+
+    log.info("Starting vision analysis for extracted images");
+    await enrichPDFImagesWithVision(structured, game?.name);
+    log.info("Vision analysis completed");
+
+    // Rebuild markdown text after vision analysis (may have removed bad images)
+    const { rebuildMarkdownFromPages } = await import("../pdf");
+    newContent = rebuildMarkdownFromPages(structured);
+    log.debug("Rebuilt markdown text from structured pages");
+  }
 
   const parsedInput = insertResourceSchema.parse({
     ...input,
@@ -455,8 +476,27 @@ export const reprocessResource = async (resourceId: string) => {
       throw new Error(`Unsupported mime type: ${mimeType}. Only PDF files are currently supported.`);
   }
 
-  const newContent = extractionResult.text;
+  let newContent = extractionResult.text;
   const structured = extractionResult.structured;
+
+  // Enrich images with vision analysis (descriptions and quality assessment)
+  if (structured) {
+    // Fetch game name for context
+    const [game] = await db
+      .select({ name: games.name })
+      .from(games)
+      .where(eq(games.id, resource.gameId))
+      .limit(1);
+
+    log.info("Starting vision analysis for extracted images");
+    await enrichPDFImagesWithVision(structured, game?.name);
+    log.info("Vision analysis completed");
+
+    // Rebuild markdown text after vision analysis (may have removed bad images)
+    const { rebuildMarkdownFromPages } = await import("../pdf");
+    newContent = rebuildMarkdownFromPages(structured);
+    log.debug("Rebuilt markdown text from structured pages");
+  }
 
   // Step 1: Get old attachments for cleanup (before transaction)
   const oldAttachments = await db

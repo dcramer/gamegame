@@ -31,6 +31,8 @@ export async function getAttachment(attachmentId: string) {
     caption: attachment.caption,
     width: attachment.width,
     height: attachment.height,
+    description: attachment.description,
+    isGoodQuality: attachment.isGoodQuality,
   };
 }
 
@@ -57,5 +59,7 @@ export async function getResourceAttachments(resourceId: string) {
     caption: attachment.caption,
     width: attachment.width,
     height: attachment.height,
+    description: attachment.description,
+    isGoodQuality: attachment.isGoodQuality,
   }));
 }

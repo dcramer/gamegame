@@ -11,6 +11,47 @@ import { logger, logTiming } from "./logger";
 import { withRetry } from "./retry";
 
 /**
+ * Rebuild combined markdown text from structured pages
+ * Used after modifying page markdown (e.g., removing bad quality images)
+ */
+export function rebuildMarkdownFromPages(structured: StructuredPDFContent): string {
+  return structured.pages
+    .map((page) => `<!-- Page ${page.pageNumber} -->\n${page.markdown}`)
+    .join("\n\n");
+}
+
+/**
+ * Remove bad quality images from markdown content
+ * Removes all ![alt](attachment://id) references where the image is marked as bad quality
+ */
+export function removeBadQualityImages(
+  markdown: string,
+  images: PDFImage[]
+): string {
+  // Build set of bad quality image IDs
+  const badQualityIds = new Set(
+    images.filter((img) => img.isGoodQuality === "bad").map((img) => img.id)
+  );
+
+  if (badQualityIds.size === 0) {
+    return markdown;
+  }
+
+  // Remove markdown image references for bad quality images
+  // Matches: ![alt text](attachment://id)
+  const imageRegex = /!\[([^\]]*)\]\(attachment:\/\/([^)]+)\)/g;
+
+  return markdown.replace(imageRegex, (fullMatch, alt, attachmentId) => {
+    // If this attachment is bad quality, remove the entire image reference
+    if (badQualityIds.has(attachmentId)) {
+      logger.debug({ attachmentId, alt }, "Removing bad quality image from markdown");
+      return ""; // Remove the image reference entirely
+    }
+    return fullMatch; // Keep good quality images
+  });
+}
+
+/**
  * Replace inline image markdown with custom syntax for database lookup
  * Converts: ![alt](img-0.jpeg) or ![alt](data:image/...)
  * To: ![alt](attachment://{attachmentId})

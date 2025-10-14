@@ -10,6 +10,7 @@
     "test": "vitest",
     "test:unit": "vitest run tests/imageFormat.test.ts tests/bgg.test.ts tests/pdf.test.ts",
     "test:unit:watch": "vitest watch tests/imageFormat.test.ts tests/bgg.test.ts tests/pdf.test.ts",
+    "cli": "tsx cli.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx lib/db/migrate.ts",
     "db:drop": "drizzle-kit drop",

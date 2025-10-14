@@ -21,6 +21,10 @@ export interface PDFImage {
   caption?: string;
   /** Page number where this image appears */
   pageNumber: number;
+  /** AI-generated description of the image content */
+  description?: string;
+  /** Quality assessment: "good" or "bad" */
+  isGoodQuality?: "good" | "bad" | null;
 }
 
 /**

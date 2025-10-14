@@ -149,6 +149,49 @@ export const generateEmbedding = async (
   return [embedding, CURRENT_INDEX_VERSION];
 };
 
+/**
+ * Convert a natural language query into a PostgreSQL tsquery with OR logic
+ * This is more forgiving than websearch_to_tsquery which uses strict AND logic
+ */
+const createSearchQuery = (query: string): string => {
+  // Remove common English stop words that don't help with search
+  const stopWords = new Set([
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+    "has", "he", "in", "is", "it", "its", "of", "on", "that", "the",
+    "to", "was", "will", "with", "how", "what", "when", "where", "who",
+    "why", "can", "do", "does", "did", "i", "you", "me", "my"
+  ]);
+
+  // Extract words, convert to lowercase, filter stop words
+  const words = query
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ") // Replace punctuation with spaces
+    .split(/\s+/)
+    .filter(word => word.length > 2 && !stopWords.has(word))
+    .slice(0, 10); // Limit to 10 keywords to avoid overly complex queries
+
+  if (words.length === 0) {
+    // If no keywords found, extract ANY words (even short ones/stop words)
+    // as a fallback to avoid empty queries
+    const fallbackWords = query
+      .toLowerCase()
+      .replace(/[^\w\s]/g, " ")
+      .split(/\s+/)
+      .filter(word => word.length > 0)
+      .slice(0, 10);
+
+    if (fallbackWords.length === 0) {
+      // If still no words, return a query that matches nothing but won't error
+      return "zzzzzzzzz";
+    }
+
+    return fallbackWords.join(" | ");
+  }
+
+  // Join with OR operator for more flexible matching
+  return words.join(" | ");
+};
+
 export const findRelevantContent = async (
   gameId: string,
   userQuery: string,
@@ -171,7 +214,13 @@ export const findRelevantContent = async (
     }>;
   }>
 > => {
+  const searchStartTime = performance.now();
+
+  // Generate embedding for user query
+  const embeddingStartTime = performance.now();
   const [userQueryEmbedding] = await generateEmbedding(userQuery);
+  const embeddingDuration = performance.now() - embeddingStartTime;
+  console.log(`[PERF] Embedding generation took ${embeddingDuration.toFixed(2)}ms`);
 
   const limit = options?.limit ?? 10;
   const offset = options?.offset ?? 0;
@@ -181,6 +230,12 @@ export const findRelevantContent = async (
   const fullTextWeight = 1;
   const semanticWeight = 1;
 
+  // Create search query with OR logic for better recall
+  const searchQuery = createSearchQuery(userQuery);
+  console.log(`[DEBUG] Search query: "${userQuery}" -> tsquery: "${searchQuery}"`);
+
+  // Execute hybrid search query
+  const queryStartTime = performance.now();
   const matchingContent = await db.execute<{
     resource_id: string;
     resource_name: string;
@@ -201,11 +256,11 @@ export const findRelevantContent = async (
         -- which shouldn't be too big
         row_number() over(order by ts_rank_cd(${
           fragments.searchVector
-        }, websearch_to_tsquery(${userQuery})) desc) as rank_ix
+        }, to_tsquery('english', ${searchQuery})) desc) as rank_ix
       from
       ${fragments}
       where
-        ${fragments.searchVector} @@ websearch_to_tsquery(${userQuery})
+        ${fragments.searchVector} @@ to_tsquery('english', ${searchQuery})
         and ${fragments.gameId} = ${gameId}
       order by rank_ix
       limit ${candidateCount}
@@ -246,6 +301,11 @@ export const findRelevantContent = async (
     limit ${limit}
     offset ${offset}
   `);
+  const queryDuration = performance.now() - queryStartTime;
+  console.log(`[PERF] Database query took ${queryDuration.toFixed(2)}ms`);
+
+  const totalDuration = performance.now() - searchStartTime;
+  console.log(`[PERF] Total search took ${totalDuration.toFixed(2)}ms (embedding: ${embeddingDuration.toFixed(2)}ms, query: ${queryDuration.toFixed(2)}ms)`);
 
   return matchingContent.rows.map((i) => ({
     resourceId: i.resource_id,
