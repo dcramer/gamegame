@@ -1,0 +1,199 @@
+import { useState, useEffect } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { Download, Loader2, ArrowLeft } from 'lucide-react';
+import AdminLayout from '../../components/AdminLayout';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
+import { Spinner } from '../../components/ui/spinner';
+import Heading from '../../components/Heading';
+import AttachmentList from './AttachmentList';
+
+interface Resource {
+  id: string;
+  gameId: string;
+  name: string;
+  url: string;
+  content: string;
+  version: number;
+  pdfExtractor: string | null;
+  processedAt: string | null;
+  pageCount: number | null;
+  imageCount: number;
+  wordCount: number;
+  fragmentCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface Attachment {
+  id: string;
+  type: string;
+  url: string;
+  mimeType: string | null;
+  originalFilename: string | null;
+  pageNumber: number | null;
+  bbox?: number[];
+  caption: string | null;
+  width: number | null;
+  height: number | null;
+}
+
+export default function AdminResourceDetail() {
+  const { gameId, resourceId } = useParams<{ gameId: string; resourceId: string }>();
+  const navigate = useNavigate();
+  const [resource, setResource] = useState<Resource | null>(null);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Form state
+  const [name, setName] = useState('');
+  const [content, setContent] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!resourceId) return;
+
+    Promise.all([
+      fetch(`/api/resources/${resourceId}`).then((res) => {
+        if (!res.ok) throw new Error('Resource not found');
+        return res.json();
+      }),
+      fetch(`/api/resources/${resourceId}/attachments`).then((res) => {
+        if (!res.ok) throw new Error('Failed to load attachments');
+        return res.json();
+      }),
+    ])
+      .then(([resourceData, attachmentsData]) => {
+        setResource(resourceData);
+        setName(resourceData.name || '');
+        setContent(resourceData.content || '');
+        setAttachments(attachmentsData);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error('Failed to load resource:', err);
+        setResource(null);
+        setLoading(false);
+      });
+  }, [resourceId]);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resourceId) return;
+
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/resources/${resourceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, content }),
+      });
+
+      if (response.ok) {
+        const updatedResource = await response.json();
+        setResource(updatedResource);
+        alert('Resource updated successfully');
+      } else {
+        alert('Failed to update resource');
+      }
+    } catch (error) {
+      console.error('Update error:', error);
+      alert('Failed to update resource');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <AdminLayout>
+        <div className="flex items-center justify-center py-12">
+          <Spinner size="lg" />
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  if (!resource) {
+    return (
+      <AdminLayout>
+        <div className="text-center py-12">
+          <p className="text-xl mb-4">Resource not found</p>
+          <Button asChild>
+            <Link to={`/admin/games/${gameId}`}>Back to Game</Link>
+          </Button>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  const stats = [
+    `${resource.fragmentCount.toLocaleString()} chunks`,
+    resource.pageCount && `${resource.pageCount} pages`,
+    resource.imageCount > 0 && `${resource.imageCount} images`,
+    resource.wordCount > 0 && `${(resource.wordCount / 1000).toFixed(1)}k words`,
+  ]
+    .filter(Boolean)
+    .join(' • ');
+
+  return (
+    <AdminLayout>
+      <div className="mb-6">
+        <Button asChild variant="ghost" size="sm" className="mb-4">
+          <Link to={`/admin/games/${gameId}`}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Game
+          </Link>
+        </Button>
+
+        <div className="flex items-center gap-4 mb-2">
+          <Heading className="mb-0">{resource.name}</Heading>
+          <Button asChild size="sm" variant="ghost">
+            <a href={resource.url} target="_blank" rel="noopener noreferrer">
+              <Download className="h-5 w-5" />
+            </a>
+          </Button>
+        </div>
+        <p className="text-muted-foreground text-sm">{stats}</p>
+      </div>
+
+      <form onSubmit={handleSave} className="grid gap-4 mb-8">
+        <div className="grid gap-2">
+          <Label htmlFor="name">Name</Label>
+          <Input
+            id="name"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Game Manual.pdf"
+            required
+          />
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="content">Content</Label>
+          <textarea
+            id="content"
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            rows={16}
+            placeholder="Markdown Content"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
+            required
+          />
+        </div>
+
+        <Button type="submit" className="mr-auto" disabled={saving}>
+          Save Changes
+          {saving && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+        </Button>
+      </form>
+
+      <div className="mt-8">
+        <h4 className="text-lg font-semibold mb-4">Media Attachments</h4>
+        <AttachmentList attachments={attachments} />
+      </div>
+    </AdminLayout>
+  );
+}

@@ -1,0 +1,15 @@
+# Local development environment variables
+# Copy this to .dev.vars and fill in your values
+# DO NOT commit .dev.vars to git
+
+OPENAI_API_KEY=sk-...
+MISTRAL_API_KEY=...
+JWT_SECRET=your-secret-here
+
+# Optional: For sending emails via Resend
+# Get your API key from: https://resend.com/api-keys
+# If not set, emails will be logged to console in development
+# RESEND_API_KEY=re_...
+
+# Generate JWT_SECRET with:
+# openssl rand -base64 32

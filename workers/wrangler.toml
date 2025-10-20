@@ -1,0 +1,91 @@
+name = "gamegame"
+main = "src/index.tsx"
+compatibility_date = "2025-01-15"
+compatibility_flags = ["nodejs_compat"]
+account_id = "3f121ae4e5f2c3be251559c828d3805d"
+
+# Workers AI compatibility
+workers_dev = true
+
+# Development server configuration
+[dev]
+port = 4000
+
+# Serve static files from public directory (Wrangler 4 Assets)
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "gamegame"
+database_id = "e2fe423c-711c-426c-af9f-343dbb9e1c45"
+migrations_dir = "drizzle"
+
+# Vectorize binding
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "gamegame-embeddings"
+
+# R2 Storage binding (development uses separate bucket)
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "gamegame-files-dev"
+
+# KV Namespaces
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "3d07d24630cb4be3b6ac833a25cbabf5"
+
+[[kv_namespaces]]
+binding = "JOB_STATUS_KV"
+id = "12cf2c22feb84c8cbb78041b04489d58"
+
+# Queue bindings
+[[queues.producers]]
+queue = "resource-processing"
+binding = "RESOURCE_QUEUE"
+
+[[queues.consumers]]
+queue = "resource-processing"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 3
+dead_letter_queue = "resource-processing-dlq"
+
+# Environment variables (non-secret)
+[vars]
+ENVIRONMENT = "development"
+R2_PUBLIC_URL = "https://pub-da70527d01154effbf07cf2470284247.r2.dev"
+
+# Secrets (set with: wrangler secret put <NAME>)
+# OPENAI_API_KEY
+# MISTRAL_API_KEY
+# JWT_SECRET
+# RESEND_API_KEY (optional - for email sending via Resend)
+
+# Development overrides
+[env.development]
+vars = { ENVIRONMENT = "development" }
+
+# Production configuration
+[env.production]
+vars = { ENVIRONMENT = "production", R2_PUBLIC_URL = "https://pub-da70527d01154effbf07cf2470284247.r2.dev" }
+name = "gamegame-production"
+
+[[env.production.r2_buckets]]
+binding = "FILES"
+bucket_name = "gamegame-files"
+
+# For custom domain, update R2_PUBLIC_URL:
+# vars = { ENVIRONMENT = "production", R2_PUBLIC_URL = "https://files.gamegame.ai" }
+
+# Routes for custom domain (configure after deployment)
+# [[routes]]
+# pattern = "gamegame.ai/*"
+# zone_name = "gamegame.ai"
+
+# Observability
+[observability]
+enabled = true

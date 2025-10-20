@@ -1,0 +1,11 @@
+node_modules/
+.wrangler/
+dist/
+public/*.js
+public/*.css
+.dev.vars
+.env
+wrangler.toml.local
+*.log
+.DS_Store
+.astro
