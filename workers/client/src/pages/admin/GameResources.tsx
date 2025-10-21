@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { MessageCircle, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import AdminLayout from '../../components/AdminLayout';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -43,6 +43,8 @@ interface JobStatus {
   status: 'pending' | 'processing' | 'completed' | 'failed';
   progress?: number;
   error?: string;
+  resourceId?: string;
+  currentStep?: string;
 }
 
 export default function AdminGameResources() {
@@ -54,8 +56,6 @@ export default function AdminGameResources() {
 
   // Game form state
   const [gameName, setGameName] = useState('');
-  const [gameYear, setGameYear] = useState('');
-  const [gameSlug, setGameSlug] = useState('');
   const [gameBggUrl, setGameBggUrl] = useState('');
   const [gameImageUrl, setGameImageUrl] = useState<string | null>(null);
   const [gameImageFile, setGameImageFile] = useState<File | null>(null);
@@ -64,6 +64,14 @@ export default function AdminGameResources() {
   // Resource upload state
   const [uploadingResources, setUploadingResources] = useState<Map<string, JobStatus>>(new Map());
   const [isDragging, setIsDragging] = useState(false);
+
+  const clearJob = useCallback((resourceKey: string) => {
+    setUploadingResources((prev) => {
+      const next = new Map(prev);
+      next.delete(resourceKey);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!gameId) return;
@@ -81,8 +89,6 @@ export default function AdminGameResources() {
       .then(([gameData, resourcesData]) => {
         setGame(gameData);
         setGameName(gameData.name || '');
-        setGameYear(gameData.year ? gameData.year.toString() : '');
-        setGameSlug(gameData.slug || '');
         setGameBggUrl(gameData.bggUrl || '');
         setGameImageUrl(gameData.imageUrl);
         setResources(resourcesData);
@@ -104,34 +110,75 @@ export default function AdminGameResources() {
     if (activeJobs.length === 0) return;
 
     const interval = setInterval(async () => {
-      for (const [jobId, job] of activeJobs) {
+      for (const [resourceKey, job] of activeJobs) {
         try {
-          const response = await fetch(`/api/resources/jobs/${jobId}`);
-          if (response.ok) {
-            const data = await response.json();
+          const response = await fetch(`/api/resources/jobs/${job.id}`);
+
+          if (!response.ok) {
+            console.warn(`Job status request failed for ${job.id} (${response.status})`);
             setUploadingResources((prev) => {
+              const previous = prev.get(resourceKey);
               const next = new Map(prev);
-              next.set(jobId, data);
+              next.set(resourceKey, {
+                id: job.id,
+                status: previous?.status ?? 'failed',
+                progress: previous?.progress,
+                error: `Unable to load job status (${response.status})`,
+                currentStep: previous?.currentStep,
+                resourceId: resourceKey,
+              });
               return next;
             });
+            continue;
+          }
 
-            if (data.status === 'completed') {
-              // Refresh resources list
-              const resourcesResponse = await fetch(`/api/resources/games/${gameId}`);
-              if (resourcesResponse.ok) {
-                const resourcesData = await resourcesResponse.json();
-                setResources(resourcesData);
-              }
+          const data = await response.json();
+
+          if (data.status === 'completed') {
+            clearJob(resourceKey);
+
+            // Refresh resources list
+            const resourcesResponse = await fetch(`/api/resources/games/${gameId}`);
+            if (resourcesResponse.ok) {
+              const resourcesData = await resourcesResponse.json();
+              setResources(resourcesData);
             }
+          } else {
+            setUploadingResources((prev) => {
+              const previous = prev.get(resourceKey);
+              const next = new Map(prev);
+              next.set(resourceKey, {
+                id: job.id,
+                status: data.status,
+                progress: (data.progress ?? previous?.progress) ?? 0,
+                error: data.error ?? previous?.error,
+                currentStep: data.currentStep ?? previous?.currentStep,
+                resourceId: resourceKey,
+              });
+              return next;
+            });
           }
         } catch (error) {
           console.error('Failed to check job status:', error);
+          setUploadingResources((prev) => {
+            const previous = prev.get(resourceKey);
+            const next = new Map(prev);
+            next.set(resourceKey, {
+              id: job.id,
+              status: previous?.status ?? 'failed',
+              progress: previous?.progress,
+              error: 'Unable to reach job status endpoint',
+              currentStep: previous?.currentStep,
+              resourceId: resourceKey,
+            });
+            return next;
+          });
         }
       }
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [uploadingResources, gameId]);
+  }, [uploadingResources, gameId, clearJob]);
 
   const handleUpdateGame = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -146,20 +193,11 @@ export default function AdminGameResources() {
         payload.name = gameName;
       }
 
-      const currentYear = game?.year || null;
-      const newYear = gameYear ? parseInt(gameYear, 10) : null;
-      if (newYear !== currentYear) {
-        payload.year = newYear;
-      }
-
-      // Only send slug if it's non-empty and changed
-      if (gameSlug.trim() && gameSlug !== game?.slug) {
-        payload.slug = gameSlug.trim();
-      }
-
       // Only send bggUrl if it's non-empty and changed
       if (gameBggUrl.trim() && gameBggUrl !== (game?.bggUrl || '')) {
         payload.bggUrl = gameBggUrl.trim();
+      } else if (!gameBggUrl.trim() && game?.bggUrl) {
+        payload.bggUrl = null;
       }
 
       // Upload image if changed
@@ -178,8 +216,6 @@ export default function AdminGameResources() {
         }
       }
 
-      console.log('Sending payload:', payload);
-
       // Update game
       const response = await fetch(`/api/games/${gameId}`, {
         method: 'PATCH',
@@ -191,8 +227,6 @@ export default function AdminGameResources() {
         const updatedGame = await response.json();
         setGame(updatedGame);
         setGameName(updatedGame.name || '');
-        setGameYear(updatedGame.year ? updatedGame.year.toString() : '');
-        setGameSlug(updatedGame.slug || '');
         setGameBggUrl(updatedGame.bggUrl || '');
         setGameImageUrl(updatedGame.imageUrl);
         setGameImageFile(null);
@@ -217,15 +251,15 @@ export default function AdminGameResources() {
   };
 
   const handleResourceFiles = async (files: File[]) => {
+    if (!gameId) return;
+
     for (const file of files) {
       try {
-        // Upload file
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('gameId', gameId!);
         formData.append('name', file.name);
 
-        const uploadResponse = await fetch('/api/resources/upload', {
+        const uploadResponse = await fetch(`/api/games/${gameId}/resources`, {
           method: 'POST',
           body: formData,
         });
@@ -234,7 +268,12 @@ export default function AdminGameResources() {
           const data = await uploadResponse.json();
           setUploadingResources((prev) => {
             const next = new Map(prev);
-            next.set(data.jobId, { id: data.jobId, status: 'pending' });
+            next.set(data.resourceId, {
+              id: data.jobId,
+              status: 'pending',
+              resourceId: data.resourceId,
+              currentStep: 'Queued for processing',
+            });
             return next;
           });
         } else {
@@ -284,8 +323,6 @@ export default function AdminGameResources() {
   };
 
   const handleReprocess = async (resourceId: string, resourceName: string) => {
-    if (!confirm(`Reprocess resource "${resourceName}"?`)) return;
-
     try {
       const response = await fetch(`/api/resources/${resourceId}/reprocess`, {
         method: 'POST',
@@ -295,7 +332,12 @@ export default function AdminGameResources() {
         const data = await response.json();
         setUploadingResources((prev) => {
           const next = new Map(prev);
-          next.set(data.jobId, { id: data.jobId, status: 'pending' });
+          next.set(resourceId, {
+            id: data.jobId,
+            status: 'pending',
+            resourceId,
+            currentStep: 'Queued for reprocessing',
+          });
           return next;
         });
       } else {
@@ -351,17 +393,8 @@ export default function AdminGameResources() {
 
   return (
     <AdminLayout>
-      {/* Game Header */}
-      <div className="flex items-center gap-4">
-        <Heading>{game.name}</Heading>
-        <Button asChild variant="ghost">
-          <Link to={`/games/${game.id}`}>
-            <MessageCircle className="h-4 w-4" />
-          </Link>
-        </Button>
-      </div>
-
       <div className="flex flex-col gap-12">
+        <Heading className="text-3xl">{game.name}</Heading>
         {/* Game Edit Form */}
         <form onSubmit={handleUpdateGame} className="grid gap-4">
           <div className="grid gap-2">
@@ -374,36 +407,6 @@ export default function AdminGameResources() {
               placeholder="Settlers of Catan"
               required
             />
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="year">Year Published</Label>
-            <Input
-              id="year"
-              type="number"
-              value={gameYear}
-              onChange={(e) => setGameYear(e.target.value)}
-              placeholder="2024"
-              min="1900"
-              max="2100"
-            />
-            <p className="text-xs text-muted-foreground">
-              Optional: Year the game was published
-            </p>
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="slug">Slug</Label>
-            <Input
-              id="slug"
-              type="text"
-              value={gameSlug}
-              onChange={(e) => setGameSlug(e.target.value)}
-              placeholder="arcs-2024"
-            />
-            <p className="text-xs text-muted-foreground">
-              URL-friendly identifier (auto-generated from name and year if left blank)
-            </p>
           </div>
 
           <div className="grid gap-2">
@@ -540,6 +543,11 @@ export default function AdminGameResources() {
                       .filter(Boolean)
                       .join(', ');
 
+                    const job = uploadingResources.get(resource.id);
+
+                    const messageText = job?.error || job?.currentStep;
+                    const showFailure = job ? job.status === 'failed' || !!job.error : false;
+
                     return (
                       <TableRow
                         key={resource.id}
@@ -556,6 +564,38 @@ export default function AdminGameResources() {
                             <div className="text-xs text-muted-foreground mt-1">
                               Processed with {resource.pdfExtractor}
                               {stats && ` - ${stats}`}
+                            </div>
+                          )}
+                          {job && (
+                            <div className="text-xs mt-1 flex items-center gap-2 flex-wrap">
+                              {(job.status === 'pending' || job.status === 'processing') && !showFailure && (
+                                <Spinner size="sm" />
+                              )}
+                              <span
+                                className={`capitalize ${showFailure ? 'text-red-500 font-semibold' : 'text-muted-foreground'}`}
+                              >
+                                {job.status}
+                              </span>
+                              {messageText && (
+                                <span className={`text-xs ${showFailure ? 'text-red-500' : 'text-muted-foreground'}`}>
+                                  {messageText}
+                                </span>
+                              )}
+                              {typeof job.progress === 'number' && !showFailure && job.progress > 0 && (
+                                <span className="text-xs text-muted-foreground">{job.progress}%</span>
+                              )}
+                              {showFailure && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    clearJob(resource.id);
+                                  }}
+                                >
+                                  Dismiss
+                                </Button>
+                              )}
                             </div>
                           )}
                         </TableCell>
@@ -591,27 +631,47 @@ export default function AdminGameResources() {
                     );
                   })}
 
-                  {/* Show uploading resources */}
-                  {Array.from(uploadingResources.entries()).map(([jobId, job]) => (
-                    <TableRow key={jobId}>
-                      <TableCell>
-                        <div>
-                          <strong>Uploading...</strong>
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
-                          <Spinner size="sm" />
-                          <span className="capitalize">{job.status}</span>
-                          {job.progress && ` - ${job.progress}%`}
-                        </div>
-                        {job.error && (
-                          <div className="text-xs text-red-500 mt-1">{job.error}</div>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">-</TableCell>
-                      <TableCell className="text-center">-</TableCell>
-                      <TableCell className="text-center">-</TableCell>
-                    </TableRow>
-                  ))}
+                  {/* Uploads for new resources not yet processed */}
+                  {Array.from(uploadingResources.entries())
+                    .filter(([resourceId]) => !resources.some((r) => r.id === resourceId))
+                    .map(([resourceId, job]) => {
+                      const showFailure = job.status === 'failed' || !!job.error;
+                      const messageText = job.error || job.currentStep;
+
+                      return (
+                        <TableRow key={`pending-${resourceId}`} className="bg-muted/50">
+                          <TableCell colSpan={4}>
+                            <div className="flex items-center gap-2 text-sm flex-wrap">
+                              {(job.status === 'pending' || job.status === 'processing') && !showFailure && (
+                                <Spinner size="sm" />
+                              )}
+                              <span
+                                className={`capitalize ${showFailure ? 'text-red-500 font-semibold' : 'text-muted-foreground'}`}
+                              >
+                                {job.status}
+                              </span>
+                              {messageText && (
+                                <span className={`text-xs ${showFailure ? 'text-red-500' : 'text-muted-foreground'}`}>
+                                  {messageText}
+                                </span>
+                              )}
+                              {typeof job.progress === 'number' && !showFailure && job.progress > 0 && (
+                                <span className="text-xs text-muted-foreground">{job.progress}%</span>
+                              )}
+                              {showFailure && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => clearJob(resourceId)}
+                                >
+                                  Dismiss
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                 </TableBody>
               </Table>
             </div>

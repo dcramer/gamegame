@@ -36,6 +36,7 @@ export interface QueueMessage {
   name: string;
   url: string;
   gameName?: string; // Optional: game name for vision analysis context
+  sourceKey?: string; // Optional: internal R2 object key for the source PDF
 }
 
 // Vectorize metadata must be primitives only (string | number | boolean | string[])

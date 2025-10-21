@@ -25,28 +25,57 @@ export async function processResourcePDF(options: {
   env: Env;
   onProgress?: (step: string, progress: number) => Promise<void>;
   gameName?: string; // Optional: for vision analysis context
+  sourceKey?: string; // Optional: R2 object key for direct access
 }): Promise<void> {
-  const { resourceId, gameId, url, env, onProgress, gameName } = options;
+  const { resourceId, gameId, url, env, onProgress, gameName, sourceKey } = options;
   const db = getDb(env.DB);
+  const { OPENAI_API_KEY, MISTRAL_API_KEY } = env;
+  let lastStep = 'initializing';
 
   const progress = async (step: string, pct: number) => {
+    lastStep = step;
     console.log(`[${resourceId}] ${step} (${pct}%)`);
     if (onProgress) await onProgress(step, pct);
   };
 
   try {
+    if (!MISTRAL_API_KEY) {
+      throw new Error('Missing MISTRAL_API_KEY secret');
+    }
+
+    if (!OPENAI_API_KEY) {
+      throw new Error('Missing OPENAI_API_KEY secret');
+    }
+
     // Step 1: Fetch PDF
     await progress('Fetching PDF', 10);
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch PDF: ${response.statusText}`);
+
+    let buffer: Buffer | null = null;
+
+    if (sourceKey) {
+      const object = await env.FILES.get(sourceKey);
+      if (object) {
+        console.log(`[${resourceId}] Loaded source PDF from R2 key=${sourceKey}`);
+        const arrayBuffer = await object.arrayBuffer();
+        buffer = Buffer.from(arrayBuffer);
+      } else {
+        console.warn(`[${resourceId}] Source PDF not found in R2 (key: ${sourceKey}), falling back to URL fetch (${url})`);
+      }
     }
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+
+    if (!buffer) {
+      console.log(`[${resourceId}] Fetching PDF from URL ${url}`);
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch PDF (status ${response.status} ${response.statusText})`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      buffer = Buffer.from(arrayBuffer);
+    }
 
     // Step 2: Extract with Mistral OCR
     await progress('Extracting text with OCR', 25);
-    const extraction = await extractTextFromPdf(buffer, env.MISTRAL_API_KEY);
+    const extraction = await extractTextFromPdf(buffer, MISTRAL_API_KEY);
 
     if (!extraction.structured) {
       throw new Error('PDF extraction did not return structured content');
@@ -57,7 +86,7 @@ export async function processResourcePDF(options: {
     console.log('[Vision] Starting image analysis', { resourceId });
 
     const { enrichPDFImagesWithVision } = await import('../services/vision');
-    await enrichPDFImagesWithVision(extraction.structured, env.OPENAI_API_KEY, gameName, {
+    await enrichPDFImagesWithVision(extraction.structured, OPENAI_API_KEY, gameName, {
       maxConcurrency: 5,
     });
 
@@ -73,7 +102,7 @@ export async function processResourcePDF(options: {
         markdown: page.markdown,
         pageNumber: page.pageNumber,
       })),
-      env.OPENAI_API_KEY
+      OPENAI_API_KEY
     );
 
     // Update pages with cleaned markdown
@@ -225,7 +254,11 @@ export async function processResourcePDF(options: {
 
     console.log(`[${resourceId}] Processing complete: ${fragmentRecords.length} fragments, ${uploadedImages.length} images`);
   } catch (error) {
-    console.error(`[${resourceId}] Processing failed:`, error);
-    throw error;
+    const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    console.error(
+      `[${resourceId}] Processing failed during step "${lastStep}": ${message}`,
+      error instanceof Error ? error.stack : error
+    );
+    throw new Error(`${message} (step: ${lastStep})`);
   }
 }

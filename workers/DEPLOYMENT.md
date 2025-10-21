@@ -211,20 +211,16 @@ curl -X POST https://YOUR-WORKER-URL/api/games \
 
 Admin UI:
 - Go to `/admin/games/GAME_ID`
-- Fill in resource name and PDF URL
-- Submit (queues for processing)
+- Drag and drop the PDF rulebook (or click **Add Resource** to browse)
+- The file uploads to R2 and is queued for processing
 
 Or via API:
 
 ```bash
-curl -X POST https://YOUR-WORKER-URL/api/resources/upload \
-  -H "Content-Type: application/json" \
+curl -X POST https://YOUR-WORKER-URL/api/games/GAME_ID/resources \
   -H "Cookie: session=YOUR_SESSION_COOKIE" \
-  -d '{
-    "gameId": "GAME_ID",
-    "name": "Core Rulebook",
-    "url": "https://example.com/rulebook.pdf"
-  }'
+  -F "file=@/path/to/rulebook.pdf" \
+  -F "name=Core Rulebook"
 ```
 
 Response:

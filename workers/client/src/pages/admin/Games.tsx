@@ -1,10 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import AdminLayout from '../../components/AdminLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Spinner } from '../../components/ui/spinner';
 import Heading from '../../components/Heading';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table';
 
 interface Game {
   id: string;
@@ -33,8 +40,8 @@ export default function AdminGames() {
       });
   }, []);
 
-  const handleDelete = async (gameId: string) => {
-    if (!confirm('Are you sure you want to delete this game?')) {
+  const handleDelete = async (gameId: string, name: string) => {
+    if (!confirm(`Delete ${name}? This will remove all resources.`)) {
       return;
     }
 
@@ -66,79 +73,88 @@ export default function AdminGames() {
 
   return (
     <AdminLayout>
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex items-center justify-between mb-6">
         <Heading className="text-3xl">Games</Heading>
-        <Link to="/admin/add-game">
-          <Button>Add Game</Button>
-        </Link>
+        <Button asChild>
+          <Link to="/admin/add-game">Add Game</Link>
+        </Button>
       </div>
 
       {games.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            <p className="mb-4">No games yet.</p>
-            <Link to="/admin/add-game">
-              <Button>Add your first game</Button>
-            </Link>
-          </CardContent>
-        </Card>
+        <div className="flex flex-1 flex-col gap-6 items-center justify-center rounded-lg border border-dashed shadow-sm p-6 bg-muted min-h-64">
+          <div className="flex flex-col items-center gap-1 text-center">
+            <h3 className="text-2xl font-bold tracking-tight">There are no games</h3>
+            <p className="text-sm text-muted-foreground">Start by adding a game.</p>
+          </div>
+          <Button asChild>
+            <Link to="/admin/add-game">Add Game</Link>
+          </Button>
+        </div>
       ) : (
-        <div className="space-y-4">
-          {games.map((game) => (
-            <Card key={game.id}>
-              <CardContent className="p-6">
-                <div className="flex items-center gap-6">
-                  {game.imageUrl && (
-                    <img
-                      src={game.imageUrl}
-                      alt={game.name}
-                      className="w-24 h-24 object-cover rounded"
-                    />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-xl font-semibold mb-1">
-                      {game.name}
-                      {game.year && (
-                        <span className="text-muted-foreground font-normal ml-2">
-                          ({game.year})
-                        </span>
+        <div className="flex flex-col gap-4">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[88px]">Image</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead className="w-[160px] text-center">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {games.map((game) => {
+                const hasResources = (game.resourceCount || 0) > 0;
+
+                return (
+                  <TableRow key={game.id}>
+                    <TableCell>
+                      <Link to={`/admin/games/${game.id}`}>
+                        {game.imageUrl ? (
+                          <img
+                            src={game.imageUrl}
+                            alt={game.name}
+                            className="w-16 h-16 object-cover rounded bg-muted"
+                          />
+                        ) : (
+                          <div className="w-16 h-16 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                            No image
+                          </div>
+                        )}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="font-medium align-middle">
+                      <Link to={`/admin/games/${game.id}`} className="hover:underline">
+                        {game.name}
+                      </Link>
+                      {game.bggUrl && (
+                        <div className="text-xs text-muted-foreground mt-1">
+                          <a href={game.bggUrl} target="_blank" rel="noreferrer" className="hover:underline">
+                            {game.bggUrl}
+                          </a>
+                        </div>
                       )}
-                    </h3>
-                    <p className="text-sm text-muted-foreground mb-1">
-                      {game.resourceCount || 0} resource(s)
-                    </p>
-                    <p className="text-xs text-muted-foreground font-mono">
-                      /games/{game.slug}
-                    </p>
-                    {game.bggUrl && (
-                      <a
-                        href={game.bggUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-blue-600 hover:underline"
+                      {!hasResources && (
+                        <div className="text-xs text-red-500 mt-1">No resources yet</div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleDelete(game.id, game.name)}
                       >
-                        View on BGG
-                      </a>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <Link to={`/admin/games/${game.id}/edit`}>
-                      <Button variant="outline">Edit</Button>
-                    </Link>
-                    <Link to={`/admin/games/${game.id}`}>
-                      <Button variant="outline">Manage Resources</Button>
-                    </Link>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleDelete(game.id)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                        Delete
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+          <div className="self-end">
+            <Button asChild variant="secondary" size="sm">
+              <Link to="/admin/add-game">Add Game</Link>
+            </Button>
+          </div>
         </div>
       )}
     </AdminLayout>

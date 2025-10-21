@@ -10,6 +10,7 @@ import { requireAdmin } from '@/middleware/auth';
 import { buildPrompt, getTools } from '@/lib/ai/prompt';
 import { ratelimit } from '@/middleware/ratelimit';
 import { generateSlug, ensureUniqueSlug } from '@/lib/utils/slug';
+import { createJob } from '@/lib/jobs/status';
 
 const gamesRouter = new Hono<{ Bindings: Env }>();
 const MODEL = 'gpt-4o';
@@ -210,10 +211,10 @@ gamesRouter.delete('/:gameId', requireAdmin, async (c) => {
   }
 
   // Delete all R2 files for this game's resources
-  const { deleteResourceImages } = await import('@/lib/services/r2-storage');
+  const { deleteResourceFiles } = await import('@/lib/services/r2-storage');
   let totalR2Deleted = 0;
   for (const resource of resourceList) {
-    const deleted = await deleteResourceImages(c.env.FILES, resource.id);
+    const deleted = await deleteResourceFiles(c.env.FILES, resource.id);
     totalR2Deleted += deleted;
   }
   console.log(`[Delete Game] Deleted ${totalR2Deleted} files from R2`);
@@ -262,6 +263,120 @@ gamesRouter.get('/:gameIdOrSlug/resources', async (c) => {
     .all();
 
   return c.json(resourceList);
+});
+
+// Upload a new resource for a game (admin only, accepts multipart PDF upload)
+gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, async (c) => {
+  const { gameIdOrSlug } = c.req.param();
+  const db = getDb(c.env.DB);
+
+  // Look up game by slug or ID
+  const [game] = await db
+    .select({ id: games.id, name: games.name })
+    .from(games)
+    .where(or(eq(games.slug, gameIdOrSlug), eq(games.id, gameIdOrSlug)))
+    .limit(1);
+
+  if (!game) {
+    return c.json({ error: 'Game not found' }, 404);
+  }
+
+  try {
+    const formData = await c.req.formData();
+    const fileEntry = formData.get('file');
+
+    if (!fileEntry || typeof fileEntry === 'string') {
+      return c.json({ error: 'A PDF file is required' }, 400);
+    }
+
+    const file = fileEntry as File;
+
+    const declaredName = formData.get('name');
+    const resourceName =
+      typeof declaredName === 'string' && declaredName.trim().length > 0
+        ? declaredName.trim()
+        : file.name || 'Uploaded Rulebook';
+
+    // Validate file type
+    const fileExtension = file.name?.split('.').pop()?.toLowerCase();
+    const isPdf =
+      file.type === 'application/pdf' ||
+      file.type === 'application/x-pdf' ||
+      (file.type === '' && fileExtension === 'pdf') ||
+      fileExtension === 'pdf';
+
+    if (!isPdf) {
+      return c.json({ error: 'File must be a PDF' }, 400);
+    }
+
+    const publicBaseUrl = c.env.R2_PUBLIC_URL?.replace(/\/$/, '');
+    if (!publicBaseUrl) {
+      console.error('R2_PUBLIC_URL is not configured. Cannot store uploaded PDFs.');
+      return c.json({ error: 'File storage is not configured' }, 500);
+    }
+
+    const resourceId = crypto.randomUUID();
+    const objectKey = `resources/${resourceId}/source.pdf`;
+
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+
+    await c.env.FILES.put(objectKey, buffer, {
+      httpMetadata: {
+        contentType: file.type || 'application/pdf',
+      },
+      customMetadata: {
+        resourceId,
+        gameId: game.id,
+        originalFilename: file.name || '',
+      },
+    });
+
+    const publicUrl = `${publicBaseUrl}/${objectKey}`;
+
+    await db
+      .insert(resources)
+      .values({
+        id: resourceId,
+        gameId: game.id,
+        name: resourceName,
+        url: publicUrl,
+        content: '',
+        version: 0,
+        pdfExtractor: 'mistral',
+        pageCount: null,
+        imageCount: 0,
+        wordCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .returning();
+
+    const jobId = await createJob(c.env.JOB_STATUS_KV, resourceId, game.id);
+
+  await c.env.RESOURCE_QUEUE.send({
+    jobId,
+    resourceId,
+    gameId: game.id,
+    name: resourceName,
+    url: publicUrl,
+    gameName: game.name,
+    sourceKey: objectKey,
+  });
+
+    return c.json(
+      {
+        resourceId,
+        jobId,
+        status: 'queued',
+        message: 'Resource queued for processing',
+      },
+      202
+    );
+  } catch (error) {
+    console.error('Failed to upload resource PDF:', error instanceof Error ? error.message : error);
+    return c.json({ error: 'Failed to upload resource PDF' }, 500);
+  }
 });
 
 // Test endpoint to verify routing

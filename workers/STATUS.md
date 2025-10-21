@@ -70,7 +70,7 @@ Create `src/workers/resource-processor.ts`:
 
 #### 3. Resources API
 Create `src/routes/api/resources.ts`:
-- POST `/api/resources/upload` - Queue PDF for processing
+- POST `/api/games/:gameId/resources` - Upload PDF + queue processing
 - GET `/api/resources/:resourceId` - Get resource details
 - GET `/api/resources/:resourceId/status` - Check job status
 - DELETE `/api/resources/:resourceId` - Delete resource + cleanup

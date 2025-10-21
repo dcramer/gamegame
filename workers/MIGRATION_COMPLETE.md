@@ -28,7 +28,7 @@ Successfully migrated GameGame from **Next.js/Vercel** to **Cloudflare Workers**
 ### ✅ API Endpoints
 - `POST /api/games/:gameId/chat` - Streaming chat
 - `GET/POST/PATCH/DELETE /api/games` - Game management
-- `POST /api/resources/upload` - Upload PDF (async)
+- `POST /api/games/:gameId/resources` - Upload PDF (async)
 - `GET /api/resources/jobs/:jobId` - Check processing status
 - `POST /api/auth/login` - Request magic link
 - `GET /api/auth/verify` - Verify token

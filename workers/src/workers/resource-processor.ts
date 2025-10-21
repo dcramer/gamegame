@@ -10,9 +10,9 @@ import { processResourcePDF } from '../lib/processing/pdf-processor';
 const handler: ExportedHandler<Env> = {
   async queue(batch: MessageBatch, env: Env): Promise<void> {
     for (const message of batch.messages) {
-      const { jobId, resourceId, gameId, name, url, gameName } = message.body as QueueMessage;
+      const { jobId, resourceId, gameId, name, url, gameName, sourceKey } = message.body as QueueMessage;
 
-      console.log(`[Queue] Processing resource: ${resourceId} (job: ${jobId})`);
+      console.log(`[Queue] Processing resource: ${resourceId} (job: ${jobId}) url=${url} sourceKey=${sourceKey ?? 'none'}`);
 
       try {
         // Update job status to processing
@@ -30,6 +30,7 @@ const handler: ExportedHandler<Env> = {
           url,
           env,
           gameName, // Pass game name for vision analysis context
+          sourceKey,
           onProgress: async (step: string, progress: number) => {
             await updateJob(env.JOB_STATUS_KV, jobId, {
               currentStep: step,
@@ -51,12 +52,17 @@ const handler: ExportedHandler<Env> = {
 
         console.log(`[Queue] Successfully processed resource: ${resourceId}`);
       } catch (error) {
-        console.error(`[Queue] Error processing resource ${resourceId}:`, error);
+        const errorMessage = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+        console.error(
+          `[Queue] Error processing resource ${resourceId}: ${errorMessage}`,
+          error instanceof Error ? error.stack : error
+        );
 
         // Update job status to failed
         await updateJob(env.JOB_STATUS_KV, jobId, {
           status: 'failed',
-          error: error instanceof Error ? error.message : String(error),
+          currentStep: `Processing failed: ${errorMessage}`,
+          error: errorMessage || 'Unknown processing error',
         });
 
         // Retry the message (up to max_retries in wrangler.toml)

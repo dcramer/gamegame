@@ -158,13 +158,13 @@ export async function bulkDeleteFromR2(
 }
 
 /**
- * Delete all images for a resource
+ * Delete all stored files for a resource (source PDF + attachments)
  */
-export async function deleteResourceImages(
+export async function deleteResourceFiles(
   bucket: R2Bucket,
   resourceId: string
 ): Promise<number> {
-  const prefix = `resources/${resourceId}/attachments/`;
+  const prefix = `resources/${resourceId}/`;
 
   // List all objects with prefix
   const listed = await bucket.list({ prefix });

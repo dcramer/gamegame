@@ -6,82 +6,9 @@ import { getDb, resources, fragments, attachments, games } from '@/lib/db';
 import { eq, sql, asc } from 'drizzle-orm';
 import { requireAdmin } from '@/middleware/auth';
 import { createJob, getJob } from '@/lib/jobs/status';
+import { extractR2KeyFromUrl } from '@/lib/services/r2-storage';
 
 const resourcesRouter = new Hono<{ Bindings: Env }>();
-
-/**
- * Upload a PDF resource (queues for processing)
- */
-resourcesRouter.post(
-  '/upload',
-  requireAdmin,
-  zValidator(
-    'json',
-    z.object({
-      gameId: z.string(),
-      name: z.string().min(1),
-      url: z.string().url(),
-    })
-  ),
-  async (c) => {
-    const data = c.req.valid('json');
-    const db = getDb(c.env.DB);
-
-    // Fetch game name for vision analysis context
-    const [game] = await db
-      .select({ name: games.name })
-      .from(games)
-      .where(eq(games.id, data.gameId))
-      .limit(1);
-
-    if (!game) {
-      return c.json({ error: 'Game not found' }, 404);
-    }
-
-    // Create resource record (empty content initially)
-    const resourceId = crypto.randomUUID();
-
-    await db
-      .insert(resources)
-      .values({
-        id: resourceId,
-        gameId: data.gameId,
-        name: data.name,
-        url: data.url,
-        content: '',
-        version: 0,
-        pdfExtractor: 'mistral',
-        pageCount: null,
-        imageCount: 0,
-        wordCount: 0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .returning();
-
-    // Create job and enqueue for processing
-    const jobId = await createJob(c.env.JOB_STATUS_KV, resourceId, data.gameId);
-
-    await c.env.RESOURCE_QUEUE.send({
-      jobId,
-      resourceId,
-      gameId: data.gameId,
-      name: data.name,
-      url: data.url,
-      gameName: game.name, // Include game name for vision analysis
-    });
-
-    return c.json(
-      {
-        resourceId,
-        jobId,
-        status: 'queued',
-        message: 'Resource queued for processing',
-      },
-      202 // Accepted
-    );
-  }
-);
 
 /**
  * Get job status for a resource
@@ -283,6 +210,8 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
     .where(eq(games.id, resource.gameId))
     .limit(1);
 
+  const sourceKey = resource.url ? extractR2KeyFromUrl(resource.url) : null;
+
   // Create new job and enqueue for processing
   const jobId = await createJob(c.env.JOB_STATUS_KV, resourceId, resource.gameId);
 
@@ -293,6 +222,7 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
     name: resource.name,
     url: resource.url,
     gameName: game?.name, // Include game name for vision analysis
+    sourceKey: sourceKey || undefined,
   });
 
   return c.json(
@@ -410,11 +340,8 @@ resourcesRouter.delete('/:resourceId', requireAdmin, async (c) => {
   }
 
   // Delete from R2
-  const { deleteAttachmentsByUrls } = await import('@/lib/services/r2-storage');
-  const deletedR2Count = await deleteAttachmentsByUrls(
-    c.env.FILES,
-    attachmentList.map((a) => a.url)
-  );
+  const { deleteResourceFiles } = await import('@/lib/services/r2-storage');
+  const deletedR2Count = await deleteResourceFiles(c.env.FILES, resourceId);
   console.log(`[Delete] Deleted ${deletedR2Count} files from R2`);
 
   return c.json({
