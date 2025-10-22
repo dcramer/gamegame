@@ -1,0 +1,61 @@
+# Development-specific Wrangler configuration
+# Extends wrangler.toml with dev-only settings
+
+name = "gamegame"
+main = "src/index.tsx"
+compatibility_date = "2025-01-15"
+compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
+
+[dev]
+port = 4000
+
+# Serve static files from public directory
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# D1 database - use local for dev
+[[d1_databases]]
+binding = "DB"
+database_name = "gamegame"
+database_id = "e2fe423c-711c-426c-af9f-343dbb9e1c45"
+
+# Use REMOTE Vectorize binding (new method - more stable than --remote flag)
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "gamegame-embeddings"
+remote = true
+
+# Local R2 simulation
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "gamegame-files-dev"
+preview_bucket_name = "gamegame-files-dev"
+
+# Local KV namespaces
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "3d07d24630cb4be3b6ac833a25cbabf5"
+preview_id = "3d07d24630cb4be3b6ac833a25cbabf5"
+
+[[kv_namespaces]]
+binding = "JOB_STATUS_KV"
+id = "12cf2c22feb84c8cbb78041b04489d58"
+preview_id = "12cf2c22feb84c8cbb78041b04489d58"
+
+# Queue bindings
+[[queues.producers]]
+queue = "resource-processing"
+binding = "RESOURCE_QUEUE"
+
+[[queues.consumers]]
+queue = "resource-processing"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 3
+dead_letter_queue = "resource-processing-dlq"
+
+# Environment variables
+[vars]
+ENVIRONMENT = "development"
+R2_PUBLIC_URL = "https://pub-da70527d01154effbf07cf2470284247.r2.dev"

@@ -2,6 +2,15 @@ import type { StructuredPDFContent, PDFImage } from '../types/pdf';
 import { generateText } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 
+type VisionLogContext = {
+  resourceId?: string;
+  jobId?: string;
+};
+
+const visionLog = (event: string, data: Record<string, unknown>) => {
+  console.log(JSON.stringify({ module: 'vision', event, ...data }));
+};
+
 export interface VisionAnalysisResult {
   description: string;
   isGoodQuality: 'good' | 'bad';
@@ -36,10 +45,13 @@ async function withRetry<T>(
 
       if (attempt < maxRetries) {
         const delay = Math.min(initialDelay * Math.pow(2, attempt), maxDelay);
-        console.log(
-          `${operationName} failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms:`,
-          lastError.message
-        );
+        visionLog('retry_scheduled', {
+          operation: operationName,
+          attempt: attempt + 1,
+          maxAttempts: maxRetries + 1,
+          delayMs: delay,
+          error: lastError.message,
+        });
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
@@ -62,9 +74,12 @@ export async function analyzeImageWithVision(
   surroundingText: string,
   openaiApiKey: string,
   context?: { gameName?: string; sectionHierarchy?: string },
-  metadata?: { pageNumber?: number; imageIndex?: number; imageId?: string }
+  metadata?: { pageNumber?: number; imageIndex?: number; imageId?: string },
+  logContext: VisionLogContext = {}
 ): Promise<VisionAnalysisResult> {
-  console.log('Starting vision analysis', {
+  visionLog('analysis_start', {
+    resourceId: logContext.resourceId,
+    jobId: logContext.jobId,
     contextLength: surroundingText.length,
     ...metadata,
   });
@@ -150,7 +165,13 @@ Format as JSON:
     const jsonText = jsonMatch ? jsonMatch[1] : result;
     parsed = JSON.parse(jsonText);
   } catch (error) {
-    console.warn('Failed to parse vision response as JSON', { error, response: result });
+    visionLog('analysis_parse_warning', {
+      resourceId: logContext.resourceId,
+      jobId: logContext.jobId,
+      error: error instanceof Error ? error.message : String(error),
+      responsePreview: result.slice(0, 2000),
+      ...metadata,
+    });
     // Fallback: extract description and quality from text
     const descMatch = result.match(/description['":\s]+([^"]+)/i);
     const qualityMatch = result.match(/quality['":\s]+(GOOD|BAD)/i);
@@ -161,9 +182,12 @@ Format as JSON:
     };
   }
 
-  console.log('Vision analysis completed', {
+  visionLog('analysis_complete', {
+    resourceId: logContext.resourceId,
+    jobId: logContext.jobId,
     quality: parsed.quality,
     descriptionLength: parsed.description.length,
+    ...metadata,
   });
 
   return {
@@ -186,10 +210,13 @@ export async function batchAnalyzeImages(
   openaiApiKey: string,
   options: {
     maxConcurrency?: number;
+    logContext?: VisionLogContext;
   } = {}
 ): Promise<VisionAnalysisResult[]> {
-  const { maxConcurrency = 5 } = options;
-  console.log('Starting batch vision analysis', {
+  const { maxConcurrency = 5, logContext } = options;
+  visionLog('batch_start', {
+    resourceId: logContext?.resourceId,
+    jobId: logContext?.jobId,
     imageCount: images.length,
     maxConcurrency,
   });
@@ -201,15 +228,31 @@ export async function batchAnalyzeImages(
     const batch = images.slice(i, i + maxConcurrency);
     const batchResults = await Promise.all(
       batch.map((img) =>
-        analyzeImageWithVision(img.base64, img.surroundingText, openaiApiKey, img.context, img.metadata)
+        analyzeImageWithVision(
+          img.base64,
+          img.surroundingText,
+          openaiApiKey,
+          img.context,
+          img.metadata,
+          logContext ?? {}
+        )
       )
     );
     results.push(...batchResults);
 
-    console.log('Batch completed', { processed: i + batch.length, total: images.length });
+    visionLog('batch_progress', {
+      resourceId: logContext?.resourceId,
+      jobId: logContext?.jobId,
+      processed: i + batch.length,
+      total: images.length,
+    });
   }
 
-  console.log('Batch vision analysis completed', { imageCount: images.length });
+  visionLog('batch_complete', {
+    resourceId: logContext?.resourceId,
+    jobId: logContext?.jobId,
+    imageCount: images.length,
+  });
 
   return results;
 }
@@ -224,9 +267,13 @@ export async function enrichPDFImagesWithVision(
   gameName?: string,
   options: {
     maxConcurrency?: number;
+    logContext?: VisionLogContext;
   } = {}
 ): Promise<void> {
-  console.log('Starting PDF image enrichment', {
+  const { logContext, maxConcurrency } = options;
+  visionLog('enrich_start', {
+    resourceId: logContext?.resourceId,
+    jobId: logContext?.jobId,
     pageCount: structured.pages.length,
     gameName,
   });
@@ -259,11 +306,18 @@ export async function enrichPDFImagesWithVision(
   }
 
   if (imagesToAnalyze.length === 0) {
-    console.log('No images to analyze');
+    visionLog('enrich_skip_no_images', {
+      resourceId: logContext?.resourceId,
+      jobId: logContext?.jobId,
+    });
     return;
   }
 
-  console.log('Analyzing images', { imageCount: imagesToAnalyze.length });
+  visionLog('enrich_analyze_start', {
+    resourceId: logContext?.resourceId,
+    jobId: logContext?.jobId,
+    imageCount: imagesToAnalyze.length,
+  });
 
   // Analyze all images in batches
   const analyses = await batchAnalyzeImages(
@@ -281,7 +335,10 @@ export async function enrichPDFImagesWithVision(
       },
     })),
     openaiApiKey,
-    options
+    {
+      maxConcurrency,
+      logContext,
+    }
   );
 
   // Mutate the original image objects with analysis results
@@ -294,7 +351,9 @@ export async function enrichPDFImagesWithVision(
   const goodQualityCount = analyses.filter((a) => a.isGoodQuality === 'good').length;
   const badQualityCount = analyses.filter((a) => a.isGoodQuality === 'bad').length;
 
-  console.log('PDF image enrichment completed', {
+  visionLog('enrich_complete', {
+    resourceId: logContext?.resourceId,
+    jobId: logContext?.jobId,
     imageCount: imagesToAnalyze.length,
     goodQualityCount,
     badQualityCount,
@@ -302,7 +361,11 @@ export async function enrichPDFImagesWithVision(
 
   // Filter out bad quality images from page markdown
   if (badQualityCount > 0) {
-    console.log('Removing bad quality images from markdown', { badQualityCount });
+    visionLog('enrich_remove_bad_quality', {
+      resourceId: logContext?.resourceId,
+      jobId: logContext?.jobId,
+      badQualityCount,
+    });
     const { removeBadQualityImages } = await import('../pdf');
 
     for (const page of structured.pages) {

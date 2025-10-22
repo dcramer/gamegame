@@ -334,6 +334,8 @@ gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, async (c) => {
 
     const publicUrl = `${publicBaseUrl}/${objectKey}`;
 
+    const jobId = await createJob(c.env.JOB_STATUS_KV, resourceId, game.id);
+
     await db
       .insert(resources)
       .values({
@@ -344,6 +346,10 @@ gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, async (c) => {
         content: '',
         version: 0,
         pdfExtractor: 'mistral',
+        status: 'processing',
+        currentJobId: jobId,
+        processingStage: 'ingest',
+        processingMetadata: null,
         pageCount: null,
         imageCount: 0,
         wordCount: 0,
@@ -352,13 +358,12 @@ gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, async (c) => {
       })
       .returning();
 
-    const jobId = await createJob(c.env.JOB_STATUS_KV, resourceId, game.id);
-
   await c.env.RESOURCE_QUEUE.send({
     jobId,
     resourceId,
     gameId: game.id,
     name: resourceName,
+    type: 'INGEST',
     url: publicUrl,
     gameName: game.name,
     sourceKey: objectKey,
@@ -388,7 +393,11 @@ gamesRouter.get('/:gameIdOrSlug/chat-test', async (c) => {
 // Rate limit: 20 requests per 60s (equivalent to old 10 per 30s)
 gamesRouter.post('/:gameIdOrSlug/chat', ratelimit(20, 60), async (c) => {
   const { gameIdOrSlug } = c.req.param();
-  const { messages } = await c.req.json();
+  const body = await c.req.json();
+  console.log('Chat request body:', JSON.stringify(body));
+  const { messages } = body;
+  console.log('Messages:', JSON.stringify(messages));
+  console.log('Messages type:', typeof messages, 'Array?', Array.isArray(messages));
 
   // Fetch game data - support both slug and ID lookups
   const db = getDb(c.env.DB);
@@ -403,7 +412,7 @@ gamesRouter.post('/:gameIdOrSlug/chat', ratelimit(20, 60), async (c) => {
   }
 
   // Build AI tools with database and vector index bindings (use game.id for internal queries)
-  const tools = getTools(game.id, c.env.DB, c.env.VECTORIZE);
+  const tools = getTools(game.id, c.env.DB, c.env.VECTORIZE, c.env.OPENAI_API_KEY);
 
   // Create OpenAI provider with API key
   const openai = createOpenAI({
@@ -411,10 +420,20 @@ gamesRouter.post('/:gameIdOrSlug/chat', ratelimit(20, 60), async (c) => {
   });
 
   // Stream AI response with step limits and telemetry
+  let coreMessages;
+  try {
+    coreMessages = convertToCoreMessages(messages);
+    console.log('Converted messages:', JSON.stringify(coreMessages));
+  } catch (err) {
+    console.error('Error converting messages:', err);
+    // Try using messages directly
+    coreMessages = messages;
+  }
+
   const result = streamText({
     model: openai(MODEL),
     system: buildPrompt(game),
-    messages: convertToCoreMessages(messages),
+    messages: coreMessages,
     tools,
     stopWhen: stepCountIs(5), // Limit multi-step reasoning to prevent runaway costs
     experimental_telemetry: {

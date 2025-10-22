@@ -21,7 +21,12 @@ export const AnswerSchema = z.object({
   followUps: z.array(z.string()).default([]),
 });
 
-export function getTools(gameId: string, db: D1Database, vectorIndex: VectorizeIndex) {
+export function getTools(
+  gameId: string,
+  db: D1Database,
+  vectorIndex: VectorizeIndex,
+  openaiApiKey: string
+) {
   return {
     getKnowledge: tool({
       description: 'Get information from your knowledge base to help answer questions.',
@@ -29,7 +34,7 @@ export function getTools(gameId: string, db: D1Database, vectorIndex: VectorizeI
         question: z.string().describe('The user\'s question'),
       }),
       execute: async ({ question }) =>
-        findRelevantContent(db, vectorIndex, gameId, question),
+        findRelevantContent(db, vectorIndex, gameId, question, openaiApiKey),
     }),
 
     listResources: tool({

@@ -40,6 +40,9 @@ resourcesRouter.get('/games/:gameId', async (c) => {
       version: resources.version,
       pdfExtractor: resources.pdfExtractor,
       processedAt: resources.processedAt,
+      status: resources.status,
+      currentJobId: resources.currentJobId,
+      processingStage: resources.processingStage,
       pageCount: resources.pageCount,
       imageCount: resources.imageCount,
       wordCount: resources.wordCount,
@@ -52,42 +55,6 @@ resourcesRouter.get('/games/:gameId', async (c) => {
     .all();
 
   return c.json(resourceList);
-});
-
-/**
- * Get attachments for a resource
- */
-resourcesRouter.get('/:resourceId/attachments', async (c) => {
-  const { resourceId } = c.req.param();
-  const db = getDb(c.env.DB);
-
-  const results = await db
-    .select({
-      id: attachments.id,
-      resourceId: attachments.resourceId,
-      type: attachments.type,
-      url: attachments.url,
-      mimeType: attachments.mimeType,
-      originalFilename: attachments.originalFilename,
-      pageNumber: attachments.pageNumber,
-      bbox: attachments.bbox,
-      caption: attachments.caption,
-      width: attachments.width,
-      height: attachments.height,
-      createdAt: attachments.createdAt,
-    })
-    .from(attachments)
-    .where(eq(attachments.resourceId, resourceId))
-    .orderBy(asc(attachments.pageNumber), asc(attachments.createdAt))
-    .all();
-
-  // Parse JSON strings back to arrays/objects
-  const parsed = results.map((attachment) => ({
-    ...attachment,
-    bbox: attachment.bbox ? JSON.parse(attachment.bbox as string) : undefined,
-  }));
-
-  return c.json(parsed);
 });
 
 /**
@@ -107,6 +74,9 @@ resourcesRouter.get('/:resourceId', async (c) => {
       version: resources.version,
       pdfExtractor: resources.pdfExtractor,
       processedAt: resources.processedAt,
+      status: resources.status,
+      currentJobId: resources.currentJobId,
+      processingStage: resources.processingStage,
       pageCount: resources.pageCount,
       imageCount: resources.imageCount,
       wordCount: resources.wordCount,
@@ -189,20 +159,6 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
   );
   console.log(`[Reprocess] Deleted ${deletedR2Count} files from R2`);
 
-  // Reset resource to empty state
-  await db
-    .update(resources)
-    .set({
-      content: '',
-      version: 0,
-      pageCount: null,
-      imageCount: 0,
-      wordCount: 0,
-      processedAt: null,
-      updatedAt: new Date(),
-    })
-    .where(eq(resources.id, resourceId));
-
   // Fetch game name for vision analysis context
   const [game] = await db
     .select({ name: games.name })
@@ -215,11 +171,30 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
   // Create new job and enqueue for processing
   const jobId = await createJob(c.env.JOB_STATUS_KV, resourceId, resource.gameId);
 
+  // Reset resource to empty state and mark as processing
+  await db
+    .update(resources)
+    .set({
+      content: '',
+      version: 0,
+      pageCount: null,
+      imageCount: 0,
+      wordCount: 0,
+      processedAt: null,
+      status: 'processing',
+      currentJobId: jobId,
+      processingStage: 'ingest',
+      processingMetadata: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(resources.id, resourceId));
+
   await c.env.RESOURCE_QUEUE.send({
     jobId,
     resourceId,
     gameId: resource.gameId,
     name: resource.name,
+    type: 'INGEST',
     url: resource.url,
     gameName: game?.name, // Include game name for vision analysis
     sourceKey: sourceKey || undefined,
@@ -303,10 +278,15 @@ resourcesRouter.get('/:resourceId/attachments', async (c) => {
     })
     .from(attachments)
     .where(eq(attachments.resourceId, resourceId))
-    .orderBy(attachments.pageNumber, attachments.id)
+    .orderBy(asc(attachments.pageNumber), asc(attachments.createdAt))
     .all();
 
-  return c.json(attachmentList);
+  const parsed = attachmentList.map((attachment) => ({
+    ...attachment,
+    bbox: attachment.bbox ? JSON.parse(attachment.bbox as string) : undefined,
+  }));
+
+  return c.json(parsed);
 });
 
 /**

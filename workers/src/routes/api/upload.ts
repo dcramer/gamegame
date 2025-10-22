@@ -37,8 +37,12 @@ uploadRouter.post('/upload', requireAdmin, async (c) => {
       },
     });
 
-    // Generate public URL (use environment variable or fall back to default R2 public URL)
-    const baseUrl = c.env.R2_PUBLIC_URL || 'https://pub-da70527d01154effbf07cf2470284247.r2.dev';
+    if (!c.env.R2_PUBLIC_URL) {
+      console.error('R2_PUBLIC_URL is not configured. Rejecting upload.');
+      return c.json({ error: 'File storage is not configured' }, 500);
+    }
+
+    const baseUrl = c.env.R2_PUBLIC_URL.replace(/\/$/, '');
     const url = `${baseUrl}/${filename}`;
 
     return c.json({
@@ -97,8 +101,12 @@ uploadRouter.post('/', requireAdmin, async (c) => {
       },
     });
 
-    // Generate public URL (use environment variable or fall back to default R2 public URL)
-    const baseUrl = c.env.R2_PUBLIC_URL || 'https://pub-da70527d01154effbf07cf2470284247.r2.dev';
+    if (!c.env.R2_PUBLIC_URL) {
+      console.error('R2_PUBLIC_URL is not configured. Rejecting upload.');
+      return c.json({ error: 'File storage is not configured' }, 500);
+    }
+
+    const baseUrl = c.env.R2_PUBLIC_URL.replace(/\/$/, '');
     const url = `${baseUrl}/${filename}`;
 
     return c.json({

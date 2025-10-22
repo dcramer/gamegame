@@ -1,264 +1,529 @@
-import type { Env, VectorMetadata } from '@/types';
+import type { Env, QueueMessage } from '@/types';
 import { getDb, resources, fragments, attachments } from '../db';
 import { eq } from 'drizzle-orm';
-import { extractTextFromPdf, replaceImageReferences, rebuildMarkdownFromPages } from '../pdf';
+import { extractTextFromPdf, rebuildMarkdownFromPages, replaceImageReferences } from '../pdf';
 import { chunkStructuredPDF, calculateResourceStats } from '../services/chunking';
-import { uploadPDFImages } from '../services/r2-storage';
+import { uploadPDFImages, deleteAttachmentsByUrls } from '../services/r2-storage';
 import { generateEmbeddings } from '../ai/embeddings';
 import { insertEmbeddings } from '../ai/vectorize';
-import type { PDFImage } from '../types/pdf';
+import type { StructuredPDFContent, PDFImage } from '../types/pdf';
+import { enrichPDFImagesWithVision } from '../services/vision';
+import { cleanupMarkdownBatch } from '../services/markdown-cleanup';
+import { updateJob } from '../jobs/status';
 
-export interface ProcessingProgress {
-  step: string;
-  progress: number;
+const STRUCTURED_KEY = (resourceId: string) => `resources/${resourceId}/structured.json`;
+
+interface ResourceProcessingMetadata {
+  structuredKey: string;
+  stages: {
+    ingest: boolean;
+    vision: boolean;
+    cleanup: boolean;
+    embed: boolean;
+  };
 }
 
-/**
- * Complete PDF processing pipeline
- * Called by queue consumer
- */
-export async function processResourcePDF(options: {
-  resourceId: string;
-  gameId: string;
-  name: string;
-  url: string;
-  env: Env;
-  onProgress?: (step: string, progress: number) => Promise<void>;
-  gameName?: string; // Optional: for vision analysis context
-  sourceKey?: string; // Optional: R2 object key for direct access
-}): Promise<void> {
-  const { resourceId, gameId, url, env, onProgress, gameName, sourceKey } = options;
-  const db = getDb(env.DB);
-  const { OPENAI_API_KEY, MISTRAL_API_KEY } = env;
-  let lastStep = 'initializing';
-
-  const progress = async (step: string, pct: number) => {
-    lastStep = step;
-    console.log(`[${resourceId}] ${step} (${pct}%)`);
-    if (onProgress) await onProgress(step, pct);
+function defaultMetadata(resourceId: string): ResourceProcessingMetadata {
+  return {
+    structuredKey: STRUCTURED_KEY(resourceId),
+    stages: {
+      ingest: false,
+      vision: false,
+      cleanup: false,
+      embed: false,
+    },
   };
+}
+
+function parseMetadata(resourceId: string, value?: string | null): ResourceProcessingMetadata {
+  if (!value) {
+    return defaultMetadata(resourceId);
+  }
 
   try {
-    if (!MISTRAL_API_KEY) {
-      throw new Error('Missing MISTRAL_API_KEY secret');
+    const parsed = JSON.parse(value) as ResourceProcessingMetadata;
+    if (!parsed.structuredKey) {
+      parsed.structuredKey = STRUCTURED_KEY(resourceId);
     }
-
-    if (!OPENAI_API_KEY) {
-      throw new Error('Missing OPENAI_API_KEY secret');
+    if (!parsed.stages) {
+      parsed.stages = defaultMetadata(resourceId).stages;
+    } else {
+      parsed.stages = {
+        ...defaultMetadata(resourceId).stages,
+        ...parsed.stages,
+      };
     }
+    return parsed;
+  } catch {
+    return defaultMetadata(resourceId);
+  }
+}
 
-    // Step 1: Fetch PDF
-    await progress('Fetching PDF', 10);
+function serializeMetadata(metadata: ResourceProcessingMetadata): string {
+  return JSON.stringify(metadata);
+}
 
-    let buffer: Buffer | null = null;
+async function saveStructured(env: Env, resourceId: string, structured: StructuredPDFContent): Promise<void> {
+  const key = STRUCTURED_KEY(resourceId);
+  await env.FILES.put(key, JSON.stringify(structured), {
+    httpMetadata: {
+      contentType: 'application/json',
+    },
+  });
+}
 
-    if (sourceKey) {
-      const object = await env.FILES.get(sourceKey);
-      if (object) {
-        console.log(`[${resourceId}] Loaded source PDF from R2 key=${sourceKey}`);
-        const arrayBuffer = await object.arrayBuffer();
-        buffer = Buffer.from(arrayBuffer);
-      } else {
-        console.warn(`[${resourceId}] Source PDF not found in R2 (key: ${sourceKey}), falling back to URL fetch (${url})`);
-      }
+async function loadStructured(env: Env, resourceId: string): Promise<StructuredPDFContent> {
+  const key = STRUCTURED_KEY(resourceId);
+  const object = await env.FILES.get(key);
+
+  if (!object) {
+    throw new Error(`Structured data not found for resource ${resourceId}`);
+  }
+
+  const text = await object.text();
+  return JSON.parse(text) as StructuredPDFContent;
+}
+
+async function deleteStructured(env: Env, resourceId: string): Promise<void> {
+  try {
+    await env.FILES.delete(STRUCTURED_KEY(resourceId));
+  } catch (error) {
+    console.warn(`[${resourceId}] Failed to delete structured data:`, error);
+  }
+}
+
+async function fetchPdfBuffer(task: QueueMessage, env: Env): Promise<Buffer> {
+  if (task.sourceKey) {
+    const object = await env.FILES.get(task.sourceKey);
+    if (object) {
+      const arrayBuffer = await object.arrayBuffer();
+      return Buffer.from(arrayBuffer);
     }
+    console.warn(`[${task.resourceId}] Source PDF not found in R2 at key ${task.sourceKey}, falling back to URL fetch`);
+  }
 
-    if (!buffer) {
-      console.log(`[${resourceId}] Fetching PDF from URL ${url}`);
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch PDF (status ${response.status} ${response.statusText})`);
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      buffer = Buffer.from(arrayBuffer);
+  if (!task.url) {
+    throw new Error('No URL or source key provided for PDF ingestion');
+  }
+
+  const response = await fetch(task.url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch PDF (status ${response.status} ${response.statusText})`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+async function deleteExistingAttachments(env: Env, resourceId: string) {
+  const db = getDb(env.DB);
+  const existingAttachments = await db
+    .select({ url: attachments.url })
+    .from(attachments)
+    .where(eq(attachments.resourceId, resourceId))
+    .all();
+
+  if (existingAttachments.length > 0) {
+    await db.delete(attachments).where(eq(attachments.resourceId, resourceId));
+    const urls = existingAttachments
+      .map((attachment) => attachment.url)
+      .filter((url): url is string => typeof url === 'string' && url.length > 0);
+
+    if (urls.length > 0) {
+      await deleteAttachmentsByUrls(env.FILES, urls);
     }
+  }
+}
 
-    // Step 2: Extract with Mistral OCR
-    await progress('Extracting text with OCR', 25);
-    const extraction = await extractTextFromPdf(buffer, MISTRAL_API_KEY);
+async function deleteExistingFragments(env: Env, resourceId: string) {
+  const db = getDb(env.DB);
+  const existingFragments = await db
+    .select({ id: fragments.id })
+    .from(fragments)
+    .where(eq(fragments.resourceId, resourceId))
+    .all();
 
-    if (!extraction.structured) {
-      throw new Error('PDF extraction did not return structured content');
-    }
+  if (existingFragments.length > 0) {
+    await db.delete(fragments).where(eq(fragments.resourceId, resourceId));
+    await env.VECTORIZE.deleteByIds(existingFragments.map((fragment) => fragment.id));
+  }
+}
 
-    // Step 2.5: Enrich images with vision analysis
-    await progress('Analyzing images with vision AI', 30);
-    console.log('[Vision] Starting image analysis', { resourceId });
+export async function runIngestStage(task: QueueMessage, env: Env): Promise<QueueMessage | null> {
+  const db = getDb(env.DB);
+  if (!env.MISTRAL_API_KEY) {
+    throw new Error('Missing MISTRAL_API_KEY secret');
+  }
+  const buffer = await fetchPdfBuffer(task, env);
+  const extraction = await extractTextFromPdf(buffer, env.MISTRAL_API_KEY);
 
-    const { enrichPDFImagesWithVision } = await import('../services/vision');
-    await enrichPDFImagesWithVision(extraction.structured, OPENAI_API_KEY, gameName, {
-      maxConcurrency: 5,
+  if (!extraction.structured) {
+    throw new Error('PDF extraction did not return structured content');
+  }
+
+  const structured = extraction.structured;
+  await saveStructured(env, task.resourceId, structured);
+
+  const metadata = defaultMetadata(task.resourceId);
+  metadata.stages.ingest = true;
+
+  await db
+    .update(resources)
+    .set({
+      status: 'processing',
+      processingStage: 'vision',
+      processingMetadata: serializeMetadata(metadata),
+      currentJobId: task.jobId,
+      updatedAt: new Date(),
+    })
+    .where(eq(resources.id, task.resourceId));
+
+  await updateJob(env.JOB_STATUS_KV, task.jobId, {
+    status: 'processing',
+    currentStep: 'Vision analysis pending',
+    progress: 20,
+  });
+
+  const hasImages = structured.pages.some((page) => page.images.length > 0);
+  if (!hasImages) {
+    return { ...task, type: 'CLEANUP', url: undefined, sourceKey: undefined };
+  }
+
+  return { ...task, type: 'VISION', url: undefined, sourceKey: undefined };
+}
+
+export async function runVisionStage(task: QueueMessage, env: Env): Promise<QueueMessage | null> {
+  const db = getDb(env.DB);
+  if (!env.OPENAI_API_KEY) {
+    throw new Error('Missing OPENAI_API_KEY secret');
+  }
+  const [resourceRow] = await db
+    .select({ metadata: resources.processingMetadata })
+    .from(resources)
+    .where(eq(resources.id, task.resourceId))
+    .limit(1);
+
+  const metadata = parseMetadata(task.resourceId, resourceRow?.metadata);
+
+  if (metadata.stages.vision) {
+    return { ...task, type: 'CLEANUP' };
+  }
+
+  const structured = await loadStructured(env, task.resourceId);
+  const images = structured.pages.flatMap((page) => page.images);
+
+  if (images.length === 0) {
+    metadata.stages.vision = true;
+    await db
+      .update(resources)
+      .set({
+        processingStage: 'cleanup',
+        processingMetadata: serializeMetadata(metadata),
+        updatedAt: new Date(),
+      })
+      .where(eq(resources.id, task.resourceId));
+
+    await updateJob(env.JOB_STATUS_KV, task.jobId, {
+      currentStep: 'Cleanup pending',
+      progress: 35,
     });
 
-    console.log('[Vision] Image analysis completed', { resourceId });
+    return { ...task, type: 'CLEANUP' };
+  }
 
-    // Step 2.6: Clean up markdown with LLM
-    await progress('Cleaning up markdown', 35);
-    console.log('[Cleanup] Starting markdown cleanup', { resourceId, pageCount: extraction.structured.pages.length });
+  await enrichPDFImagesWithVision(structured, env.OPENAI_API_KEY, task.gameName, {
+    maxConcurrency: 5,
+    logContext: {
+      resourceId: task.resourceId,
+      jobId: task.jobId,
+    },
+  });
 
-    const { cleanupMarkdownBatch } = await import('../services/markdown-cleanup');
-    const cleanedPages = await cleanupMarkdownBatch(
-      extraction.structured.pages.map((page) => ({
-        markdown: page.markdown,
-        pageNumber: page.pageNumber,
-      })),
-      OPENAI_API_KEY
-    );
+  await saveStructured(env, task.resourceId, structured);
 
-    // Update pages with cleaned markdown
-    extraction.structured.pages.forEach((page, i) => {
-      page.markdown = cleanedPages[i];
+  metadata.stages.vision = true;
+  await db
+    .update(resources)
+    .set({
+      processingStage: 'cleanup',
+      processingMetadata: serializeMetadata(metadata),
+      updatedAt: new Date(),
+    })
+    .where(eq(resources.id, task.resourceId));
+
+  await updateJob(env.JOB_STATUS_KV, task.jobId, {
+    currentStep: 'Markdown cleanup pending',
+    progress: 45,
+  });
+
+  return { ...task, type: 'CLEANUP' };
+}
+
+export async function runCleanupStage(task: QueueMessage, env: Env): Promise<QueueMessage | null> {
+  const db = getDb(env.DB);
+  if (!env.OPENAI_API_KEY) {
+  }
+  const [resourceRow] = await db
+    .select({ metadata: resources.processingMetadata })
+    .from(resources)
+    .where(eq(resources.id, task.resourceId))
+    .limit(1);
+
+  const metadata = parseMetadata(task.resourceId, resourceRow?.metadata);
+
+  if (metadata.stages.cleanup) {
+    return { ...task, type: 'EMBED' };
+  }
+
+  const structured = await loadStructured(env, task.resourceId);
+
+  const cleanedPages = await cleanupMarkdownBatch(
+    structured.pages.map((page) => ({
+      markdown: page.markdown,
+      pageNumber: page.pageNumber,
+    })),
+    env.OPENAI_API_KEY
+  );
+
+  structured.pages.forEach((page, index) => {
+    page.markdown = cleanedPages[index];
+  });
+
+  await saveStructured(env, task.resourceId, structured);
+
+  metadata.stages.cleanup = true;
+  await db
+    .update(resources)
+    .set({
+      processingStage: 'embed',
+      processingMetadata: serializeMetadata(metadata),
+      updatedAt: new Date(),
+    })
+    .where(eq(resources.id, task.resourceId));
+
+  await updateJob(env.JOB_STATUS_KV, task.jobId, {
+    currentStep: 'Embedding pending',
+    progress: 60,
+  });
+
+  return { ...task, type: 'EMBED' };
+}
+
+function namespaceImageId(resourceId: string, image: PDFImage): string {
+  if (!image.id.startsWith(resourceId)) {
+    return `${resourceId}-${image.id}`;
+  }
+  return image.id;
+}
+
+export async function runEmbedStage(task: QueueMessage, env: Env): Promise<QueueMessage | null> {
+  const db = getDb(env.DB);
+  if (!env.OPENAI_API_KEY) {
+  }
+  if (!env.VECTORIZE) {
+    throw new Error('Missing VECTORIZE binding');
+  }
+  const [resourceRow] = await db
+    .select({
+      metadata: resources.processingMetadata,
+      name: resources.name,
+      url: resources.url,
+    })
+    .from(resources)
+    .where(eq(resources.id, task.resourceId))
+    .limit(1);
+
+  const metadata = parseMetadata(task.resourceId, resourceRow?.metadata);
+
+  if (metadata.stages.embed) {
+    return { ...task, type: 'FINALIZE' };
+  }
+
+  const structured = await loadStructured(env, task.resourceId);
+
+  // Normalize image IDs for idempotency
+  structured.pages.forEach((page) => {
+    page.images.forEach((image) => {
+      image.id = namespaceImageId(task.resourceId, image);
     });
+  });
 
-    console.log('[Cleanup] Markdown cleanup completed', { resourceId });
+  const allImages = structured.pages.flatMap((page) => page.images);
+  const imagesToUpload = allImages
+    .filter((img) => img.base64)
+    .map((img) => ({
+      ...img,
+      id: namespaceImageId(task.resourceId, img),
+      base64: img.base64!,
+    }));
 
-    // Step 3: Upload images to R2
-    await progress('Uploading images', 45);
-
-    // Collect all images from all pages
-    const allImages = extraction.structured.pages.flatMap((page) => page.images);
-
-    // Map description to caption (vision analysis sets description, but we store as caption)
-    allImages.forEach(img => {
-      if (img.description && !img.caption) {
-        img.caption = img.description;
-      }
-    });
-
-    // Only upload images that have base64 data
-    const imagesToUpload = allImages.filter((img) => img.base64);
-
-    const uploadedImages = await uploadPDFImages(
-      env.FILES,
-      resourceId,
-      imagesToUpload as Array<PDFImage & { base64: string }>
-    );
-
-    // Create a map of image ID to uploaded image data
+  if (imagesToUpload.length > 0) {
+    const uploadedImages = await uploadPDFImages(env.FILES, task.resourceId, imagesToUpload);
     const imageMap = new Map(uploadedImages.map((img) => [img.id, img]));
 
-    // Update images in pages with URLs
-    for (const page of extraction.structured.pages) {
-      for (const img of page.images) {
+    structured.pages.forEach((page) => {
+      page.images.forEach((img) => {
         const uploaded = imageMap.get(img.id);
         if (uploaded) {
           img.url = uploaded.url;
           img.caption = img.caption || uploaded.caption;
         }
+      });
+    });
+
+    await saveStructured(env, task.resourceId, structured);
+  }
+
+  await deleteExistingAttachments(env, task.resourceId);
+  await deleteExistingFragments(env, task.resourceId);
+
+  const attachmentRecords = structured.pages.flatMap((page) =>
+    page.images
+      .filter((img) => img.url)
+      .map((img) => ({
+        id: img.id,
+        gameId: task.gameId,
+        resourceId: task.resourceId,
+        type: 'image' as const,
+        mimeType: img.url?.endsWith('.png') ? 'image/png' : img.url?.endsWith('.jpg') || img.url?.endsWith('.jpeg') ? 'image/jpeg' : null,
+        url: img.url!,
+        originalFilename: img.originalFilename ?? null,
+        pageNumber: img.pageNumber ?? null,
+        bbox: img.bbox ? JSON.stringify(img.bbox) : null,
+        caption: img.caption ?? null,
+        width: null,
+        height: null,
+        createdAt: new Date(),
+      }))
+  );
+
+  const BATCH_SIZE = 10;
+  for (let i = 0; i < attachmentRecords.length; i += BATCH_SIZE) {
+    const batch = attachmentRecords.slice(i, i + BATCH_SIZE);
+    if (batch.length > 0) {
+      await db.insert(attachments).values(batch);
+    }
+  }
+
+  const allImagesWithUrls = structured.pages.flatMap((page) =>
+    page.images.filter((img): img is PDFImage & { url: string } => typeof img.url === 'string' && img.url.length > 0)
+  );
+
+  const rebuiltMarkdown = rebuildMarkdownFromPages(structured);
+  const finalContent = replaceImageReferences(rebuiltMarkdown, allImagesWithUrls);
+
+  const pdfChunks = await chunkStructuredPDF(structured);
+  const [embeddingsData, version] = await generateEmbeddings(pdfChunks, env.OPENAI_API_KEY);
+
+  const fragmentRecords = embeddingsData.map((embedding, index) => ({
+    id: `${task.resourceId}-fragment-${index}-${crypto.randomUUID()}`,
+    gameId: task.gameId,
+    resourceId: task.resourceId,
+    content: embedding.content,
+    version,
+    pageNumber: embedding.pageNumber ?? null,
+    pageRangeStart: embedding.pageRange ? embedding.pageRange[0] : null,
+    pageRangeEnd: embedding.pageRange ? embedding.pageRange[1] : null,
+    section: embedding.section ?? null,
+    images: embedding.images ? JSON.stringify(embedding.images) : null,
+  }));
+
+  if (fragmentRecords.length > 0) {
+    const FRAGMENT_BATCH_SIZE = 10;
+
+    for (let i = 0; i < fragmentRecords.length; i += FRAGMENT_BATCH_SIZE) {
+      const fragmentBatch = fragmentRecords.slice(i, i + FRAGMENT_BATCH_SIZE);
+      if (fragmentBatch.length > 0) {
+        await db.insert(fragments).values(fragmentBatch);
       }
     }
 
-    // Step 4: Insert attachments into database
-    await progress('Storing attachments', 55);
-
-    if (uploadedImages.length > 0) {
-      const attachmentRecords = uploadedImages.map((img) => ({
-        id: img.id,
-        gameId,
-        resourceId,
-        type: 'image' as const,
-        mimeType: img.mimeType,
-        url: img.url,
-        originalFilename: img.originalFilename,
-        pageNumber: img.pageNumber,
-        bbox: img.bbox ? JSON.stringify(img.bbox) : null,
-        caption: img.caption || null,
-        width: img.width || null,
-        height: img.height || null,
-        createdAt: new Date(),
-      }));
-
-      await db.insert(attachments).values(attachmentRecords);
-    }
-
-    // Step 5: Replace image references in markdown
-    await progress('Processing content', 60);
-
-    const allImagesWithUrls = extraction.structured.pages.flatMap((page) =>
-      page.images.filter((img) => img.url)
+    await insertEmbeddings(
+      env.VECTORIZE!,
+      fragmentRecords.map((fragment, index) => ({
+        id: fragment.id,
+        values: embeddingsData[index].embedding,
+        metadata: {
+          fragmentId: fragment.id,
+          gameId: task.gameId,
+          resourceId: task.resourceId,
+          pageNumber: fragment.pageNumber ?? undefined,
+          section: fragment.section ?? undefined,
+        },
+      }))
     );
+  }
 
-    // Rebuild markdown from pages (may have been modified by vision/cleanup)
-    const rebuiltMarkdown = rebuildMarkdownFromPages(extraction.structured);
+  const stats = calculateResourceStats(finalContent, structured);
 
-    let finalContent = replaceImageReferences(
-      rebuiltMarkdown,
-      allImagesWithUrls as Array<PDFImage & { url: string }>
-    );
-
-    // Step 6: Chunk content
-    await progress('Chunking content', 70);
-    const pdfChunks = await chunkStructuredPDF(extraction.structured);
-
-    // Step 7: Generate embeddings
-    await progress('Generating embeddings', 80);
-    const [embeddingsData, version] = await generateEmbeddings(pdfChunks);
-
-    // Step 8: Insert into D1 and Vectorize
-    await progress('Storing fragments', 90);
-
-    // Insert fragments into D1
-    const fragmentRecords = embeddingsData.map((e) => ({
-      id: crypto.randomUUID(),
-      gameId,
-      resourceId,
-      content: e.content,
+  await db
+    .update(resources)
+    .set({
+      content: finalContent,
       version,
-      pageNumber: e.pageNumber ?? null,
-      pageRangeStart: e.pageRange?.[0] ?? null,
-      pageRangeEnd: e.pageRange?.[1] ?? null,
-      section: e.section ?? null,
-      images: e.images ? JSON.stringify(e.images) : null,
-    }));
+      pdfExtractor: 'mistral',
+      processedAt: new Date(),
+      processingStage: 'finalize',
+      processingMetadata: serializeMetadata({
+        ...metadata,
+        stages: {
+          ...metadata.stages,
+          embed: true,
+        },
+      }),
+      pageCount: stats.pageCount,
+      imageCount: stats.imageCount,
+      wordCount: stats.wordCount,
+      updatedAt: new Date(),
+    })
+    .where(eq(resources.id, task.resourceId));
 
-    await db.insert(fragments).values(fragmentRecords);
+  await updateJob(env.JOB_STATUS_KV, task.jobId, {
+    currentStep: 'Finalizing resource',
+    progress: 90,
+  });
 
-    // Insert embeddings into Vectorize
-    const vectorRecords = embeddingsData.map((e, i) => {
-      const metadata: VectorMetadata = {
-        fragmentId: fragmentRecords[i].id,
-        gameId,
-        resourceId,
-      };
-      // Only add optional fields if they have values (Vectorize doesn't accept undefined/null)
-      if (e.pageNumber !== undefined) metadata.pageNumber = e.pageNumber;
-      if (e.section) metadata.section = e.section;
+  return { ...task, type: 'FINALIZE' };
+}
 
-      return {
-        id: fragmentRecords[i].id,
-        values: e.embedding,
-        metadata,
-      };
-    });
+export async function runFinalizeStage(task: QueueMessage, env: Env): Promise<QueueMessage | null> {
+  const db = getDb(env.DB);
+  await deleteStructured(env, task.resourceId);
 
-    await insertEmbeddings(env.VECTORIZE, vectorRecords);
+  await db
+    .update(resources)
+    .set({
+      status: 'ready',
+      processingStage: 'ready',
+      processingMetadata: null,
+      currentJobId: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(resources.id, task.resourceId));
 
-    // Step 9: Update resource with final content and stats
-    await progress('Finalizing', 95);
+  await updateJob(env.JOB_STATUS_KV, task.jobId, {
+    status: 'completed',
+    currentStep: 'Processing complete',
+    progress: 100,
+    completedAt: Date.now(),
+  });
 
-    const stats = calculateResourceStats(finalContent, extraction.structured);
+  return null;
+}
 
-    await db
-      .update(resources)
-      .set({
-        content: finalContent,
-        version,
-        pdfExtractor: 'mistral',
-        processedAt: new Date(),
-        updatedAt: new Date(),
-        ...stats,
-      })
-      .where(eq(resources.id, resourceId));
-
-    await progress('Complete', 100);
-
-    console.log(`[${resourceId}] Processing complete: ${fragmentRecords.length} fragments, ${uploadedImages.length} images`);
-  } catch (error) {
-    const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-    console.error(
-      `[${resourceId}] Processing failed during step "${lastStep}": ${message}`,
-      error instanceof Error ? error.stack : error
-    );
-    throw new Error(`${message} (step: ${lastStep})`);
+export async function handleProcessingTask(task: QueueMessage, env: Env): Promise<QueueMessage | null> {
+  switch (task.type) {
+    case 'INGEST':
+      return runIngestStage(task, env);
+    case 'VISION':
+      return runVisionStage(task, env);
+    case 'CLEANUP':
+      return runCleanupStage(task, env);
+    case 'EMBED':
+      return runEmbedStage(task, env);
+    case 'FINALIZE':
+      return runFinalizeStage(task, env);
+    default:
+      throw new Error(`Unknown queue task type ${(task as QueueMessage).type}`);
   }
 }

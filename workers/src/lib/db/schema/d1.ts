@@ -28,6 +28,10 @@ export const resources = sqliteTable('resources', {
   version: integer('version').notNull().default(0),
   pdfExtractor: text('pdf_extractor'),
   processedAt: integer('processed_at', { mode: 'timestamp' }),
+  status: text('status').notNull().default('ready'),
+  currentJobId: text('current_job_id'),
+  processingStage: text('processing_stage').notNull().default('ready'),
+  processingMetadata: text('processing_metadata'),
 
   // Denormalized stats
   pageCount: integer('page_count'),

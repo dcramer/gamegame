@@ -1,7 +1,7 @@
 name = "gamegame"
 main = "src/index.tsx"
 compatibility_date = "2025-01-15"
-compatibility_flags = ["nodejs_compat"]
+compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 account_id = "3f121ae4e5f2c3be251559c828d3805d"
 
 # Workers AI compatibility
@@ -64,6 +64,44 @@ R2_PUBLIC_URL = "https://pub-da70527d01154effbf07cf2470284247.r2.dev"
 # MISTRAL_API_KEY
 # JWT_SECRET
 # RESEND_API_KEY (optional - for email sending via Resend)
+
+# Preview configuration (remote dev / staging)
+[env.preview]
+name = "gamegame-preview"
+vars = { ENVIRONMENT = "preview", R2_PUBLIC_URL = "https://pub-da70527d01154effbf07cf2470284247.r2.dev" }
+
+[[env.preview.vectorize]]
+binding = "VECTORIZE"
+index_name = "gamegame-embeddings-preview"
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "gamegame-preview"
+database_id = "PREVIEW_DB_ID"
+migrations_dir = "drizzle"
+
+[[env.preview.r2_buckets]]
+binding = "FILES"
+bucket_name = "gamegame-files-preview"
+
+[[env.preview.kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "PREVIEW_RATE_LIMIT_KV_ID"
+
+[[env.preview.kv_namespaces]]
+binding = "JOB_STATUS_KV"
+id = "PREVIEW_JOB_STATUS_KV_ID"
+
+[[env.preview.queues.producers]]
+queue = "resource-processing-preview"
+binding = "RESOURCE_QUEUE"
+
+[[env.preview.queues.consumers]]
+queue = "resource-processing-preview"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 3
+dead_letter_queue = "resource-processing-preview-dlq"
 
 # Development overrides
 [env.development]

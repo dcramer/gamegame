@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
 import type { Env } from './types';
+import type { ExportedHandler } from '@cloudflare/workers-types';
 import { auth } from './middleware/auth';
 
 // Import API routes
@@ -12,6 +13,8 @@ import resourcesRouter from './routes/api/resources';
 import bggRouter from './routes/api/bgg';
 import uploadRouter from './routes/api/upload';
 import attachmentsRouter from './routes/api/attachments';
+import healthRouter from './routes/api/health';
+import queueHandler from './workers/resource-processor';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -31,6 +34,7 @@ app.get('/health', (c) => {
 });
 
 // API routes
+app.route('/api/health', healthRouter);
 app.route('/api/games', gamesRouter);
 app.route('/api/auth', authRouter);
 app.route('/api/resources', resourcesRouter);
@@ -62,13 +66,22 @@ app.get('/uploads/*', async (c) => {
 
 // Serve index.html for all other routes (SPA routing)
 app.get('*', async (c) => {
+  // Try to serve the requested asset first (supports root-level files from Vite public/)
+  const directResponse = await c.env.ASSETS.fetch(c.req.url);
+  if (directResponse.status !== 404) {
+    return directResponse;
+  }
+
   const url = new URL(c.req.url);
   url.pathname = '/index.html';
   return c.env.ASSETS.fetch(url.toString());
 });
 
-// Export main app as default
-export default app;
+export const workerApp = app;
 
-// Export queue consumer (Wrangler will detect this)
-export { default as queue } from './workers/resource-processor';
+const worker: ExportedHandler<Env> = {
+  fetch: (request, env, ctx) => app.fetch(request, env, ctx),
+  queue: queueHandler.queue,
+};
+
+export default worker;

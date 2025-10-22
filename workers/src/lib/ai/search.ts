@@ -57,6 +57,7 @@ export async function findRelevantContent(
   vectorIndex: VectorizeIndex,
   gameId: string,
   userQuery: string,
+  openaiApiKey: string,
   options: { limit?: number; offset?: number } = {}
 ): Promise<SearchResult[]> {
   const limit = options.limit ?? 10;
@@ -64,7 +65,7 @@ export async function findRelevantContent(
   const candidateCount = (limit + offset) * 2; // Fetch more for fusion
 
   // Step 1: Generate embedding for user query
-  const [queryEmbedding] = await generateEmbedding(userQuery);
+  const [queryEmbedding] = await generateEmbedding(userQuery, openaiApiKey);
 
   // Step 2: Execute vector and full-text search in parallel
   const [vectorResults, ftsResults] = await Promise.all([

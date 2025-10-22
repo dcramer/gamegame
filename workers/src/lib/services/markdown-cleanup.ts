@@ -58,21 +58,29 @@ OUTPUT FORMAT:
     // Safety check: if the LLM removed too much content (>80% reduction),
     // return original to avoid data loss
     if (cleaned.length > 0 && cleaned.length < markdown.length * 0.2) {
-      console.warn('Markdown cleanup removed >80% of content, using original', {
-        pageNumber,
-        originalLength: markdown.length,
-        cleanedLength: cleaned.length,
-        reductionPercent: Math.round((1 - cleaned.length / markdown.length) * 100),
-      });
+      console.log(
+        JSON.stringify({
+          module: 'markdown-cleanup',
+          event: 'excessive_reduction',
+          pageNumber,
+          originalLength: markdown.length,
+          cleanedLength: cleaned.length,
+          reductionPercent: Math.round((1 - cleaned.length / markdown.length) * 100),
+        })
+      );
       return markdown;
     }
 
     return cleaned;
   } catch (error) {
-    console.error('Failed to cleanup markdown, using original', {
-      error: error instanceof Error ? error.message : String(error),
-      pageNumber,
-    });
+    console.log(
+      JSON.stringify({
+        module: 'markdown-cleanup',
+        event: 'cleanup_error',
+        pageNumber,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
     // On error, return original markdown rather than failing the entire extraction
     return markdown;
   }

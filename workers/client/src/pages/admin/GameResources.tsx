@@ -33,6 +33,9 @@ interface Resource {
   version: number;
   pdfExtractor: string | null;
   processedAt: string | null;
+  status?: string;
+  processingStage?: string;
+  currentJobId?: string | null;
   pageCount: number | null;
   imageCount: number;
   wordCount: number;
@@ -46,6 +49,16 @@ interface JobStatus {
   resourceId?: string;
   currentStep?: string;
 }
+
+const PROCESSING_STAGE_LABELS: Record<string, string> = {
+  ingest: 'Extracting PDF',
+  vision: 'Analyzing images',
+  cleanup: 'Cleaning markdown',
+  embed: 'Embedding content',
+  finalize: 'Finalizing resource',
+  ready: 'Ready',
+  failed: 'Failed',
+};
 
 export default function AdminGameResources() {
   const { gameId } = useParams<{ gameId: string }>();
@@ -76,29 +89,81 @@ export default function AdminGameResources() {
   useEffect(() => {
     if (!gameId) return;
 
-    Promise.all([
-      fetch(`/api/games/${gameId}`).then((res) => {
-        if (!res.ok) throw new Error('Game not found');
-        return res.json();
-      }),
-      fetch(`/api/resources/games/${gameId}`).then((res) => {
-        if (!res.ok) throw new Error('Failed to load resources');
-        return res.json();
-      }),
-    ])
-      .then(([gameData, resourcesData]) => {
+    const load = async () => {
+      try {
+        const [gameData, resourcesData] = await Promise.all([
+          fetch(`/api/games/${gameId}`).then((res) => {
+            if (!res.ok) throw new Error('Game not found');
+            return res.json();
+          }),
+          fetch(`/api/resources/games/${gameId}`).then((res) => {
+            if (!res.ok) throw new Error('Failed to load resources');
+            return res.json();
+          }),
+        ]);
+
         setGame(gameData);
         setGameName(gameData.name || '');
         setGameBggUrl(gameData.bggUrl || '');
         setGameImageUrl(gameData.imageUrl);
         setResources(resourcesData);
         setLoading(false);
-      })
-      .catch((err) => {
+
+        const pendingResources = resourcesData.filter(
+          (resource: Resource) => resource.status && resource.status !== 'ready' && resource.currentJobId
+        );
+
+        if (pendingResources.length > 0) {
+          const jobEntries = await Promise.all(
+            pendingResources.map(async (resource) => {
+              try {
+                const response = await fetch(`/api/resources/jobs/${resource.currentJobId}`);
+                if (!response.ok) {
+                  throw new Error(`Job status request failed with ${response.status}`);
+                }
+                const job = await response.json();
+                return [
+                  resource.id,
+                  {
+                    id: job.jobId || resource.currentJobId!,
+                    status: job.status,
+                    progress: job.progress,
+                    error: job.error,
+                    resourceId: resource.id,
+                    currentStep: job.currentStep,
+                  } satisfies JobStatus,
+                ] as [string, JobStatus];
+              } catch (error) {
+                console.warn('Failed to hydrate job status', error);
+                return [
+                  resource.id,
+                  {
+                    id: resource.currentJobId!,
+                    status: 'processing',
+                    resourceId: resource.id,
+                    currentStep: 'Processing previously queued job',
+                  } satisfies JobStatus,
+                ] as [string, JobStatus];
+              }
+            })
+          );
+
+          setUploadingResources((prev) => {
+            const next = new Map(prev);
+            for (const [resourceKey, jobStatus] of jobEntries) {
+              next.set(resourceKey, jobStatus);
+            }
+            return next;
+          });
+        }
+      } catch (err) {
         console.error('Failed to load game:', err);
         setGame(null);
         setLoading(false);
-      });
+      }
+    };
+
+    load();
   }, [gameId]);
 
   // Poll job status for uploading resources
@@ -134,29 +199,38 @@ export default function AdminGameResources() {
 
           const data = await response.json();
 
+          setUploadingResources((prev) => {
+            const previous = prev.get(resourceKey);
+            const next = new Map(prev);
+            next.set(resourceKey, {
+              id: job.id,
+              status: data.status,
+              progress: (data.progress ?? previous?.progress) ?? 0,
+              error: data.error ?? previous?.error,
+              currentStep: data.currentStep ?? previous?.currentStep,
+              resourceId: resourceKey,
+            });
+            return next;
+          });
+
+          const resourceResponse = await fetch(`/api/resources/${resourceKey}`);
+          if (resourceResponse.ok) {
+            const latest = await resourceResponse.json();
+            setResources((prev) => {
+              const next = prev.map((r) => (r.id === resourceKey ? { ...r, ...latest } : r));
+              return next;
+            });
+          }
+
           if (data.status === 'completed') {
             clearJob(resourceKey);
 
-            // Refresh resources list
+            // Refresh entire list to ensure counts stay consistent
             const resourcesResponse = await fetch(`/api/resources/games/${gameId}`);
             if (resourcesResponse.ok) {
               const resourcesData = await resourcesResponse.json();
               setResources(resourcesData);
             }
-          } else {
-            setUploadingResources((prev) => {
-              const previous = prev.get(resourceKey);
-              const next = new Map(prev);
-              next.set(resourceKey, {
-                id: job.id,
-                status: data.status,
-                progress: (data.progress ?? previous?.progress) ?? 0,
-                error: data.error ?? previous?.error,
-                currentStep: data.currentStep ?? previous?.currentStep,
-                resourceId: resourceKey,
-              });
-              return next;
-            });
           }
         } catch (error) {
           console.error('Failed to check job status:', error);
@@ -557,16 +631,8 @@ export default function AdminGameResources() {
                         }}
                       >
                         <TableCell>
-                          <div>
-                            <strong>{resource.name}</strong>
-                          </div>
-                          {resource.pdfExtractor && (
-                            <div className="text-xs text-muted-foreground mt-1">
-                              Processed with {resource.pdfExtractor}
-                              {stats && ` - ${stats}`}
-                            </div>
-                          )}
-                          {job && (
+                          <div className="font-semibold">{resource.name}</div>
+                          {job ? (
                             <div className="text-xs mt-1 flex items-center gap-2 flex-wrap">
                               {(job.status === 'pending' || job.status === 'processing') && !showFailure && (
                                 <Spinner size="sm" />
@@ -597,14 +663,24 @@ export default function AdminGameResources() {
                                 </Button>
                               )}
                             </div>
+                          ) : resource.status === 'processing' && resource.processingStage && resource.processingStage !== 'ready' ? (
+                            <div className="text-xs text-muted-foreground mt-1">
+                              {PROCESSING_STAGE_LABELS[resource.processingStage] ?? resource.processingStage}
+                            </div>
+                          ) : (
+                            stats && (
+                              <div className="text-xs text-muted-foreground mt-1">
+                                {stats}
+                              </div>
+                            )
                           )}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground text-center">
+                        <TableCell className="text-sm text-muted-foreground text-center align-middle">
                           {resource.processedAt
                             ? new Date(resource.processedAt).toLocaleString()
                             : '-'}
                         </TableCell>
-                        <TableCell className="text-center">{resource.version}</TableCell>
+                        <TableCell className="text-center align-middle">{resource.version}</TableCell>
                         <TableCell className="text-center gap-2 flex">
                           <Button
                             size="sm"

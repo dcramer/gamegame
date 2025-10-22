@@ -29,12 +29,15 @@ export interface Env {
   R2_PUBLIC_URL?: string; // Public URL for R2 bucket (e.g., https://pub-xxx.r2.dev or custom domain)
 }
 
+export type ProcessingTaskType = 'INGEST' | 'VISION' | 'CLEANUP' | 'EMBED' | 'FINALIZE';
+
 export interface QueueMessage {
   jobId: string;
   resourceId: string;
   gameId: string;
   name: string;
-  url: string;
+  type: ProcessingTaskType;
+  url?: string;
   gameName?: string; // Optional: game name for vision analysis context
   sourceKey?: string; // Optional: internal R2 object key for the source PDF
 }

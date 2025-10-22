@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useChat, type Message as UIMessage } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import Markdown from 'react-markdown';
@@ -26,11 +26,13 @@ const SystemMessage = ({
   isStreaming,
   isCurrent,
   onFollowUp,
+  onResourceClick,
 }: {
   message: UIMessage;
   isStreaming: boolean;
   isCurrent: boolean;
   onFollowUp: (followUp: string) => void;
+  onResourceClick: (resourceId: string) => void;
 }) => {
   // Extract text content from message parts
   const textContent = message.parts
@@ -122,20 +124,19 @@ const SystemMessage = ({
             <ExternalLink className="w-3 h-3" />
             Resources
           </h4>
-          <ul className="flex flex-row gap-2 text-xs flex-wrap">
+          <div className="flex flex-row gap-2 text-xs flex-wrap">
             {resources.map((resource) => (
-              <li key={resource.id}>
-                <Button variant="secondary" size="sm" asChild>
-                  <a
-                    href={`/resources/${resource.id}/download`}
-                    target="_blank"
-                  >
-                    {resource.name}
-                  </a>
-                </Button>
-              </li>
+              <Button
+                key={resource.id}
+                variant="secondary"
+                size="sm"
+                className="whitespace-normal h-auto py-2"
+                onClick={() => onResourceClick(resource.id)}
+              >
+                {resource.name}
+              </Button>
             ))}
-          </ul>
+          </div>
         </div>
       )}
       {isCurrent && !!followUps?.length && (
@@ -202,6 +203,7 @@ export function Chat({
   setImageError: (error: boolean) => void;
 }) {
   const [input, setInput] = useState("");
+  const [resourceUrls, setResourceUrls] = useState<Record<string, string>>({});
 
   const {
     messages,
@@ -239,6 +241,37 @@ export function Chat({
     }
   }, []);
 
+  const openResource = useCallback(
+    async (resourceId: string) => {
+      try {
+        let targetUrl = resourceUrls[resourceId];
+
+        if (!targetUrl) {
+          const response = await fetch(`/api/resources/${resourceId}`);
+          if (!response.ok) {
+            throw new Error(`Failed to load resource: ${response.status}`);
+          }
+          const data = await response.json();
+          if (!data?.url) {
+            throw new Error('Resource missing URL');
+          }
+          targetUrl = String(data.url);
+          setResourceUrls((prev) => ({ ...prev, [resourceId]: targetUrl }));
+        }
+
+        const resolvedUrl = targetUrl.startsWith('http')
+          ? targetUrl
+          : new URL(targetUrl, window.location.origin).toString();
+
+        window.open(resolvedUrl, '_blank', 'noopener');
+      } catch (error) {
+        console.error('Failed to open resource', error);
+        alert('Unable to open the resource. Please try again later.');
+      }
+    },
+    [resourceUrls]
+  );
+
   return (
     <>
       <Card className="flex-1 flex absolute inset-0 max-w-full overflow-hidden w-full">
@@ -263,6 +296,7 @@ export function Chat({
                     onFollowUp={(followUp) => {
                       sendMessage({ text: followUp });
                     }}
+                    onResourceClick={openResource}
                   />
                 )}
               </div>

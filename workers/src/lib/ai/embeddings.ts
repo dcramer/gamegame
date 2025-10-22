@@ -1,18 +1,26 @@
 import { embed, embedMany } from 'ai';
-import { openai } from '@ai-sdk/openai';
-
-const embeddingModel = openai.embedding('text-embedding-3-small');
+import { createOpenAI } from '@ai-sdk/openai';
 
 export const CURRENT_INDEX_VERSION = 3;
+
+const getEmbeddingModel = (apiKey: string) => {
+  if (!apiKey) {
+    throw new Error('Missing OPENAI_API_KEY for embeddings');
+  }
+  const openai = createOpenAI({ apiKey });
+  return openai.embedding('text-embedding-3-small');
+};
 
 /**
  * Generate single embedding from text
  * Returns: [embedding vector, version]
  */
 export async function generateEmbedding(
-  value: string
+  value: string,
+  apiKey: string
 ): Promise<[number[], number]> {
   const input = value.replaceAll('\n', ' ');
+  const embeddingModel = getEmbeddingModel(apiKey);
 
   const { embedding } = await embed({
     model: embeddingModel,
@@ -46,7 +54,8 @@ export async function generateEmbeddings(
       bbox?: number[];
       caption?: string;
     }>;
-  }>
+  }>,
+  apiKey: string
 ): Promise<
   [
     Array<{
@@ -73,6 +82,8 @@ export async function generateEmbeddings(
   }
 
   // Generate embeddings for all chunks
+  const embeddingModel = getEmbeddingModel(apiKey);
+
   const { embeddings } = await embedMany({
     model: embeddingModel,
     values: validChunks.map(c => c.content),
