@@ -15,6 +15,27 @@
       "when": 1729540800000,
       "tag": "0001_add_fts5",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1761187743982,
+      "tag": "0002_fix_fragments_fts",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1761199200000,
+      "tag": "0003_resource_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1761202800000,
+      "tag": "0004_resource_attribution",
+      "breakpoints": true
     }
   ]
 }

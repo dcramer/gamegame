@@ -1,15 +1,17 @@
 import type { Env, QueueMessage } from '@/types';
+import { nanoid } from 'nanoid';
 import { getDb, resources, fragments, attachments } from '../db';
 import { eq } from 'drizzle-orm';
 import { extractTextFromPdf, rebuildMarkdownFromPages, replaceImageReferences } from '../pdf';
 import { chunkStructuredPDF, calculateResourceStats } from '../services/chunking';
-import { uploadPDFImages, deleteAttachmentsByUrls } from '../services/r2-storage';
+import { uploadPDFImages, deleteAttachmentsByUrls, extractR2KeyFromUrl } from '../services/r2-storage';
 import { generateEmbeddings } from '../ai/embeddings';
 import { insertEmbeddings } from '../ai/vectorize';
 import type { StructuredPDFContent, PDFImage } from '../types/pdf';
 import { enrichPDFImagesWithVision } from '../services/vision';
 import { cleanupMarkdownBatch } from '../services/markdown-cleanup';
 import { updateJob } from '../jobs/status';
+import { summarizeResource } from '../services/resource-summary';
 
 const STRUCTURED_KEY = (resourceId: string) => `resources/${resourceId}/structured.json`;
 
@@ -20,6 +22,7 @@ interface ResourceProcessingMetadata {
     vision: boolean;
     cleanup: boolean;
     embed: boolean;
+    summary: boolean;
   };
 }
 
@@ -31,6 +34,7 @@ function defaultMetadata(resourceId: string): ResourceProcessingMetadata {
       vision: false,
       cleanup: false,
       embed: false,
+      summary: false,
     },
   };
 }
@@ -106,6 +110,15 @@ async function fetchPdfBuffer(task: QueueMessage, env: Env): Promise<Buffer> {
     throw new Error('No URL or source key provided for PDF ingestion');
   }
 
+  const keyFromUrl = extractR2KeyFromUrl(task.url);
+  if (keyFromUrl) {
+    const object = await env.FILES.get(keyFromUrl);
+    if (object) {
+      const arrayBuffer = await object.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    }
+  }
+
   const response = await fetch(task.url);
   if (!response.ok) {
     throw new Error(`Failed to fetch PDF (status ${response.status} ${response.statusText})`);
@@ -145,7 +158,23 @@ async function deleteExistingFragments(env: Env, resourceId: string) {
 
   if (existingFragments.length > 0) {
     await db.delete(fragments).where(eq(fragments.resourceId, resourceId));
-    await env.VECTORIZE.deleteByIds(existingFragments.map((fragment) => fragment.id));
+
+    const MAX_VECTOR_ID_LENGTH = 64;
+    const vectorIds = existingFragments
+      .map((fragment) => fragment.id)
+      .filter((id) => id.length <= MAX_VECTOR_ID_LENGTH);
+
+    if (vectorIds.length > 0) {
+      await env.VECTORIZE.deleteByIds(vectorIds);
+    }
+
+    const skipped = existingFragments.filter((fragment) => fragment.id.length > MAX_VECTOR_ID_LENGTH);
+    if (skipped.length > 0) {
+      console.warn(
+        `Skipped deleting ${skipped.length} vector embeddings with IDs longer than ${MAX_VECTOR_ID_LENGTH} bytes. ` +
+          'Run `wrangler vectorize delete-by-ids` manually or reset the index to remove legacy entries.'
+      );
+    }
   }
 }
 
@@ -310,10 +339,11 @@ export async function runCleanupStage(task: QueueMessage, env: Env): Promise<Que
 }
 
 function namespaceImageId(resourceId: string, image: PDFImage): string {
-  if (!image.id.startsWith(resourceId)) {
-    return `${resourceId}-${image.id}`;
+  const baseId = image.id.replace(/\.[^./]+$/, '');
+  if (!baseId.startsWith(resourceId)) {
+    return `${resourceId}-${baseId}`;
   }
-  return image.id;
+  return baseId;
 }
 
 export async function runEmbedStage(task: QueueMessage, env: Env): Promise<QueueMessage | null> {
@@ -328,6 +358,8 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
       metadata: resources.processingMetadata,
       name: resources.name,
       url: resources.url,
+      description: resources.description,
+      originalFilename: resources.originalFilename,
     })
     .from(resources)
     .where(eq(resources.id, task.resourceId))
@@ -415,8 +447,8 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
   const pdfChunks = await chunkStructuredPDF(structured);
   const [embeddingsData, version] = await generateEmbeddings(pdfChunks, env.OPENAI_API_KEY);
 
-  const fragmentRecords = embeddingsData.map((embedding, index) => ({
-    id: `${task.resourceId}-fragment-${index}-${crypto.randomUUID()}`,
+  const fragmentRecords = embeddingsData.map((embedding) => ({
+    id: nanoid(),
     gameId: task.gameId,
     resourceId: task.resourceId,
     content: embedding.content,
@@ -454,6 +486,23 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
     );
   }
 
+  let summaryResult: Awaited<ReturnType<typeof summarizeResource>> | null = null;
+  if (!metadata.stages.summary && env.OPENAI_API_KEY) {
+    summaryResult = await summarizeResource(finalContent, env.OPENAI_API_KEY, {
+      existingName: resourceRow?.name,
+      originalFilename: resourceRow?.originalFilename,
+    });
+
+    if (summaryResult) {
+      metadata.stages.summary = true;
+    }
+  }
+
+  const resolvedName = summaryResult?.name ?? resourceRow?.name ?? task.name;
+  const resolvedDescription = summaryResult?.description ?? resourceRow?.description ?? null;
+  const resolvedAuthor = resourceRow?.author ?? null;
+  const resolvedAttributionUrl = resourceRow?.attributionUrl ?? null;
+
   const stats = calculateResourceStats(finalContent, structured);
 
   await db
@@ -471,6 +520,11 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
           embed: true,
         },
       }),
+      originalFilename: resourceRow?.originalFilename ?? task.name,
+      name: resolvedName,
+      description: resolvedDescription,
+      author: resolvedAuthor,
+      attributionUrl: resolvedAttributionUrl,
       pageCount: stats.pageCount,
       imageCount: stats.imageCount,
       wordCount: stats.wordCount,

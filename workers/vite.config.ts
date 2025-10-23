@@ -10,6 +10,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   root: resolve(__dirname, 'client'),
   plugins: [react()],
+  server: {
+    host: 'localhost',
+    port: 4000,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:4001',
+        changeOrigin: true,
+      },
+      '/uploads': {
+        target: 'http://localhost:4001',
+        changeOrigin: true,
+      },
+    },
+  },
   build: {
     outDir: resolve(__dirname, 'public'),
     emptyOutDir: true,

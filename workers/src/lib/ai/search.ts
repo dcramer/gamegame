@@ -76,16 +76,16 @@ export async function findRelevantContent(
     db
       .prepare(`
         SELECT
-          fts.fragment_id,
+          fts.id,
           fts.rank
         FROM fragments_fts fts
-        JOIN fragments f ON f.id = fts.fragment_id
+        JOIN fragments f ON f.id = fts.id
         WHERE fts.content MATCH ? AND f.game_id = ?
         ORDER BY fts.rank
         LIMIT ?
       `)
       .bind(prepareSearchQuery(userQuery), gameId, candidateCount)
-      .all<{ fragment_id: string; rank: number }>()
+      .all<{ id: string; rank: number }>()
   ]);
 
   // Step 3: Reciprocal Rank Fusion (RRF)
@@ -98,13 +98,13 @@ export async function findRelevantContent(
     vectorResults.map((r, index) => [r.fragmentId, index])
   );
   const ftsRanks = new Map(
-    ftsResults.results?.map((r, index) => [r.fragment_id, index]) ?? []
+    ftsResults.results?.map((r, index) => [r.id, index]) ?? []
   );
 
   // Get all unique fragment IDs
   const allFragmentIds = new Set([
     ...vectorResults.map(r => r.fragmentId),
-    ...(ftsResults.results?.map(r => r.fragment_id) ?? [])
+    ...(ftsResults.results?.map((r) => r.id) ?? [])
   ]);
 
   // Calculate RRF scores

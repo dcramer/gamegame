@@ -32,32 +32,34 @@ export async function cleanupMarkdown(
     const openai = createOpenAI({ apiKey: openaiApiKey });
 
     const response = await generateText({
-      model: openai('gpt-4o'), // Best model for accurate cleanup
-      system: `You are a markdown cleanup assistant for board game rulebook extraction. Your job is to remove unusable content while preserving all useful rule information and the document structure.
+      model: openai('gpt-5'), // Primary reasoning model for cleanup
+      system: `You are cleaning markdown that was OCR'd from a board-game rulebook. Your job is to delete obvious filler while leaving every piece of gameplay instruction untouched.
 
-CRITICAL RULES:
-1. PRESERVE ALL IMAGE REFERENCES EXACTLY - Do not modify any markdown images like ![alt](url)
-2. PRESERVE ALL HEADINGS - Keep the section structure intact
-3. PRESERVE ALL RULE TEXT - Keep gameplay instructions, examples, and clarifications
-4. REMOVE tables of contents (lists of sections with page numbers)
-5. REMOVE page headers/footers (copyright, version numbers, page numbers)
-6. REMOVE promotional content and advertisements
-7. REMOVE redundant navigation elements
+Guard rails (obey all of them):
+1. If you're unsure whether something is rules content or filler, KEEP IT.
+2. KEEP every heading, subheading, list item, numbered step, example, note, callout, and table. Do not rewrite or reorder them.
+3. KEEP every dice icon, symbol, cost, stat block, card text, setup diagram reference, and timing window.
+4. KEEP markdown images exactly as written – never rename or remove ![alt](url).
+5. REMOVE only obvious navigation scaffolding such as pure tables of contents, printer marks, blank pages, repeated page headers/footers, legal boilerplate, and marketing blurbs.
+6. REMOVE standalone page numbers or running headers/footers only when they are not embedded in rule text.
+7. Do not paraphrase, summarise, or reformat; output must remain valid markdown representing the same rule content.
 
-OUTPUT FORMAT:
-- Return only the cleaned markdown
-- Keep the same markdown structure (headings, lists, tables, images)
-- Do not add any commentary or explanations
-- If the entire page is just a table of contents or cover page, return an empty string
-- Preserve blank lines between sections for readability`,
+Output requirements:
+- Return ONLY the cleaned markdown (no explanations, no code fences).
+- Preserve blank lines between sections to keep structure readable.
+- Never introduce new headings or sections.
+- If the entire page was just non-content (e.g. a cover or empty TOC), return an empty string.`,
       prompt: `Clean up this markdown from page ${pageNumber} of a board game rulebook:\n\n${markdown}`,
     });
 
     const cleaned = response.text.trim() || '';
 
+    const isNonContentPage = isLikelyNonContentPage(markdown);
+
     // Safety check: if the LLM removed too much content (>80% reduction),
-    // return original to avoid data loss
-    if (cleaned.length > 0 && cleaned.length < markdown.length * 0.2) {
+    // return original to avoid data loss unless the cleaned output still looks substantial
+    const looksSubstantial = isSubstantialContent(cleaned);
+    if (!isNonContentPage && !looksSubstantial && cleaned.length > 0 && cleaned.length < markdown.length * 0.2) {
       console.log(
         JSON.stringify({
           module: 'markdown-cleanup',
@@ -84,6 +86,72 @@ OUTPUT FORMAT:
     // On error, return original markdown rather than failing the entire extraction
     return markdown;
   }
+}
+
+function isLikelyNonContentPage(markdown: string): boolean {
+  const lower = markdown.toLowerCase();
+  const lines = markdown
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (lines.length === 0) {
+    return true;
+  }
+
+  const tocKeywords = ['table of contents', 'contents', 'index'];
+  const hasTocKeyword = tocKeywords.some((keyword) => lower.includes(keyword));
+
+  const tocLikeLines = lines.filter((line) => {
+    // Lines that end with page numbers or have dotted leaders
+    const hasPageNumber = /\b\d{1,3}\s*$/.test(line);
+    const dottedLeader = /\.{2,}\s*\d+$/.test(line);
+    const cleanedLine = line.replace(/^[-*•\d.\s]+/, '').trim();
+    const shortEnough = cleanedLine.length <= 80;
+    return shortEnough && (hasPageNumber || dottedLeader);
+  });
+
+  const tocRatio = tocLikeLines.length / Math.max(lines.length, 1);
+  const isTableOfContents = (hasTocKeyword && tocRatio >= 0.3) || tocRatio >= 0.6;
+
+  const coverKeywords = ['copyright', 'all rights reserved', 'credits', 'published by'];
+  const coverIndicators = coverKeywords.filter((keyword) => lower.includes(keyword)).length;
+  const isCoverPage = coverIndicators > 0 && lines.length <= 60;
+
+  return isTableOfContents || isCoverPage;
+}
+
+function isSubstantialContent(markdown: string): boolean {
+  if (markdown.length >= 1000) {
+    return true;
+  }
+
+  const lines = markdown.split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
+  if (lines.length === 0) {
+    return false;
+  }
+
+  const headingCount = lines.filter((line) => /^#+\s+/.test(line)).length;
+  if (headingCount >= 2) {
+    return true;
+  }
+
+  const bulletCount = lines.filter((line) => /^[-*•]\s+/.test(line)).length;
+  if (bulletCount >= 4) {
+    return true;
+  }
+
+  const tableLineCount = lines.filter((line) => line.includes('|')).length;
+  if (tableLineCount >= 4) {
+    return true;
+  }
+
+  const sentenceMatches = markdown.match(/[.!?]\s+[A-Z]/g);
+  if (sentenceMatches && sentenceMatches.length >= 3) {
+    return true;
+  }
+
+  return false;
 }
 
 /**

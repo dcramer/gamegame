@@ -7,7 +7,7 @@ compatibility_date = "2025-01-15"
 compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 
 [dev]
-port = 4000
+port = 4001
 
 # Serve static files from public directory
 [assets]
@@ -20,10 +20,10 @@ binding = "DB"
 database_name = "gamegame"
 database_id = "e2fe423c-711c-426c-af9f-343dbb9e1c45"
 
-# Use REMOTE Vectorize binding (new method - more stable than --remote flag)
+# Use PREVIEW Vectorize index for local work (keeps prod data untouched)
 [[vectorize]]
 binding = "VECTORIZE"
-index_name = "gamegame-embeddings"
+index_name = "gamegame-embeddings-preview"
 remote = true
 
 # Local R2 simulation

@@ -1,11 +1,12 @@
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
+import { nanoid } from 'nanoid';
 
-// Helper for nanoid generation
-export const nanoid = () => crypto.randomUUID();
+// Helper for consistent ID generation (nanoid ensures <=64 bytes for Vectorize)
+const generateId = () => nanoid();
 
 // Games table
 export const games = sqliteTable('games', {
-  id: text('id').primaryKey().$defaultFn(() => nanoid()),
+  id: text('id').primaryKey().$defaultFn(() => generateId()),
   name: text('name').notNull(),
   year: integer('year'),
   slug: text('slug').notNull().unique(),
@@ -20,9 +21,12 @@ export const games = sqliteTable('games', {
 
 // Resources table
 export const resources = sqliteTable('resources', {
-  id: text('id').primaryKey().$defaultFn(() => nanoid()),
+  id: text('id').primaryKey().$defaultFn(() => generateId()),
   gameId: text('game_id').notNull().references(() => games.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
+  originalFilename: text('original_filename'),
+  author: text('author'),
+  attributionUrl: text('attribution_url'),
   url: text('url').notNull(),
   content: text('content').notNull().default(''),
   version: integer('version').notNull().default(0),
@@ -32,6 +36,7 @@ export const resources = sqliteTable('resources', {
   currentJobId: text('current_job_id'),
   processingStage: text('processing_stage').notNull().default('ready'),
   processingMetadata: text('processing_metadata'),
+  description: text('description'),
 
   // Denormalized stats
   pageCount: integer('page_count'),
@@ -46,7 +51,7 @@ export const resources = sqliteTable('resources', {
 
 // Fragments table (text chunks for RAG)
 export const fragments = sqliteTable('fragments', {
-  id: text('id').primaryKey().$defaultFn(() => nanoid()),
+  id: text('id').primaryKey().$defaultFn(() => generateId()),
   gameId: text('game_id').notNull().references(() => games.id, { onDelete: 'cascade' }),
   resourceId: text('resource_id').notNull().references(() => resources.id, { onDelete: 'cascade' }),
   content: text('content').notNull(),
@@ -65,7 +70,7 @@ export const fragments = sqliteTable('fragments', {
 
 // Attachments table (images extracted from PDFs)
 export const attachments = sqliteTable('attachments', {
-  id: text('id').primaryKey().$defaultFn(() => nanoid()),
+  id: text('id').primaryKey().$defaultFn(() => generateId()),
   gameId: text('game_id').notNull().references(() => games.id, { onDelete: 'cascade' }),
   resourceId: text('resource_id').notNull().references(() => resources.id, { onDelete: 'cascade' }),
   type: text('type').notNull().default('image'),
@@ -89,7 +94,7 @@ export const attachments = sqliteTable('attachments', {
 
 // Users table
 export const users = sqliteTable('users', {
-  id: text('id').primaryKey().$defaultFn(() => nanoid()),
+  id: text('id').primaryKey().$defaultFn(() => generateId()),
   email: text('email').notNull().unique(),
   name: text('name'),
   isAdmin: integer('is_admin', { mode: 'boolean' }).default(false),

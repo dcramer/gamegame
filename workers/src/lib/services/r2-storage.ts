@@ -19,6 +19,17 @@ export interface UploadedImage {
  * Note: We store images as-is from Mistral OCR without conversion
  * since Sharp (native image processing) doesn't work in Workers
  */
+export const RESOURCE_SOURCE_FILENAME = 'source.pdf';
+
+export function buildResourceSourceUrl(resourceId: string): string {
+  return `/uploads/resources/${resourceId}`;
+}
+
+export function buildAttachmentUrl(resourceId: string, attachmentId: string, ext: string): string {
+  const normalizedExt = ext.toLowerCase();
+  return `/uploads/resources/${resourceId}/attachments/${attachmentId}.${normalizedExt}`;
+}
+
 export async function uploadImageToR2(
   bucket: R2Bucket,
   resourceId: string,
@@ -33,8 +44,9 @@ export async function uploadImageToR2(
 ): Promise<UploadedImage> {
   // Determine mime type from buffer header (simple detection)
   const mimeType = detectMimeType(imageData);
-  const ext = mimeType.split('/')[1] || 'png';
-  const key = `resources/${resourceId}/attachments/${imageId}.${ext}`;
+  const ext = (mimeType.split('/')[1] || 'png').toLowerCase();
+  const cleanId = imageId.replace(/\.[^./]+$/, '');
+  const key = `resources/${resourceId}/attachments/${cleanId}.${ext}`;
 
   // Upload to R2 directly without conversion
   await bucket.put(key, imageData, {
@@ -51,15 +63,11 @@ export async function uploadImageToR2(
     },
   });
 
-  // Generate URL through worker's /uploads endpoint
-  // Note: In production, you may want to use a full URL with your domain
-  const url = `/uploads/${key}`;
-
   return {
-    id: imageId,
-    url,
+    id: cleanId,
+    url: buildAttachmentUrl(resourceId, cleanId, ext),
     mimeType,
-    originalFilename: metadata.originalFilename || `image.${ext}`,
+    originalFilename: metadata.originalFilename ?? cleanId,
     pageNumber: metadata.pageNumber,
     bbox: metadata.bbox,
     caption: metadata.caption,
@@ -105,7 +113,8 @@ export async function uploadPDFImages(
   }>
 ): Promise<UploadedImage[]> {
   const uploads = images.map(async (image) => {
-    const buffer = Buffer.from(image.base64, 'base64');
+    const base64Data = extractBase64(image.base64);
+    const buffer = Buffer.from(base64Data, 'base64');
     return uploadImageToR2(bucket, resourceId, image.id, buffer, {
       originalFilename: image.originalFilename,
       pageNumber: image.pageNumber,
@@ -116,6 +125,15 @@ export async function uploadPDFImages(
 
   return Promise.all(uploads);
 }
+
+function extractBase64(value: string): string {
+  const dataUriMatch = value.match(/^data:([^;]+);base64,(.+)$/);
+  if (dataUriMatch) {
+    return dataUriMatch[2];
+  }
+  return value;
+}
+
 
 /**
  * Delete image from R2
@@ -185,20 +203,98 @@ export async function deleteResourceFiles(
  * Handles both relative URLs (/uploads/path) and full URLs (https://...)
  */
 export function extractR2KeyFromUrl(url: string): string | null {
-  // Handle relative URLs like: /uploads/resources/abc/attachments/xyz.png
-  if (url.startsWith('/uploads/')) {
-    return url.replace('/uploads/', '');
+  if (!url) {
+    return null;
   }
 
-  // Handle full R2 URLs like: https://pub-xyz.r2.dev/resources/abc/attachments/xyz.png
+  const [withoutQuery] = url.split('?');
+
+  if (withoutQuery.startsWith('/uploads/')) {
+    const relative = withoutQuery.replace('/uploads/', '');
+    const resourceRoot = relative.match(/^resources\/([^/]+)$/);
+    if (resourceRoot) {
+      return `resources/${resourceRoot[1]}/${RESOURCE_SOURCE_FILENAME}`;
+    }
+    return relative;
+  }
+
+  const bareResourceMatch = withoutQuery.match(/^\/resources\/([^/]+)\/source\.pdf$/);
+  if (bareResourceMatch) {
+    return `resources/${bareResourceMatch[1]}/${RESOURCE_SOURCE_FILENAME}`;
+  }
+
+  const bareAttachmentMatch = withoutQuery.match(/^\/resources\/([^/]+)\/attachments\/(.+)$/);
+  if (bareAttachmentMatch) {
+    return `resources/${bareAttachmentMatch[1]}/attachments/${bareAttachmentMatch[2]}`;
+  }
+
+  const resourceRootMatch = withoutQuery.match(/^\/(?:files|uploads)\/resources\/([^/]+)$/);
+  if (resourceRootMatch) {
+    return `resources/${resourceRootMatch[1]}/${RESOURCE_SOURCE_FILENAME}`;
+  }
+
+  const attachmentMatch = withoutQuery.match(/^\/(?:files|uploads)\/resources\/([^/]+)\/attachments\/(.+)$/);
+  if (attachmentMatch) {
+    return `resources/${attachmentMatch[1]}/attachments/${attachmentMatch[2]}`;
+  }
+
+  if (withoutQuery.startsWith('/files/')) {
+    return withoutQuery.replace('/files/', '');
+  }
+
   try {
-    const parsed = new URL(url);
-    // Extract path without leading slash
-    return parsed.pathname.substring(1);
+    const parsed = new URL(withoutQuery);
+    const recursive = extractR2KeyFromUrl(parsed.pathname);
+    if (recursive) {
+      return recursive;
+    }
+    return parsed.pathname.startsWith('/')
+      ? parsed.pathname.substring(1)
+      : parsed.pathname;
   } catch {
     console.warn('Failed to parse R2 URL:', url);
     return null;
   }
+}
+
+export function normalizeResourceSourceUrl(resourceId: string, url: string | null | undefined): string | null | undefined {
+  if (!url) {
+    return url;
+  }
+  const canonical = buildResourceSourceUrl(resourceId);
+  if (url === canonical) {
+    return url;
+  }
+  const key = extractR2KeyFromUrl(url);
+  if (key === `resources/${resourceId}/${RESOURCE_SOURCE_FILENAME}` || key === `resources/${resourceId}`) {
+    return canonical;
+  }
+  return url;
+}
+
+export function normalizeAttachmentUrl(
+  resourceId: string,
+  url: string | null | undefined
+): string | null | undefined {
+  if (!url) {
+    return url;
+  }
+  const key = extractR2KeyFromUrl(url);
+  if (!key) {
+    return url;
+  }
+  const match = key.match(/^resources\/${resourceId}\/attachments\/(.+)$/);
+  if (!match) {
+    return url;
+  }
+  const filename = match[1];
+  const extMatch = filename.match(/\.([^.]+)$/);
+  if (!extMatch) {
+    return url;
+  }
+  const ext = extMatch[1].toLowerCase();
+  const attachmentId = filename.replace(/\.[^.]+$/, '');
+  return buildAttachmentUrl(resourceId, attachmentId, ext);
 }
 
 /**

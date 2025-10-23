@@ -47,8 +47,9 @@ Create the required Cloudflare resources for your project:
 pnpx wrangler d1 create gamegame
 # Copy the database_id from output to wrangler.toml
 
-# Create Vectorize index (1536 dimensions for OpenAI text-embedding-3-small)
+# Create Vectorize indexes (1536 dimensions for OpenAI text-embedding-3-small)
 pnpx wrangler vectorize create gamegame-embeddings --dimensions=1536 --metric=cosine
+pnpx wrangler vectorize create gamegame-embeddings-preview --dimensions=1536 --metric=cosine
 
 # Create R2 bucket for files
 pnpx wrangler r2 bucket create gamegame-files
@@ -108,10 +109,16 @@ pnpx wrangler secret put JWT_SECRET
 
 ```bash
 # Local development database
-pnpm db:migrate:local
+pnpm db:migrate
 
 # Production database (after deploying)
 pnpm db:migrate:remote
+```
+
+If your local schema falls out of sync (for example after editing an initial migration), reset the cached database and reapply migrations:
+
+```bash
+pnpm db:reset
 ```
 
 ### 6. Grant Admin Access
@@ -132,7 +139,11 @@ pnpm cli grant-admin your@email.com --remote
 pnpm dev
 ```
 
-Visit `http://localhost:4000` and:
+This runs:
+- Vite dev server → `http://localhost:4000` (full HMR experience)
+- Wrangler dev API → `http://localhost:4001`
+
+Open `http://localhost:4000` in your browser and:
 1. Navigate to `/admin/add-game`
 2. Search for a game on BoardGameGeek or add manually
 3. Upload a PDF rulebook
@@ -144,15 +155,17 @@ Visit `http://localhost:4000` and:
 
 ```bash
 # Development
-pnpm dev                   # Start dev server with hot reload
+pnpm dev                   # Start Vite + Wrangler dev servers w/ HMR
+pnpm dev:vectorize         # Same as above but bind Vectorize to preview index
 pnpm type-check            # Run TypeScript type checking
 pnpm build                 # Build for production (dry-run)
 pnpm build:client          # Build React chat widget
 
 # Database
 pnpm db:generate           # Generate migration from schema changes
-pnpm db:migrate:local      # Apply migrations to local D1
+pnpm db:migrate           # Apply migrations to local D1
 pnpm db:migrate:remote     # Apply migrations to production D1
+pnpm db:reset              # Delete local D1 state and re-run migrations
 pnpm db:studio             # Open Drizzle Studio (DB browser)
 
 # CLI Tools
@@ -165,13 +178,13 @@ pnpm deploy                # Deploy to production
 
 ### Local Development with Vectorize
 
-Vectorize doesn't have local simulation yet. To use Vectorize in development:
+Vectorize doesn't have local simulation yet. Local development targets the preview index so production data stays clean. Run dev with remote binding enabled:
 
 ```bash
-pnpm dev --experimental-vectorize-bind-to-prod
+pnpm dev:vectorize
 ```
 
-This connects your local dev server to production Vectorize.
+This launches the same two processes (`pnpm client:dev` + `wrangler dev --experimental-vectorize-bind-to-prod`) so your local UI stays on `http://localhost:4000` while API vector search hits the preview index (`gamegame-embeddings-preview`).
 
 ### Viewing Logs
 

@@ -1,20 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { useChat, type Message } from '@ai-sdk/react';
 
-// Simple markdown renderer (subset of react-markdown features)
+// Lightweight markdown renderer (subset of markdown features we care about)
 function Markdown({ children }: { children: string }) {
-  const html = children
-    // Bold
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    // Italic
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
-    // Images (will be handled separately for attachments)
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />')
-    // Line breaks
-    .replace(/\n/g, '<br />');
+  const html = useMemo(() => {
+    return children
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-400 underline">$1</a>')
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="mt-2 rounded" />')
+      .replace(/\n/g, '<br />');
+  }, [children]);
 
   return <div dangerouslySetInnerHTML={{ __html: html }} />;
 }
@@ -36,18 +33,12 @@ function SystemMessage({
   isCurrent: boolean;
   onFollowUp: (text: string) => void;
 }) {
-  const content = message.content;
+  const content = message.content ?? '';
 
   if (!content) {
     if (isStreaming) return null;
     return (
-      <div style={{
-        padding: '0.75rem 1rem',
-        background: '#991b1b',
-        color: '#fee2e2',
-        borderRadius: '8px',
-        fontWeight: 600,
-      }}>
+      <div className="rounded-lg bg-red-900/70 px-4 py-3 text-sm font-semibold text-red-100">
         There was an error processing your request. Please try again.
       </div>
     );
@@ -59,13 +50,7 @@ function SystemMessage({
   } catch (err) {
     if (isStreaming) return null;
     return (
-      <div style={{
-        padding: '0.75rem 1rem',
-        background: '#991b1b',
-        color: '#fee2e2',
-        borderRadius: '8px',
-        fontWeight: 600,
-      }}>
+      <div className="rounded-lg bg-red-900/70 px-4 py-3 text-sm font-semibold text-red-100">
         There was an error processing your request. Please try again.
       </div>
     );
@@ -75,22 +60,15 @@ function SystemMessage({
 
   if (!answer) {
     return (
-      <div style={{
-        padding: '0.75rem 1rem',
-        background: '#991b1b',
-        color: '#fee2e2',
-        borderRadius: '8px',
-        fontWeight: 600,
-      }}>
+      <div className="rounded-lg bg-red-900/70 px-4 py-3 text-sm font-semibold text-red-100">
         There was an error processing your request. Please try again.
       </div>
     );
   }
 
-  // Extract attachments from markdown images
   const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
   const attachments: Array<{ url: string; alt: string }> = [];
-  let match;
+  let match: RegExpExecArray | null;
 
   while ((match = imageRegex.exec(answer)) !== null) {
     const alt = match[1];
@@ -101,68 +79,33 @@ function SystemMessage({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div
-        style={{
-          maxWidth: '100%',
-          padding: '0.75rem 1rem',
-          borderRadius: '8px',
-          background: '#252525',
-          color: '#e5e5e5',
-          lineHeight: '1.6',
-        }}
-      >
+    <div className="flex flex-col gap-4">
+      <div className="max-w-full rounded-lg bg-zinc-800/80 px-4 py-3 text-sm leading-relaxed text-zinc-100">
         <Markdown>{answer}</Markdown>
       </div>
 
       {attachments.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <h4
-            style={{
-              fontSize: '0.75rem',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-              color: '#9ca3af',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.375rem',
-            }}
-          >
-            🖼️ Attachments
+        <div className="flex flex-col gap-2 text-sm">
+          <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-tight text-zinc-400">
+            <span role="img" aria-hidden="true">
+              🖼️
+            </span>
+            Attachments
           </h4>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div className="flex flex-wrap gap-2">
             {attachments.map((attachment, index) => (
               <a
                 key={`${attachment.url}-${index}`}
                 href={attachment.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{
-                  width: '96px',
-                  height: '96px',
-                  border: '1px solid #333',
-                  borderRadius: '4px',
-                  overflow: 'hidden',
-                  display: 'block',
-                  transition: 'border-color 0.2s',
-                }}
+                className="group block h-24 w-24 overflow-hidden rounded border border-zinc-700 transition hover:border-blue-500"
                 title={attachment.alt || 'Attachment'}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = '#2563eb';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = '#333';
-                }}
               >
                 <img
                   src={attachment.url}
                   alt={attachment.alt || 'Attachment'}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                  }}
+                  className="h-full w-full object-cover"
                 />
               </a>
             ))}
@@ -171,43 +114,21 @@ function SystemMessage({
       )}
 
       {resources && resources.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <h4
-            style={{
-              fontSize: '0.75rem',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-              color: '#9ca3af',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.375rem',
-            }}
-          >
-            🔗 Resources
+        <div className="flex flex-col gap-2 text-sm">
+          <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-tight text-zinc-400">
+            <span role="img" aria-hidden="true">
+              🔗
+            </span>
+            Resources
           </h4>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div className="flex flex-wrap gap-2">
             {resources.map((resource) => (
               <a
                 key={resource.id}
-                href={`/api/resources/${resource.id}/download`}
+                href={`/uploads/resources/${resource.id}/source.pdf`}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{
-                  padding: '0.5rem 1rem',
-                  background: '#374151',
-                  color: '#e5e5e5',
-                  borderRadius: '6px',
-                  fontSize: '0.875rem',
-                  textDecoration: 'none',
-                  transition: 'background-color 0.2s',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#4b5563';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#374151';
-                }}
+                className="inline-flex items-center rounded-md bg-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-100 transition hover:bg-zinc-600"
               >
                 {resource.name}
               </a>
@@ -217,44 +138,20 @@ function SystemMessage({
       )}
 
       {isCurrent && followUps && followUps.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <h4
-            style={{
-              fontSize: '0.75rem',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-              color: '#9ca3af',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.375rem',
-            }}
-          >
-            💬 Follow Up Questions
+        <div className="flex flex-col gap-2 text-sm">
+          <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-tight text-zinc-400">
+            <span role="img" aria-hidden="true">
+              💬
+            </span>
+            Follow Up Questions
           </h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div className="flex flex-col gap-2">
             {followUps.map((followUp) => (
               <button
                 key={followUp}
+                type="button"
                 onClick={() => onFollowUp(followUp)}
-                style={{
-                  padding: '0.75rem 1rem',
-                  background: '#2563eb',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontSize: '0.875rem',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'background-color 0.2s',
-                  whiteSpace: 'normal',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#1d4ed8';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#2563eb';
-                }}
+                className="whitespace-normal rounded-md bg-blue-600 px-4 py-2 text-left text-sm font-medium text-white transition hover:bg-blue-500"
               >
                 {followUp}
               </button>
@@ -268,18 +165,9 @@ function SystemMessage({
 
 function UserMessage({ message }: { message: Message }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-      <div
-        style={{
-          maxWidth: '80%',
-          padding: '0.75rem 1rem',
-          borderRadius: '8px',
-          background: '#374151',
-          color: '#e5e5e5',
-          fontWeight: 600,
-        }}
-      >
-        <div style={{ whiteSpace: 'pre-wrap' }}>{message.content}</div>
+    <div className="flex justify-end">
+      <div className="max-w-[80%] rounded-lg bg-zinc-700 px-4 py-2 font-semibold text-zinc-100">
+        <div className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</div>
       </div>
     </div>
   );
@@ -291,6 +179,14 @@ const defaultQuestions = [
   'How does setup work?',
 ];
 
+interface GameDetails {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  bggUrl: string | null;
+  resourceCount?: number;
+}
+
 function ChatWidget({ gameId, gameName }: { gameId: string; gameName: string }) {
   const { messages, input, setInput, append, isLoading } = useChat({
     api: `/api/games/${gameId}/chat`,
@@ -298,25 +194,62 @@ function ChatWidget({ gameId, gameName }: { gameId: string; gameName: string }) 
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const [gameDetails, setGameDetails] = useState<GameDetails | null>(null);
+  const [imageError, setImageError] = useState(false);
+  const [gameError, setGameError] = useState<string | null>(null);
+  const [loadingGame, setLoadingGame] = useState(true);
 
   useEffect(() => {
-    scrollToBottom();
+    const node = messagesEndRef.current;
+    node?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingGame(true);
+    setImageError(false);
+
+    fetch(`/api/games/${gameId}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Failed to load game: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.error) {
+          throw new Error(String(data.error));
+        }
+        setGameDetails({
+          id: data.id,
+          name: data.name,
+          imageUrl: data.imageUrl ?? null,
+          bggUrl: data.bggUrl ?? null,
+          resourceCount: data.resourceCount ?? data._count?.resources ?? 0,
+        });
+        setGameError(null);
+        setLoadingGame(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Failed to fetch game details', err);
+        setGameError('Unable to load game details.');
+        setLoadingGame(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [gameId]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (input.trim() && !isLoading) {
-      append({ role: 'user', content: input });
-      setInput('');
-    }
+    if (!input.trim() || isLoading) return;
+    append({ role: 'user', content: input });
+    setInput('');
   };
 
   const handleFollowUp = (text: string) => {
@@ -327,201 +260,148 @@ function ChatWidget({ gameId, gameName }: { gameId: string; gameName: string }) 
     append({ role: 'user', content: question });
   };
 
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        background: '#1a1a1a',
-        borderRadius: '8px',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Messages area */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '1.5rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1rem',
-        }}
-      >
-        {messages.length === 0 && (
-          <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '1.5rem',
-              color: '#9ca3af',
-            }}
-          >
-            <div style={{ fontSize: '4rem' }}>🎲</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'center' }}>
-              {defaultQuestions.map((question) => (
-                <button
-                  key={question}
-                  onClick={() => handleDefaultQuestion(question)}
-                  style={{
-                    padding: '0.75rem 1rem',
-                    background: '#2563eb',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '6px',
-                    fontSize: '0.875rem',
-                    cursor: 'pointer',
-                    transition: 'background-color 0.2s',
-                    whiteSpace: 'normal',
-                    textAlign: 'center',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#1d4ed8';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#2563eb';
-                  }}
-                >
-                  {question}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+  const handleResourceQuestion = () => {
+    append({ role: 'user', content: 'What resources are you using?' });
+  };
 
-        {messages.map((message, index) => (
-          <div key={message.id}>
-            {message.role === 'user' ? (
-              <UserMessage message={message} />
-            ) : (
-              <SystemMessage
-                message={message}
-                isStreaming={index === messages.length - 1 && isLoading}
-                isCurrent={index === messages.length - 1}
-                onFollowUp={handleFollowUp}
+  const displayName = gameDetails?.name || gameName;
+  const resourceCount =
+    typeof gameDetails?.resourceCount === 'number' ? gameDetails.resourceCount : undefined;
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden rounded-lg bg-zinc-900 text-zinc-100">
+      <header className="flex items-center justify-between gap-4 border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+        <div className="flex items-end gap-4 overflow-hidden whitespace-nowrap">
+          <div className="flex h-12 w-12 flex-none items-center justify-center overflow-hidden rounded-xl border border-zinc-800 bg-zinc-800">
+            {gameDetails?.imageUrl && !imageError ? (
+              <img
+                src={gameDetails.imageUrl}
+                alt={displayName}
+                className="h-full w-full object-cover object-top"
+                onError={() => setImageError(true)}
               />
+            ) : (
+              <span className="text-2xl">🎲</span>
             )}
           </div>
-        ))}
 
-        {isLoading && (
-          <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-            <div
-              style={{
-                padding: '0.75rem 1rem',
-                borderRadius: '8px',
-                background: '#252525',
-                color: '#9ca3af',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-              }}
-            >
-              <div
-                style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  background: '#9ca3af',
-                  animation: 'pulse 1.5s ease-in-out infinite',
-                }}
-              />
-              <div
-                style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  background: '#9ca3af',
-                  animation: 'pulse 1.5s ease-in-out 0.2s infinite',
-                }}
-              />
-              <div
-                style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  background: '#9ca3af',
-                  animation: 'pulse 1.5s ease-in-out 0.4s infinite',
-                }}
-              />
+          <div className="flex min-w-0 flex-col gap-1">
+            <h2 className="truncate text-xl font-bold text-zinc-50" title={displayName}>
+              {displayName}
+            </h2>
+            <div className="flex items-center gap-3 text-sm text-zinc-400">
+              {gameDetails?.bggUrl && (
+                <a
+                  href={gameDetails.bggUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center"
+                  title={`${displayName} on BoardGameGeek`}
+                >
+                  <img
+                    src="/bgg.png"
+                    alt="Board Game Geek"
+                    className="h-5 w-5 rounded transition hover:grayscale-0 grayscale"
+                  />
+                </a>
+              )}
+
+              {typeof resourceCount === 'number' && !Number.isNaN(resourceCount) && (
+                <span className="inline-flex items-center gap-2">
+                  <span>{resourceCount} resources</span>
+                  <button
+                    type="button"
+                    onClick={handleResourceQuestion}
+                    disabled={isLoading}
+                    className="text-xs font-semibold underline transition disabled:cursor-not-allowed disabled:text-zinc-600 hover:text-blue-300"
+                  >
+                    What are they?
+                  </button>
+                </span>
+              )}
             </div>
+
+            {gameError && (
+              <p className="text-xs text-red-400">{gameError}</p>
+            )}
+          </div>
+        </div>
+
+        {loadingGame && <span className="text-xs text-zinc-500">Loading…</span>}
+      </header>
+
+      <div className="flex-1 overflow-y-auto px-6 py-6">
+        {messages.length === 0 && !isLoading ? (
+          <div className="flex h-full flex-col items-center justify-center gap-6 text-zinc-400">
+            <div className="text-6xl">🎲</div>
+            <ul className="flex flex-col items-center gap-3 text-sm">
+              {defaultQuestions.map((question) => (
+                <li key={question}>
+                  <button
+                    type="button"
+                    onClick={() => handleDefaultQuestion(question)}
+                    className="whitespace-normal rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500"
+                  >
+                    {question}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {messages.map((message, index) => (
+              <div key={message.id} className="flex flex-col gap-2">
+                {message.role === 'user' ? (
+                  <UserMessage message={message} />
+                ) : (
+                  <SystemMessage
+                    message={message}
+                    isStreaming={index === messages.length - 1 && isLoading}
+                    isCurrent={index === messages.length - 1}
+                    onFollowUp={handleFollowUp}
+                  />
+                )}
+              </div>
+            ))}
+
+            {isLoading && (
+              <div className="flex items-center gap-2 text-sm text-zinc-400">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-500" />
+                <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-500 delay-150" />
+                <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-500 delay-300" />
+              </div>
+            )}
           </div>
         )}
 
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input area */}
       <form
         onSubmit={handleSubmit}
-        style={{
-          padding: '1.5rem',
-          borderTop: '1px solid #333',
-          display: 'flex',
-          gap: '0.75rem',
-        }}
+        className="flex items-center gap-3 border-t border-zinc-800 bg-zinc-900 px-6 py-4"
       >
         <input
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={`Ask about ${gameName}...`}
+          placeholder={`Ask about ${displayName}...`}
           disabled={isLoading}
-          style={{
-            flex: 1,
-            padding: '0.75rem 1rem',
-            background: '#0a0a0a',
-            border: '1px solid #333',
-            borderRadius: '6px',
-            color: '#e5e5e5',
-            fontSize: '1rem',
-            outline: 'none',
-          }}
+          className="flex-1 rounded-md border border-zinc-700 bg-black/40 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
         />
         <button
           type="submit"
           disabled={isLoading || !input.trim()}
-          style={{
-            padding: '0.75rem 1.5rem',
-            background: isLoading || !input.trim() ? '#374151' : '#2563eb',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '6px',
-            fontSize: '1rem',
-            cursor: isLoading || !input.trim() ? 'not-allowed' : 'pointer',
-            fontWeight: 500,
-            transition: 'background-color 0.2s',
-          }}
-          onMouseEnter={(e) => {
-            if (!isLoading && input.trim()) {
-              e.currentTarget.style.background = '#1d4ed8';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!isLoading && input.trim()) {
-              e.currentTarget.style.background = '#2563eb';
-            }
-          }}
+          className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isLoading ? '...' : 'Send'}
+          {isLoading ? 'Sending…' : 'Send'}
         </button>
       </form>
-
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 0.4; }
-          50% { opacity: 1; }
-        }
-      `}</style>
     </div>
   );
 }
 
-// Mount the widget when the script loads
 const container = document.getElementById('chat-widget');
 if (container) {
   const gameId = container.dataset.gameId;

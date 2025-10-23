@@ -11,9 +11,10 @@ import { buildPrompt, getTools } from '@/lib/ai/prompt';
 import { ratelimit } from '@/middleware/ratelimit';
 import { generateSlug, ensureUniqueSlug } from '@/lib/utils/slug';
 import { createJob } from '@/lib/jobs/status';
+import { RESOURCE_SOURCE_FILENAME, buildResourceSourceUrl } from '@/lib/services/r2-storage';
 
 const gamesRouter = new Hono<{ Bindings: Env }>();
-const MODEL = 'gpt-4o';
+const MODEL = 'gpt-5';
 
 // List all games
 gamesRouter.get('/', async (c) => {
@@ -292,10 +293,12 @@ gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, async (c) => {
     const file = fileEntry as File;
 
     const declaredName = formData.get('name');
-    const resourceName =
-      typeof declaredName === 'string' && declaredName.trim().length > 0
-        ? declaredName.trim()
-        : file.name || 'Uploaded Rulebook';
+    const candidateName =
+      (typeof file.name === 'string' && file.name.trim().length > 0 ? file.name.trim() : undefined) ??
+      (typeof declaredName === 'string' && declaredName.trim().length > 0 ? declaredName.trim() : undefined) ??
+      'Uploaded Rulebook';
+    const resourceOriginalFilename = candidateName;
+    const initialResourceName = candidateName;
 
     // Validate file type
     const fileExtension = file.name?.split('.').pop()?.toLowerCase();
@@ -309,14 +312,8 @@ gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, async (c) => {
       return c.json({ error: 'File must be a PDF' }, 400);
     }
 
-    const publicBaseUrl = c.env.R2_PUBLIC_URL?.replace(/\/$/, '');
-    if (!publicBaseUrl) {
-      console.error('R2_PUBLIC_URL is not configured. Cannot store uploaded PDFs.');
-      return c.json({ error: 'File storage is not configured' }, 500);
-    }
-
     const resourceId = crypto.randomUUID();
-    const objectKey = `resources/${resourceId}/source.pdf`;
+    const objectKey = `resources/${resourceId}/${RESOURCE_SOURCE_FILENAME}`;
 
     const arrayBuffer = await file.arrayBuffer();
     const buffer = new Uint8Array(arrayBuffer);
@@ -332,7 +329,7 @@ gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, async (c) => {
       },
     });
 
-    const publicUrl = `${publicBaseUrl}/${objectKey}`;
+    const resourceUrl = buildResourceSourceUrl(resourceId);
 
     const jobId = await createJob(c.env.JOB_STATUS_KV, resourceId, game.id);
 
@@ -341,8 +338,9 @@ gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, async (c) => {
       .values({
         id: resourceId,
         gameId: game.id,
-        name: resourceName,
-        url: publicUrl,
+        name: initialResourceName,
+        originalFilename: resourceOriginalFilename,
+        url: resourceUrl,
         content: '',
         version: 0,
         pdfExtractor: 'mistral',
@@ -362,9 +360,9 @@ gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, async (c) => {
     jobId,
     resourceId,
     gameId: game.id,
-    name: resourceName,
+    name: initialResourceName,
     type: 'INGEST',
-    url: publicUrl,
+    url: resourceUrl,
     gameName: game.name,
     sourceKey: objectKey,
   });

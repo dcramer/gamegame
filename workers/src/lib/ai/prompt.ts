@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { findRelevantContent } from './search';
 import type { D1Database, VectorizeIndex } from '@cloudflare/workers-types';
 import { getDb, resources, attachments } from '../db';
+import { normalizeAttachmentUrl, normalizeResourceSourceUrl } from '../services/r2-storage';
 import { eq } from 'drizzle-orm';
 
 const GITHUB_URL = 'https://github.com/getsentry/gamegame';
@@ -51,7 +52,9 @@ export function getTools(
         return resourceList.map(r => ({
           id: r.id,
           name: r.name,
-          url: r.url,
+          url: normalizeResourceSourceUrl(r.id, r.url) ?? r.url,
+          originalFilename: r.originalFilename ?? null,
+          description: r.description ?? null,
           pageCount: r.pageCount ?? null,
           imageCount: r.imageCount ?? 0,
           wordCount: r.wordCount ?? 0,
@@ -84,7 +87,7 @@ export function getTools(
             success: true,
             id: attachment.id,
             type: attachment.type,
-            url: attachment.url,
+            url: normalizeAttachmentUrl(attachment.resourceId, attachment.url) ?? attachment.url,
             mimeType: attachment.mimeType ?? 'image/png',
             caption: attachment.caption,
             pageNumber: attachment.pageNumber,

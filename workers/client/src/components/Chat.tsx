@@ -394,7 +394,16 @@ export function Chat({
               </a>
             )}
             <p className="text-muted-foreground text-sm hidden lg:block">
-              {game.resourceCount || 0} resources
+              {game.resourceCount || 0} resources{' '}
+              <Button
+                size="sm"
+                variant="link"
+                onClick={() => {
+                  sendMessage({ text: 'What resources are you using?' });
+                }}
+              >
+                What are they?
+              </Button>
             </p>
           </div>
         </div>

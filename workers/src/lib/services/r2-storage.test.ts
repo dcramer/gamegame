@@ -24,7 +24,19 @@ describe('R2 Storage Utilities', () => {
     it('should handle URL with query parameters', () => {
       const url = '/uploads/resources/abc123/attachments/xyz.png?v=123';
       const key = extractR2KeyFromUrl(url);
-      expect(key).toBe('resources/abc123/attachments/xyz.png?v=123');
+      expect(key).toBe('resources/abc123/attachments/xyz.png');
+    });
+
+    it('should extract key from canonical source URL', () => {
+      const url = '/uploads/resources/abc123/source.pdf';
+      const key = extractR2KeyFromUrl(url);
+      expect(key).toBe('resources/abc123/source.pdf');
+    });
+
+    it('should extract key from canonical attachment URL', () => {
+      const url = '/uploads/resources/abc123/attachments/xyz.jpeg';
+      const key = extractR2KeyFromUrl(url);
+      expect(key).toBe('resources/abc123/attachments/xyz.jpeg');
     });
 
     it('should return null for invalid URL', () => {

@@ -5,8 +5,8 @@ import type { Env } from '@/types';
 import { getDb, resources, fragments, attachments, games } from '@/lib/db';
 import { eq, sql, asc } from 'drizzle-orm';
 import { requireAdmin } from '@/middleware/auth';
-import { createJob, getJob } from '@/lib/jobs/status';
-import { extractR2KeyFromUrl } from '@/lib/services/r2-storage';
+import { createJob, deleteJob, getJob } from '@/lib/jobs/status';
+import { extractR2KeyFromUrl, normalizeAttachmentUrl, normalizeResourceSourceUrl } from '@/lib/services/r2-storage';
 
 const resourcesRouter = new Hono<{ Bindings: Env }>();
 
@@ -36,6 +36,9 @@ resourcesRouter.get('/games/:gameId', async (c) => {
     .select({
       id: resources.id,
       name: resources.name,
+      originalFilename: resources.originalFilename,
+      author: resources.author,
+      attributionUrl: resources.attributionUrl,
       url: resources.url,
       version: resources.version,
       pdfExtractor: resources.pdfExtractor,
@@ -46,6 +49,7 @@ resourcesRouter.get('/games/:gameId', async (c) => {
       pageCount: resources.pageCount,
       imageCount: resources.imageCount,
       wordCount: resources.wordCount,
+      description: resources.description,
       fragmentCount: sql<number>`COUNT(${fragments.id})`,
     })
     .from(resources)
@@ -54,7 +58,12 @@ resourcesRouter.get('/games/:gameId', async (c) => {
     .groupBy(resources.id)
     .all();
 
-  return c.json(resourceList);
+  return c.json(
+    resourceList.map((resource) => ({
+      ...resource,
+      url: normalizeResourceSourceUrl(resource.id, resource.url) ?? resource.url,
+    }))
+  );
 });
 
 /**
@@ -69,6 +78,9 @@ resourcesRouter.get('/:resourceId', async (c) => {
       id: resources.id,
       gameId: resources.gameId,
       name: resources.name,
+      originalFilename: resources.originalFilename,
+      author: resources.author,
+      attributionUrl: resources.attributionUrl,
       url: resources.url,
       content: resources.content,
       version: resources.version,
@@ -80,6 +92,7 @@ resourcesRouter.get('/:resourceId', async (c) => {
       pageCount: resources.pageCount,
       imageCount: resources.imageCount,
       wordCount: resources.wordCount,
+      description: resources.description,
       createdAt: resources.createdAt,
       updatedAt: resources.updatedAt,
     })
@@ -99,6 +112,7 @@ resourcesRouter.get('/:resourceId', async (c) => {
 
   return c.json({
     ...resource,
+    url: normalizeResourceSourceUrl(resource.id, resource.url) ?? resource.url,
     fragmentCount: Number(fragmentCount),
   });
 });
@@ -127,38 +141,6 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
     return c.json({ error: 'Resource not found' }, 404);
   }
 
-  // Get fragment IDs for Vectorize cleanup
-  const fragmentList = await db
-    .select({ id: fragments.id })
-    .from(fragments)
-    .where(eq(fragments.resourceId, resourceId))
-    .all();
-
-  // Get attachment URLs for R2 cleanup
-  const attachmentList = await db
-    .select({ url: attachments.url })
-    .from(attachments)
-    .where(eq(attachments.resourceId, resourceId))
-    .all();
-
-  // Delete existing fragments and attachments from D1
-  await db.delete(fragments).where(eq(fragments.resourceId, resourceId));
-  await db.delete(attachments).where(eq(attachments.resourceId, resourceId));
-
-  // Delete from Vectorize
-  if (fragmentList.length > 0) {
-    const fragmentIds = fragmentList.map((f) => f.id);
-    await c.env.VECTORIZE.deleteByIds(fragmentIds);
-  }
-
-  // Delete from R2
-  const { deleteAttachmentsByUrls } = await import('@/lib/services/r2-storage');
-  const deletedR2Count = await deleteAttachmentsByUrls(
-    c.env.FILES,
-    attachmentList.map((a) => a.url)
-  );
-  console.log(`[Reprocess] Deleted ${deletedR2Count} files from R2`);
-
   // Fetch game name for vision analysis context
   const [game] = await db
     .select({ name: games.name })
@@ -166,7 +148,12 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
     .where(eq(games.id, resource.gameId))
     .limit(1);
 
-  const sourceKey = resource.url ? extractR2KeyFromUrl(resource.url) : null;
+  const normalizedUrl = normalizeResourceSourceUrl(resource.id, resource.url) ?? resource.url;
+  const sourceKey = normalizedUrl ? extractR2KeyFromUrl(normalizedUrl) : null;
+
+  if (resource.currentJobId) {
+    await deleteJob(c.env.JOB_STATUS_KV, resource.currentJobId);
+  }
 
   // Create new job and enqueue for processing
   const jobId = await createJob(c.env.JOB_STATUS_KV, resourceId, resource.gameId);
@@ -175,16 +162,11 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
   await db
     .update(resources)
     .set({
-      content: '',
-      version: 0,
-      pageCount: null,
-      imageCount: 0,
-      wordCount: 0,
-      processedAt: null,
       status: 'processing',
       currentJobId: jobId,
       processingStage: 'ingest',
       processingMetadata: null,
+      url: normalizedUrl,
       updatedAt: new Date(),
     })
     .where(eq(resources.id, resourceId));
@@ -195,7 +177,7 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
     gameId: resource.gameId,
     name: resource.name,
     type: 'INGEST',
-    url: resource.url,
+    url: normalizedUrl,
     gameName: game?.name, // Include game name for vision analysis
     sourceKey: sourceKey || undefined,
   });
@@ -206,8 +188,6 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
       jobId,
       status: 'queued',
       message: 'Resource queued for reprocessing',
-      deletedFragments: fragmentList.length,
-      deletedAttachments: attachmentList.length,
     },
     202 // Accepted
   );
@@ -224,6 +204,9 @@ resourcesRouter.patch(
     z.object({
       name: z.string().min(1).optional(),
       content: z.string().optional(),
+      description: z.string().optional().nullable(),
+      author: z.string().optional().nullable(),
+      attributionUrl: z.string().url().optional().nullable(),
     })
   ),
   async (c) => {
@@ -240,6 +223,15 @@ resourcesRouter.patch(
     }
     if (data.content !== undefined) {
       updateData.content = data.content;
+    }
+    if (data.description !== undefined) {
+      updateData.description = data.description;
+    }
+    if (data.author !== undefined) {
+      updateData.author = data.author ?? null;
+    }
+    if (data.attributionUrl !== undefined) {
+      updateData.attributionUrl = data.attributionUrl ?? null;
     }
 
     const [updated] = await db
@@ -283,6 +275,7 @@ resourcesRouter.get('/:resourceId/attachments', async (c) => {
 
   const parsed = attachmentList.map((attachment) => ({
     ...attachment,
+    url: normalizeAttachmentUrl(resourceId, attachment.url) ?? attachment.url,
     bbox: attachment.bbox ? JSON.parse(attachment.bbox as string) : undefined,
   }));
 

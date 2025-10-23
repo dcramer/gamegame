@@ -61,7 +61,7 @@ async function withRetry<T>(
 }
 
 /**
- * Analyze an image using GPT-4 Vision to generate a description and quality assessment
+ * Analyze an image using GPT-5 Vision to generate a description and quality assessment
  * @param base64Image Base64-encoded image data (with or without data URI prefix)
  * @param surroundingText Text content surrounding the image for context
  * @param context Optional context (game name, section hierarchy)
@@ -124,7 +124,7 @@ Format as JSON:
   const result = await withRetry(
     async () => {
       const { text } = await generateText({
-        model: openai('gpt-4o'), // gpt-4o has vision capabilities
+        model: openai('gpt-5'), // GPT-5 reasoning model with vision support
         messages: [
           {
             role: 'user',
@@ -140,7 +140,6 @@ Format as JSON:
             ],
           },
         ],
-        temperature: 0.3, // Lower temperature for consistent structured output
       });
 
       if (!text) {
@@ -150,7 +149,7 @@ Format as JSON:
       return text;
     },
     {
-      operationName: 'gpt-4-vision',
+      operationName: 'gpt-5-vision',
       maxRetries: 3,
       initialDelay: 1000,
       maxDelay: 5000,

@@ -4,23 +4,29 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm build:client && wrangler dev --config wrangler.dev.toml",
-    "dev:remote": "pnpm build:client && wrangler dev --config wrangler.dev.toml --remote",
-    "dev:watch": "concurrently \"vite build --watch\" \"wrangler dev --config wrangler.dev.toml\"",
+    "dev": "concurrently \"pnpm client:dev\" \"pnpm wrangler:dev\"",
+    "dev:remote": "concurrently \"pnpm client:dev\" \"wrangler dev --config wrangler.dev.toml --remote\"",
+    "dev:watch": "concurrently \"vite build --watch\" \"pnpm wrangler:dev\"",
     "build": "vite build",
     "build:client": "vite build",
     "preview": "vite preview",
     "deploy": "pnpm build:client && wrangler deploy",
     "setup": "pnpm db:migrate:local",
     "db:generate": "drizzle-kit generate",
+    "db:migrate": "pnpm db:migrate:local",
     "db:migrate:local": "wrangler d1 migrations apply gamegame --local",
     "db:migrate:remote": "wrangler d1 migrations apply gamegame --remote",
     "db:studio": "drizzle-kit studio",
+    "db:reset": "node scripts/reset-local-db.js",
     "type-check": "tsc --noEmit",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
-    "cli": "tsx cli.ts"
+    "cli": "tsx cli.ts",
+    "client:dev": "vite dev --host localhost --port 4000",
+    "wrangler:dev": "wrangler dev --config wrangler.dev.toml",
+    "wrangler:dev:vectorize": "wrangler dev --config wrangler.dev.toml --experimental-vectorize-bind-to-prod",
+    "dev:vectorize": "concurrently \"pnpm client:dev\" \"pnpm wrangler:dev:vectorize\""
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.50",
@@ -66,6 +72,7 @@
     "typescript": "^5.9.3",
     "vite": "^7.1.10",
     "vitest": "^3.2.4",
-    "wrangler": "^4.43.0"
+    "wrangler": "^4.43.0",
+    "concurrently": "^8.2.2"
   }
 }

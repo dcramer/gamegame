@@ -1,0 +1,12 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "tables": {},
+  "enums": {},
+  "_meta": {
+    "tables": {},
+    "columns": {}
+  },
+  "id": "0001_add_fts5",
+  "prevId": "0000_organic_nighthawk"
+}

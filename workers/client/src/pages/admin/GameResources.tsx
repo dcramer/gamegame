@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
 import AdminLayout from '../../components/AdminLayout';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -8,6 +7,7 @@ import { Label } from '../../components/ui/label';
 import { Spinner } from '../../components/ui/spinner';
 import Heading from '../../components/Heading';
 import { Card, CardContent } from '../../components/ui/card';
+import { SaveButton } from '../../components/ui/save-button';
 import {
   Table,
   TableBody,
@@ -29,6 +29,10 @@ interface Game {
 interface Resource {
   id: string;
   name: string;
+  originalFilename?: string;
+  description?: string | null;
+  author?: string | null;
+  attributionUrl?: string | null;
   url: string;
   version: number;
   pdfExtractor: string | null;
@@ -66,6 +70,7 @@ export default function AdminGameResources() {
   const [game, setGame] = useState<Game | null>(null);
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<'not_found' | 'server' | null>(null);
 
   // Game form state
   const [gameName, setGameName] = useState('');
@@ -73,6 +78,7 @@ export default function AdminGameResources() {
   const [gameImageUrl, setGameImageUrl] = useState<string | null>(null);
   const [gameImageFile, setGameImageFile] = useState<File | null>(null);
   const [updatingGame, setUpdatingGame] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   // Resource upload state
   const [uploadingResources, setUploadingResources] = useState<Map<string, JobStatus>>(new Map());
@@ -91,22 +97,30 @@ export default function AdminGameResources() {
 
     const load = async () => {
       try {
-        const [gameData, resourcesData] = await Promise.all([
-          fetch(`/api/games/${gameId}`).then((res) => {
-            if (!res.ok) throw new Error('Game not found');
-            return res.json();
-          }),
-          fetch(`/api/resources/games/${gameId}`).then((res) => {
-            if (!res.ok) throw new Error('Failed to load resources');
-            return res.json();
-          }),
-        ]);
+        const gameResponse = await fetch(`/api/games/${gameId}`);
+        if (gameResponse.status === 404) {
+          setError('not_found');
+          setLoading(false);
+          return;
+        }
+        if (!gameResponse.ok) {
+          throw new Error(`Failed to load game (${gameResponse.status})`);
+        }
+
+        const gameData = await gameResponse.json();
+
+        const resourcesResponse = await fetch(`/api/resources/games/${gameId}`);
+        if (!resourcesResponse.ok) {
+          throw new Error(`Failed to load resources (${resourcesResponse.status})`);
+        }
+        const resourcesData = await resourcesResponse.json();
 
         setGame(gameData);
         setGameName(gameData.name || '');
         setGameBggUrl(gameData.bggUrl || '');
         setGameImageUrl(gameData.imageUrl);
         setResources(resourcesData);
+        setError(null);
         setLoading(false);
 
         const pendingResources = resourcesData.filter(
@@ -159,6 +173,7 @@ export default function AdminGameResources() {
       } catch (err) {
         console.error('Failed to load game:', err);
         setGame(null);
+        setError((prev) => prev ?? 'server');
         setLoading(false);
       }
     };
@@ -257,6 +272,7 @@ export default function AdminGameResources() {
   const handleUpdateGame = async (e: React.FormEvent) => {
     e.preventDefault();
     setUpdatingGame(true);
+    setUpdateStatus('idle');
 
     try {
       // Build update payload - only send fields that have changed
@@ -304,15 +320,13 @@ export default function AdminGameResources() {
         setGameBggUrl(updatedGame.bggUrl || '');
         setGameImageUrl(updatedGame.imageUrl);
         setGameImageFile(null);
-        alert('Game updated successfully');
+        setUpdateStatus('success');
       } else {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        console.error('Failed to update game:', response.status, errorData);
-        alert(`Failed to update game: ${errorData.error || response.statusText}`);
+        setUpdateStatus('error');
       }
     } catch (error) {
       console.error('Update error:', error);
-      alert('Failed to update game');
+      setUpdateStatus('error');
     } finally {
       setUpdatingGame(false);
     }
@@ -452,11 +466,36 @@ export default function AdminGameResources() {
     );
   }
 
+  if (error === 'not_found') {
+    return (
+      <AdminLayout>
+        <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
+          <p className="text-xl font-semibold">Game not found</p>
+          <p className="text-sm text-muted-foreground">The game you're looking for doesn't exist or has been removed.</p>
+          <Link to="/admin">
+            <Button>Back to Games</Button>
+          </Link>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  if (error === 'server') {
+    return (
+      <AdminLayout>
+        <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
+          <p className="text-xl font-semibold">Something went wrong</p>
+          <p className="text-sm text-muted-foreground">We couldn't load this game right now. Please try again later.</p>
+        </div>
+      </AdminLayout>
+    );
+  }
+
   if (!game) {
     return (
       <AdminLayout>
-        <div className="text-center py-12">
-          <p className="text-xl mb-4">Game not found</p>
+        <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
+          <p className="text-xl font-semibold">Game not available</p>
           <Link to="/admin">
             <Button>Back to Games</Button>
           </Link>
@@ -563,10 +602,17 @@ export default function AdminGameResources() {
             </div>
           </div>
 
-          <Button type="submit" className="mr-auto" disabled={updatingGame}>
+          <SaveButton
+            type="submit"
+            status={updateStatus}
+            isLoading={updatingGame}
+            successText="Game details saved."
+            errorText="Failed to save game. Please try again."
+            onStatusTimeout={() => setUpdateStatus('idle')}
+            wrapperClassName="mr-auto"
+          >
             Update Game
-            {updatingGame && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
-          </Button>
+          </SaveButton>
         </form>
 
         {/* Resource List */}

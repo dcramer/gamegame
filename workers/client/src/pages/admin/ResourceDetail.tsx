@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Download, Loader2, ArrowLeft } from 'lucide-react';
+import { useParams, Link } from 'react-router-dom';
+import { Download, ArrowLeft } from 'lucide-react';
 import AdminLayout from '../../components/AdminLayout';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Spinner } from '../../components/ui/spinner';
+import { SaveButton } from '../../components/ui/save-button';
 import Heading from '../../components/Heading';
 import AttachmentList from './AttachmentList';
 
@@ -13,6 +14,10 @@ interface Resource {
   id: string;
   gameId: string;
   name: string;
+  originalFilename: string;
+  description: string | null;
+  author: string | null;
+  attributionUrl: string | null;
   url: string;
   content: string;
   version: number;
@@ -41,7 +46,6 @@ interface Attachment {
 
 export default function AdminResourceDetail() {
   const { gameId, resourceId } = useParams<{ gameId: string; resourceId: string }>();
-  const navigate = useNavigate();
   const [resource, setResource] = useState<Resource | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,7 +53,11 @@ export default function AdminResourceDetail() {
   // Form state
   const [name, setName] = useState('');
   const [content, setContent] = useState('');
+  const [description, setDescription] = useState('');
+  const [author, setAuthor] = useState('');
+  const [attributionUrl, setAttributionUrl] = useState('');
   const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   useEffect(() => {
     if (!resourceId) return;
@@ -68,6 +76,9 @@ export default function AdminResourceDetail() {
         setResource(resourceData);
         setName(resourceData.name || '');
         setContent(resourceData.content || '');
+        setDescription(resourceData.description || '');
+        setAuthor(resourceData.author || '');
+        setAttributionUrl(resourceData.attributionUrl || '');
         setAttachments(attachmentsData);
         setLoading(false);
       })
@@ -83,23 +94,37 @@ export default function AdminResourceDetail() {
     if (!resourceId) return;
 
     setSaving(true);
+    setSaveStatus('idle');
     try {
+      const payload = {
+        name,
+        content,
+        description: description.trim() ? description : null,
+        author: author.trim() ? author : null,
+        attributionUrl: attributionUrl.trim() ? attributionUrl : null,
+      };
+
       const response = await fetch(`/api/resources/${resourceId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, content }),
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
         const updatedResource = await response.json();
-        setResource(updatedResource);
-        alert('Resource updated successfully');
+        setResource((prev) => (prev ? { ...prev, ...updatedResource } : updatedResource));
+        setName(updatedResource.name || '');
+        setContent(updatedResource.content || '');
+        setDescription(updatedResource.description || '');
+        setAuthor(updatedResource.author || '');
+        setAttributionUrl(updatedResource.attributionUrl || '');
+        setSaveStatus('success');
       } else {
-        alert('Failed to update resource');
+        setSaveStatus('error');
       }
     } catch (error) {
       console.error('Update error:', error);
-      alert('Failed to update resource');
+      setSaveStatus('error');
     } finally {
       setSaving(false);
     }
@@ -129,10 +154,10 @@ export default function AdminResourceDetail() {
   }
 
   const stats = [
-    `${resource.fragmentCount.toLocaleString()} chunks`,
-    resource.pageCount && `${resource.pageCount} pages`,
-    resource.imageCount > 0 && `${resource.imageCount} images`,
-    resource.wordCount > 0 && `${(resource.wordCount / 1000).toFixed(1)}k words`,
+    typeof resource.fragmentCount === 'number' ? `${resource.fragmentCount.toLocaleString()} chunks` : null,
+    typeof resource.pageCount === 'number' ? `${resource.pageCount} pages` : null,
+    resource.imageCount > 0 ? `${resource.imageCount} images` : null,
+    resource.wordCount > 0 ? `${(resource.wordCount / 1000).toFixed(1)}k words` : null,
   ]
     .filter(Boolean)
     .join(' • ');
@@ -160,7 +185,7 @@ export default function AdminResourceDetail() {
 
       <form onSubmit={handleSave} className="grid gap-4 mb-8">
         <div className="grid gap-2">
-          <Label htmlFor="name">Name</Label>
+          <Label htmlFor="name">Document Title</Label>
           <Input
             id="name"
             type="text"
@@ -172,22 +197,66 @@ export default function AdminResourceDetail() {
         </div>
 
         <div className="grid gap-2">
-          <Label htmlFor="content">Content</Label>
+          <Label htmlFor="originalFilename">Original Filename</Label>
+          <Input id="originalFilename" type="text" value={resource.originalFilename} readOnly className="font-mono" />
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="description">Summary</Label>
+          <textarea
+            id="description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={4}
+            placeholder="Short summary of this resource"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono"
+          />
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="author">Author / Creator</Label>
+          <Input
+            id="author"
+            type="text"
+            value={author}
+            onChange={(e) => setAuthor(e.target.value)}
+            placeholder="e.g. Fantasy Flight Games"
+          />
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="attributionUrl">Attribution URL</Label>
+          <Input
+            id="attributionUrl"
+            type="url"
+            value={attributionUrl}
+            onChange={(e) => setAttributionUrl(e.target.value)}
+            placeholder="https://publisher.com/rulebook"
+          />
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="content">Markdown Content</Label>
           <textarea
             id="content"
             value={content}
             onChange={(e) => setContent(e.target.value)}
             rows={16}
             placeholder="Markdown Content"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono"
             required
           />
         </div>
 
-        <Button type="submit" className="mr-auto" disabled={saving}>
-          Save Changes
-          {saving && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
-        </Button>
+        <SaveButton
+          type="submit"
+          status={saveStatus}
+          isLoading={saving}
+          successText="Changes saved."
+          errorText="Failed to save changes. Please try again."
+          onStatusTimeout={() => setSaveStatus('idle')}
+          wrapperClassName="mr-auto"
+        />
       </form>
 
       <div className="mt-8">

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '@/types';
 import { getDb, attachments } from '@/lib/db';
 import { eq, asc } from 'drizzle-orm';
+import { normalizeAttachmentUrl } from '@/lib/services/r2-storage';
 
 const attachmentsRouter = new Hono<{ Bindings: Env }>();
 
@@ -37,6 +38,7 @@ attachmentsRouter.get('/:attachmentId', async (c) => {
   // Parse JSON strings back to arrays/objects
   const result = {
     ...attachment,
+    url: normalizeAttachmentUrl(attachment.resourceId, attachment.url) ?? attachment.url,
     bbox: attachment.bbox ? JSON.parse(attachment.bbox as string) : undefined,
   };
 
@@ -73,6 +75,7 @@ attachmentsRouter.get('/resources/:resourceId', async (c) => {
   // Parse JSON strings back to arrays/objects
   const parsed = results.map((attachment) => ({
     ...attachment,
+    url: normalizeAttachmentUrl(attachment.resourceId, attachment.url) ?? attachment.url,
     bbox: attachment.bbox ? JSON.parse(attachment.bbox as string) : undefined,
   }));
 

@@ -94,7 +94,6 @@ bggRouter.post(
             },
           });
 
-          // Generate URL through worker's /uploads endpoint
           uploadedImageUrl = `/uploads/${key}`;
         } catch (imageError) {
           console.error('BGG image processing failed:', imageError);

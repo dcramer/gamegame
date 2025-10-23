@@ -1,10 +1,13 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
+import type { R2Bucket } from '@cloudflare/workers-types';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
 import type { Env } from './types';
 import type { ExportedHandler } from '@cloudflare/workers-types';
 import { auth } from './middleware/auth';
+import { RESOURCE_SOURCE_FILENAME } from './lib/services/r2-storage';
 
 // Import API routes
 import gamesRouter from './routes/api/games';
@@ -47,22 +50,93 @@ app.get('/assets/*', async (c) => {
   return c.env.ASSETS.fetch(c.req.url);
 });
 
-// Serve uploaded files from R2
-app.get('/uploads/*', async (c) => {
-  const path = c.req.path.replace('/uploads/', '');
-  const object = await c.env.FILES.get(path);
+async function serveR2Object(c: Context<{ Bindings: Env }>, key: string) {
+  if (!key || key.includes('..')) {
+    return c.json({ error: 'Invalid key' }, 400);
+  }
+
+  let object = await c.env.FILES.get(key);
+
+  if (!object) {
+    const resourceRootMatch = key.match(/^resources\/([^/]+)$/);
+    if (resourceRootMatch) {
+      const altKey = `${key}/${RESOURCE_SOURCE_FILENAME}`;
+      const altObject = await c.env.FILES.get(altKey);
+      if (altObject) {
+        object = altObject;
+        key = altKey;
+      }
+    }
+  }
+
+  if (!object) {
+    const fallbackKey = await findAttachmentVariantKey(c.env.FILES, key);
+    if (fallbackKey) {
+      const fallbackObject = await c.env.FILES.get(fallbackKey);
+      if (fallbackObject) {
+        object = fallbackObject;
+        key = fallbackKey;
+      }
+    }
+  }
 
   if (!object) {
     return c.json({ error: 'File not found' }, 404);
   }
 
-  return new Response(object.body, {
-    headers: {
-      'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
-      'Cache-Control': 'public, max-age=31536000, immutable',
-    },
-  });
+  const headers = new Headers();
+  const metadata = object.httpMetadata ?? {};
+
+  headers.set('Cache-Control', metadata.cacheControl || 'public, max-age=31536000, immutable');
+  headers.set('Content-Type', metadata.contentType || 'application/octet-stream');
+  if (metadata.contentDisposition) {
+    headers.set('Content-Disposition', metadata.contentDisposition);
+  }
+  if (metadata.contentLanguage) {
+    headers.set('Content-Language', metadata.contentLanguage);
+  }
+  if (metadata.contentEncoding) {
+    headers.set('Content-Encoding', metadata.contentEncoding);
+  }
+  if (object.size !== undefined) {
+    headers.set('Content-Length', object.size.toString());
+  }
+  if (object.httpETag) {
+    headers.set('ETag', object.httpETag);
+  }
+
+  if (c.req.method === 'HEAD') {
+    return new Response(null, { status: 200, headers });
+  }
+
+  return new Response(object.body, { headers });
+}
+
+async function findAttachmentVariantKey(bucket: R2Bucket, key: string): Promise<string | null> {
+  const match = key.match(/^resources\/([^/]+)\/attachments\/(.+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const [ , resourceId, filename ] = match;
+  const baseWithoutExt = filename.replace(/\.[^.]+$/, '');
+  const prefix = `resources/${resourceId}/attachments/${baseWithoutExt}`;
+
+  const listed = await bucket.list({ prefix, limit: 5 });
+  if (!listed.objects.length) {
+    return null;
+  }
+
+  return listed.objects[0].key;
+}
+
+// Preferred canonical file routes
+// Primary uploads route (preferred for all file access)
+app.get('/uploads/*', async (c) => {
+  const key = c.req.path.replace('/uploads/', '');
+  return serveR2Object(c, key);
 });
+
 
 // Serve index.html for all other routes (SPA routing)
 app.get('*', async (c) => {
