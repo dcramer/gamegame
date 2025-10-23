@@ -7,6 +7,7 @@ import { eq, sql, asc } from 'drizzle-orm';
 import { requireAdmin } from '@/middleware/auth';
 import { createJob, deleteJob, getJob } from '@/lib/jobs/status';
 import { extractR2KeyFromUrl, normalizeAttachmentUrl, normalizeResourceSourceUrl } from '@/lib/services/r2-storage';
+import { deleteEmbeddings } from '@/lib/ai/vectorize';
 
 const resourcesRouter = new Hono<{ Bindings: Env }>();
 
@@ -132,6 +133,7 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
       gameId: resources.gameId,
       name: resources.name,
       url: resources.url,
+      currentJobId: resources.currentJobId,
     })
     .from(resources)
     .where(eq(resources.id, resourceId))
@@ -153,6 +155,13 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
 
   if (resource.currentJobId) {
     await deleteJob(c.env.JOB_STATUS_KV, resource.currentJobId);
+    await db
+      .update(resources)
+      .set({
+        currentJobId: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(resources.id, resourceId));
   }
 
   // Create new job and enqueue for processing
@@ -214,16 +223,23 @@ resourcesRouter.patch(
     const data = c.req.valid('json');
     const db = getDb(c.env.DB);
 
-    const updateData: any = {
+    if (data.content !== undefined) {
+      return c.json(
+        {
+          error: 'Resource content is managed by the processing pipeline. Use the reprocess endpoint to regenerate content.',
+        },
+        400
+      );
+    }
+
+    const updateData: Partial<typeof resources.$inferInsert> = {
       updatedAt: new Date(),
     };
 
     if (data.name !== undefined) {
       updateData.name = data.name;
     }
-    if (data.content !== undefined) {
-      updateData.content = data.content;
-    }
+    // Note: content updates are blocked by the check above (line 226)
     if (data.description !== undefined) {
       updateData.description = data.description;
     }
@@ -289,40 +305,67 @@ resourcesRouter.delete('/:resourceId', requireAdmin, async (c) => {
   const { resourceId } = c.req.param();
   const db = getDb(c.env.DB);
 
-  // Get fragment IDs for Vectorize cleanup
+  // Step 1: Collect all data needed for cleanup BEFORE any deletions
   const fragmentList = await db
     .select({ id: fragments.id })
     .from(fragments)
     .where(eq(fragments.resourceId, resourceId))
     .all();
 
-  // Get attachment URLs for R2 cleanup
   const attachmentList = await db
     .select({ url: attachments.url })
     .from(attachments)
     .where(eq(attachments.resourceId, resourceId))
     .all();
 
-  // Delete from D1 (cascades to fragments and attachments)
-  await db.delete(resources).where(eq(resources.id, resourceId));
+  // Step 2: Delete from D1 (source of truth, cascades to fragments and attachments)
+  const result = await db.delete(resources).where(eq(resources.id, resourceId)).returning();
 
-  // Delete from Vectorize
-  if (fragmentList.length > 0) {
-    const fragmentIds = fragmentList.map((f) => f.id);
-    await c.env.VECTORIZE.deleteByIds(fragmentIds);
+  if (result.length === 0) {
+    return c.json({ error: 'Resource not found' }, 404);
   }
 
-  // Delete from R2
-  const { deleteResourceFiles } = await import('@/lib/services/r2-storage');
-  const deletedR2Count = await deleteResourceFiles(c.env.FILES, resourceId);
-  console.log(`[Delete] Deleted ${deletedR2Count} files from R2`);
+  const errors: string[] = [];
+
+  // Step 3: Try to delete from Vectorize (log errors but don't fail)
+  if (fragmentList.length > 0) {
+    try {
+      const fragmentIds = fragmentList.map((f) => f.id);
+      await deleteEmbeddings(c.env.VECTORIZE, fragmentIds);
+    } catch (error) {
+      const errorMsg = `Failed to delete ${fragmentList.length} embeddings from Vectorize: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(`[Delete Resource] ${errorMsg}`);
+      errors.push(errorMsg);
+    }
+  }
+
+  // Step 4: Try to delete from R2 (log errors but don't fail)
+  let deletedR2Count = 0;
+  try {
+    const { deleteResourceFiles } = await import('@/lib/services/r2-storage');
+    deletedR2Count = await deleteResourceFiles(c.env.FILES, resourceId);
+  } catch (error) {
+    const errorMsg = `Failed to delete R2 files for resource ${resourceId}: ${error instanceof Error ? error.message : String(error)}`;
+    console.error(`[Delete Resource] ${errorMsg}`);
+    errors.push(errorMsg);
+  }
+
+  console.log(`[Delete Resource] Deleted resource ${resourceId}: ${fragmentList.length} fragments, ${attachmentList.length} attachments, ${deletedR2Count} R2 files`);
+
+  // Return 207 Multi-Status if cleanup had errors (resource deleted, but orphaned data remains)
+  // Return 200 only if everything succeeded
+  const statusCode = errors.length > 0 ? 207 : 200;
 
   return c.json({
-    success: true,
+    success: errors.length === 0,
     deletedFragments: fragmentList.length,
     deletedAttachments: attachmentList.length,
     deletedR2Files: deletedR2Count,
-  });
+    warnings: errors.length > 0 ? errors : undefined,
+    message: errors.length > 0
+      ? 'Resource deleted from database, but some cleanup operations failed. Orphaned data may remain in Vectorize or R2.'
+      : 'Resource and all associated data deleted successfully',
+  }, statusCode);
 });
 
 export default resourcesRouter;

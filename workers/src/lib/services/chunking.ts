@@ -1,4 +1,4 @@
-import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
+import { RecursiveCharacterTextSplitter } from './text-splitter';
 import type {
   StructuredPDFContent,
   PDFChunk,
@@ -57,18 +57,44 @@ async function chunkPage(
 ): Promise<PDFChunk[]> {
   const chunks: PDFChunk[] = [];
   const pageSections = page.sections;
+  const images = getRelevantImages(page);
+
+  async function addRange(
+    start: number,
+    end: number,
+    section: string | undefined
+  ): Promise<void> {
+    const slice = page.markdown.slice(start, end);
+    const trimmed = slice.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    if (trimmed.length < 1500) {
+      chunks.push({
+        content: trimmed,
+        pageNumber: page.pageNumber,
+        section,
+        images,
+      });
+      return;
+    }
+
+    const subChunks = await splitter.createDocuments([trimmed]);
+    for (const subChunk of subChunks) {
+      chunks.push({
+        content: subChunk.pageContent,
+        pageNumber: page.pageNumber,
+        section,
+        images,
+      });
+    }
+  }
 
   // If the page content is small enough, keep it as one chunk
   if (page.markdown.length < 1500 && pageSections.length <= 1) {
     const section = getCurrentSection(page, allSections);
-    const images = getRelevantImages(page);
-
-    chunks.push({
-      content: page.markdown,
-      pageNumber: page.pageNumber,
-      section,
-      images,
-    });
+    await addRange(0, page.markdown.length, section);
 
     return chunks;
   }
@@ -120,43 +146,37 @@ async function chunkPage(
 
     // Chunk each section
     for (const sectionText of sectionTexts) {
-      if (sectionText.text.length < 1500) {
-        // Small section, keep as one chunk
-        const images = getRelevantImages(page);
-        chunks.push({
-          content: sectionText.text,
-          pageNumber: page.pageNumber,
-          section: sectionText.section,
-          images,
-        });
-      } else {
-        // Large section, split it
-        const subChunks = await splitter.createDocuments([sectionText.text]);
-        for (const subChunk of subChunks) {
-          const images = getRelevantImages(page);
-          chunks.push({
-            content: subChunk.pageContent,
-            pageNumber: page.pageNumber,
-            section: sectionText.section,
-            images,
-          });
-        }
+      await addRange(sectionText.start, sectionText.end, sectionText.section);
+    }
+
+    // Capture any gaps not covered by section headings (preamble or trailing text)
+    const sortedSections = sectionTexts
+      .map((sectionText) => ({
+        start: sectionText.start,
+        end: sectionText.end,
+        section: sectionText.section,
+      }))
+      .sort((a, b) => a.start - b.start);
+
+    const defaultSection = getCurrentSection(page, allSections);
+    let cursor = 0;
+    let lastSection = defaultSection;
+
+    for (const range of sortedSections) {
+      if (range.start > cursor) {
+        await addRange(cursor, range.start, lastSection);
       }
+      cursor = Math.max(cursor, range.end);
+      lastSection = range.section;
+    }
+
+    if (cursor < page.markdown.length) {
+      await addRange(cursor, page.markdown.length, lastSection);
     }
   } else {
     // No sections, just split the whole page
-    const subChunks = await splitter.createDocuments([page.markdown]);
     const section = getCurrentSection(page, allSections);
-    const images = getRelevantImages(page);
-
-    for (const subChunk of subChunks) {
-      chunks.push({
-        content: subChunk.pageContent,
-        pageNumber: page.pageNumber,
-        section,
-        images,
-      });
-    }
+    await addRange(0, page.markdown.length, section);
   }
 
   return chunks;

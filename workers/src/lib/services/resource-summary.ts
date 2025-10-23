@@ -35,7 +35,7 @@ Return strict JSON with keys "name" and "description". The name should be a shor
 Keep the original document language.
 If the content does not describe rules, fall back to a neutral generic title and short statement.`,
       prompt: buildPrompt(truncated, options),
-      maxTokens: 400,
+      maxOutputTokens: 400,
     });
 
     const parsed = parseResponse(response.text);

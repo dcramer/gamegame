@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "eecb6239-7466-4d99-8287-d4a80b1dcbbd",
+  "id": "68523c5f-3f30-4bf6-ac2c-5b4d4370f9f1",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "attachments": {
@@ -40,7 +40,7 @@
           "name": "mime_type",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "url": {
@@ -101,7 +101,7 @@
         },
         "is_good_quality": {
           "name": "is_good_quality",
-          "type": "text",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -129,9 +129,10 @@
           ],
           "isUnique": false
         },
-        "idx_attachments_page": {
-          "name": "idx_attachments_page",
+        "idx_attachments_resource_page": {
+          "name": "idx_attachments_resource_page",
           "columns": [
+            "resource_id",
             "page_number"
           ],
           "isUnique": false
@@ -278,7 +279,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "idx_bgg_games_name": {
+          "name": "idx_bgg_games_name",
+          "columns": [
+            "name"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -371,6 +380,20 @@
           "name": "idx_fragments_resource_id",
           "columns": [
             "resource_id"
+          ],
+          "isUnique": false
+        },
+        "idx_fragments_version": {
+          "name": "idx_fragments_version",
+          "columns": [
+            "version"
+          ],
+          "isUnique": false
+        },
+        "idx_fragments_page_number": {
+          "name": "idx_fragments_page_number",
+          "columns": [
+            "page_number"
           ],
           "isUnique": false
         }
@@ -481,13 +504,6 @@
             "name"
           ],
           "isUnique": false
-        },
-        "idx_games_slug": {
-          "name": "idx_games_slug",
-          "columns": [
-            "slug"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -517,6 +533,27 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "original_filename": {
+          "name": "original_filename",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "author": {
+          "name": "author",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "attribution_url": {
+          "name": "attribution_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "url": {
@@ -586,6 +623,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "page_count": {
           "name": "page_count",
           "type": "integer",
@@ -629,6 +673,20 @@
           "name": "idx_resources_game_id",
           "columns": [
             "game_id"
+          ],
+          "isUnique": false
+        },
+        "idx_resources_status": {
+          "name": "idx_resources_status",
+          "columns": [
+            "status"
+          ],
+          "isUnique": false
+        },
+        "idx_resources_job_id": {
+          "name": "idx_resources_job_id",
+          "columns": [
+            "current_job_id"
           ],
           "isUnique": false
         }
@@ -706,13 +764,6 @@
             "email"
           ],
           "isUnique": true
-        },
-        "idx_users_email": {
-          "name": "idx_users_email",
-          "columns": [
-            "email"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {},

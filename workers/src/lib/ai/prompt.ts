@@ -8,6 +8,22 @@ import { eq } from 'drizzle-orm';
 
 const GITHUB_URL = 'https://github.com/getsentry/gamegame';
 
+// Tool execution timeout in milliseconds (30 seconds)
+const TOOL_TIMEOUT_MS = 30000;
+
+/**
+ * Wraps a tool execution function with a timeout
+ * Prevents hanging requests when tools take too long
+ */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, toolName: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Tool "${toolName}" timed out after ${timeoutMs}ms`)), timeoutMs)
+    ),
+  ]);
+}
+
 export const AnswerSchema = z.object({
   answer: z.string(),
   questionType: z.enum(['gameplay', 'knowledge', 'external', 'gamegame']).optional(),
@@ -35,31 +51,40 @@ export function getTools(
         question: z.string().describe('The user\'s question'),
       }),
       execute: async ({ question }) =>
-        findRelevantContent(db, vectorIndex, gameId, question, openaiApiKey),
+        withTimeout(
+          findRelevantContent(db, vectorIndex, gameId, question, openaiApiKey),
+          TOOL_TIMEOUT_MS,
+          'getKnowledge'
+        ),
     }),
 
     listResources: tool({
       description: 'List the resources available to you with their statistics',
       inputSchema: z.object({}),
-      execute: async () => {
-        const orm = getDb(db);
-        const resourceList = await orm
-          .select()
-          .from(resources)
-          .where(eq(resources.gameId, gameId))
-          .all();
+      execute: async () =>
+        withTimeout(
+          (async () => {
+            const orm = getDb(db);
+            const resourceList = await orm
+              .select()
+              .from(resources)
+              .where(eq(resources.gameId, gameId))
+              .all();
 
-        return resourceList.map(r => ({
-          id: r.id,
-          name: r.name,
-          url: normalizeResourceSourceUrl(r.id, r.url) ?? r.url,
-          originalFilename: r.originalFilename ?? null,
-          description: r.description ?? null,
-          pageCount: r.pageCount ?? null,
-          imageCount: r.imageCount ?? 0,
-          wordCount: r.wordCount ?? 0,
-        }));
-      },
+            return resourceList.map(r => ({
+              id: r.id,
+              name: r.name,
+              url: normalizeResourceSourceUrl(r.id, r.url) ?? r.url,
+              originalFilename: r.originalFilename ?? null,
+              description: r.description ?? null,
+              pageCount: r.pageCount ?? null,
+              imageCount: r.imageCount ?? 0,
+              wordCount: r.wordCount ?? 0,
+            }));
+          })(),
+          TOOL_TIMEOUT_MS,
+          'listResources'
+        ),
     }),
 
     getAttachment: tool({
@@ -67,38 +92,43 @@ export function getTools(
       inputSchema: z.object({
         attachmentId: z.string().describe('The attachment ID from attachment:// URL'),
       }),
-      execute: async ({ attachmentId }) => {
-        try {
-          const orm = getDb(db);
-          const [attachment] = await orm
-            .select()
-            .from(attachments)
-            .where(eq(attachments.id, attachmentId))
-            .limit(1);
+      execute: async ({ attachmentId }) =>
+        withTimeout(
+          (async () => {
+            try {
+              const orm = getDb(db);
+              const [attachment] = await orm
+                .select()
+                .from(attachments)
+                .where(eq(attachments.id, attachmentId))
+                .limit(1);
 
-          if (!attachment) {
-            return {
-              success: false,
-              error: `Attachment not found: ${attachmentId}`,
-            };
-          }
+              if (!attachment) {
+                return {
+                  success: false,
+                  error: `Attachment not found: ${attachmentId}`,
+                };
+              }
 
-          return {
-            success: true,
-            id: attachment.id,
-            type: attachment.type,
-            url: normalizeAttachmentUrl(attachment.resourceId, attachment.url) ?? attachment.url,
-            mimeType: attachment.mimeType ?? 'image/png',
-            caption: attachment.caption,
-            pageNumber: attachment.pageNumber,
-          };
-        } catch (error) {
-          return {
-            success: false,
-            error: `Attachment not found or unavailable: ${attachmentId}`,
-          };
-        }
-      },
+              return {
+                success: true,
+                id: attachment.id,
+                type: attachment.type,
+                url: normalizeAttachmentUrl(attachment.resourceId, attachment.url) ?? attachment.url,
+                mimeType: attachment.mimeType ?? 'image/png',
+                caption: attachment.caption,
+                pageNumber: attachment.pageNumber,
+              };
+            } catch (error) {
+              return {
+                success: false,
+                error: `Attachment not found or unavailable: ${attachmentId}`,
+              };
+            }
+          })(),
+          TOOL_TIMEOUT_MS,
+          'getAttachment'
+        ),
     }),
   };
 }

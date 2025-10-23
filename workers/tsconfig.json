@@ -18,9 +18,10 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
-    "types": ["@cloudflare/workers-types", "@types/node"],
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers", "@types/node"],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@langchain/core/dist/runnables/uuid": ["./src/shims/langchain-uuid.ts"]
     }
   },
   "include": ["src/**/*"],

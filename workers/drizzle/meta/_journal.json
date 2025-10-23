@@ -5,36 +5,15 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1761071584105,
-      "tag": "0000_organic_nighthawk",
+      "when": 1761348258124,
+      "tag": "0000_peaceful_sway",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "6",
-      "when": 1729540800000,
-      "tag": "0001_add_fts5",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1761187743982,
-      "tag": "0002_fix_fragments_fts",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1761199200000,
-      "tag": "0003_resource_metadata",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1761202800000,
-      "tag": "0004_resource_attribution",
+      "when": 1761349900000,
+      "tag": "0001_add_r2_key_to_attachments",
       "breakpoints": true
     }
   ]

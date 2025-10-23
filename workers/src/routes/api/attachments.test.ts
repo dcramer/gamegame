@@ -22,7 +22,7 @@ describe('Attachments Endpoint Integration Tests', () => {
       const response = await SELF.fetch(`http://localhost/api/attachments/${attachment.id}`);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data).toMatchObject({
         id: attachment.id,
         resourceId: resource.id,
@@ -37,7 +37,7 @@ describe('Attachments Endpoint Integration Tests', () => {
       const response = await SELF.fetch('http://localhost/api/attachments/nonexistent');
 
       expect(response.status).toBe(404);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toBe('Attachment not found');
     });
   });
@@ -52,7 +52,7 @@ describe('Attachments Endpoint Integration Tests', () => {
       const response = await SELF.fetch(`http://localhost/api/attachments/resources/${resource.id}`);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(Array.isArray(data)).toBe(true);
       expect(data).toHaveLength(2);
       expect(data[0].resourceId).toBe(resource.id);
@@ -69,7 +69,7 @@ describe('Attachments Endpoint Integration Tests', () => {
       const response = await SELF.fetch(`http://localhost/api/attachments/resources/${resource.id}`);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data).toHaveLength(3);
       expect(data[0].pageNumber).toBe(2);
       expect(data[1].pageNumber).toBe(5);

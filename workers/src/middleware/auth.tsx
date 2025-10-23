@@ -1,5 +1,5 @@
 import { createMiddleware } from 'hono/factory';
-import { getCookie } from 'hono/cookie';
+import { getCookie, deleteCookie } from 'hono/cookie';
 import { verify } from 'hono/jwt';
 import { z } from 'zod';
 import type { Env } from '@/types';
@@ -46,8 +46,9 @@ export const auth = createMiddleware<{ Bindings: Env; Variables: Variables }>(
       // 2. Validate payload structure with Zod
       const parseResult = JWTSessionPayloadSchema.safeParse(rawPayload);
       if (!parseResult.success) {
-        // Invalid payload structure
+        // Invalid payload structure - delete cookie
         console.debug('Invalid JWT payload structure:', parseResult.error);
+        deleteCookie(c, 'session');
         await next();
         return;
       }
@@ -56,14 +57,25 @@ export const auth = createMiddleware<{ Bindings: Env; Variables: Variables }>(
 
       // 3. Look up current user data from DB (ensures user still exists, gets fresh admin status)
       const db = getDb(c.env.DB);
-      const [user] = await db
-        .select()
-        .from(users)
-        .where(eq(users.id, payload.userId))
-        .limit(1);
+      let user;
+      try {
+        [user] = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, payload.userId))
+          .limit(1);
+      } catch (dbError) {
+        // Database error - log and treat as unauthenticated
+        console.error('Database error during auth lookup:', dbError instanceof Error ? dbError.message : String(dbError));
+        deleteCookie(c, 'session');
+        await next();
+        return;
+      }
 
       if (!user) {
-        // User was deleted - token is invalid
+        // User was deleted - token is invalid, delete cookie
+        console.debug('User not found for JWT session, deleting cookie');
+        deleteCookie(c, 'session');
         await next();
         return;
       }
@@ -76,8 +88,9 @@ export const auth = createMiddleware<{ Bindings: Env; Variables: Variables }>(
         isAdmin: Boolean(user.isAdmin),
       });
     } catch (error) {
-      // Invalid or expired token - ignore and continue as unauthenticated
+      // Invalid or expired token - delete cookie and continue as unauthenticated
       console.debug('Invalid JWT token:', error instanceof Error ? error.message : String(error));
+      deleteCookie(c, 'session');
     }
 
     await next();

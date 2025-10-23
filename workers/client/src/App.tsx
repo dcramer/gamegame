@@ -7,6 +7,7 @@ import AdminManualAddGame from './pages/admin/ManualAddGame';
 import AdminEditGame from './pages/admin/EditGame';
 import AdminGameResources from './pages/admin/GameResources';
 import AdminResourceDetail from './pages/admin/ResourceDetail';
+import AdminEditAttachment from './pages/admin/EditAttachment';
 import Login from './pages/Login';
 import LoginVerify from './pages/LoginVerify';
 import ProtectedAdminRoute from './components/ProtectedAdminRoute';
@@ -47,6 +48,14 @@ function App() {
           element={
             <ProtectedAdminRoute>
               <AdminEditGame />
+            </ProtectedAdminRoute>
+          }
+        />
+        <Route
+          path="/admin/games/:gameId/resources/:resourceId/attachments/:attachmentId"
+          element={
+            <ProtectedAdminRoute>
+              <AdminEditAttachment />
             </ProtectedAdminRoute>
           }
         />

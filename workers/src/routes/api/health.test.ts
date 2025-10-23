@@ -15,7 +15,7 @@ describe('Health Endpoint Integration Tests', () => {
     const response = await SELF.fetch('http://localhost/api/health');
 
     expect(response.status).toBe(200);
-    const data = await response.json();
+    const data = await response.json() as any;
     expect(data.status).toBe('healthy');
     expect(data.checks.database).toBe('ok');
     expect(typeof data.responseTime).toBe('string');
@@ -25,7 +25,7 @@ describe('Health Endpoint Integration Tests', () => {
     const response = await SELF.fetch('http://localhost/api/health');
 
     expect(response.status).toBe(200);
-    const data = await response.json();
+    const data = await response.json() as any;
     expect(data.responseTime).toBeDefined();
     expect(data.responseTime).toMatch(/\d+ms/);
   });

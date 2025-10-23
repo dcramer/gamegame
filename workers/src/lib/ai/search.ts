@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { D1Database, VectorizeIndex } from '@cloudflare/workers-types';
 import { getDb, fragments, resources } from '../db';
 import { generateEmbedding } from './embeddings';
@@ -20,26 +20,84 @@ export interface SearchResult {
 
 /**
  * Convert natural language query to FTS5 query syntax
- * FTS5 uses: word1 OR word2, "exact phrase", word*, -exclude
+ * FTS5 special chars: " (phrase), - (NOT), * (wildcard), () (grouping), : (column)
+ *
+ * Strategy:
+ * 1. If query has intentional FTS5 syntax (quotes, operators), sanitize it carefully
+ * 2. Otherwise, escape special chars and build OR query from keywords
  */
 function prepareSearchQuery(query: string): string {
-  // Remove stop words
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  // Check if user is using intentional FTS5 syntax (has quotes or looks like FTS5 query)
+  const hasQuotes = trimmed.includes('"');
+  const hasOperators = /\b(AND|OR|NOT)\b/.test(trimmed);
+
+  if (hasQuotes || hasOperators) {
+    // User is using FTS5 syntax - sanitize carefully while preserving intent
+    let sanitized = trimmed;
+
+    // 1. Balance quotes - escape unmatched quotes
+    const quoteCount = (sanitized.match(/"/g) || []).length;
+    if (quoteCount % 2 !== 0) {
+      // Odd number of quotes - escape all to prevent syntax error
+      sanitized = sanitized.replace(/"/g, '""');
+    }
+
+    // 2. Balance parentheses - remove unmatched ones
+    let depth = 0;
+    const chars = sanitized.split('');
+    for (let i = 0; i < chars.length; i++) {
+      if (chars[i] === '(') depth++;
+      if (chars[i] === ')') {
+        depth--;
+        if (depth < 0) {
+          chars[i] = ' '; // Remove unmatched closing paren
+          depth = 0;
+        }
+      }
+    }
+    // Remove remaining unmatched opening parens by converting to spaces
+    while (depth > 0) {
+      for (let i = chars.length - 1; i >= 0 && depth > 0; i--) {
+        if (chars[i] === '(') {
+          chars[i] = ' ';
+          depth--;
+        }
+      }
+    }
+    sanitized = chars.join('');
+
+    // 3. Remove column prefixes (e.g., "content:") that aren't supported
+    sanitized = sanitized.replace(/\w+:/g, '');
+
+    return sanitized.trim();
+  }
+
+  // Natural language query - extract keywords and build OR query
   const stopWords = new Set([
     'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from',
     'has', 'he', 'in', 'is', 'it', 'of', 'on', 'that', 'the',
     'to', 'was', 'will', 'with', 'how', 'what', 'when', 'where'
   ]);
 
-  const words = query
+  // Extract words, removing special FTS5 characters
+  const words = trimmed
     .toLowerCase()
+    // Remove FTS5 special chars: - * " ( ) :
+    .replace(/[-*"():]/g, ' ')
+    // Remove other punctuation
     .replace(/[^\w\s]/g, ' ')
     .split(/\s+/)
     .filter(w => w.length > 2 && !stopWords.has(w))
-    .slice(0, 10);
+    .slice(0, 10); // Limit to 10 terms for performance
 
   if (words.length === 0) {
-    // Fallback to original query if no keywords
-    return query.replace(/[^\w\s]/g, ' ').trim();
+    // No valid keywords - use original query with special chars escaped
+    return trimmed.replace(/[^\w\s]/g, ' ').trim();
   }
 
   // Join with OR for flexible matching
@@ -63,6 +121,11 @@ export async function findRelevantContent(
   const limit = options.limit ?? 10;
   const offset = options.offset ?? 0;
   const candidateCount = (limit + offset) * 2; // Fetch more for fusion
+
+  // Early return for empty queries
+  if (!userQuery || !userQuery.trim()) {
+    return [];
+  }
 
   // Step 1: Generate embedding for user query
   const [queryEmbedding] = await generateEmbedding(userQuery, openaiApiKey);
@@ -151,7 +214,7 @@ export async function findRelevantContent(
     })
     .from(fragments)
     .innerJoin(resources, eq(fragments.resourceId, resources.id))
-    .where(eq(fragments.gameId, gameId))
+    .where(inArray(fragments.id, topFragmentIds))
     .all();
 
   // Filter to only top fragment IDs and re-sort by RRF score

@@ -5,8 +5,9 @@ import { eq } from 'drizzle-orm';
 import { extractTextFromPdf, rebuildMarkdownFromPages, replaceImageReferences } from '../pdf';
 import { chunkStructuredPDF, calculateResourceStats } from '../services/chunking';
 import { uploadPDFImages, deleteAttachmentsByUrls, extractR2KeyFromUrl } from '../services/r2-storage';
+import type { UploadedImage } from '../services/r2-storage';
 import { generateEmbeddings } from '../ai/embeddings';
-import { insertEmbeddings } from '../ai/vectorize';
+import { insertEmbeddings, deleteEmbeddings } from '../ai/vectorize';
 import type { StructuredPDFContent, PDFImage } from '../types/pdf';
 import { enrichPDFImagesWithVision } from '../services/vision';
 import { cleanupMarkdownBatch } from '../services/markdown-cleanup';
@@ -165,7 +166,7 @@ async function deleteExistingFragments(env: Env, resourceId: string) {
       .filter((id) => id.length <= MAX_VECTOR_ID_LENGTH);
 
     if (vectorIds.length > 0) {
-      await env.VECTORIZE.deleteByIds(vectorIds);
+      await deleteEmbeddings(env.VECTORIZE, vectorIds);
     }
 
     const skipped = existingFragments.filter((fragment) => fragment.id.length > MAX_VECTOR_ID_LENGTH);
@@ -227,15 +228,25 @@ export async function runVisionStage(task: QueueMessage, env: Env): Promise<Queu
     throw new Error('Missing OPENAI_API_KEY secret');
   }
   const [resourceRow] = await db
-    .select({ metadata: resources.processingMetadata })
+    .select({
+      metadata: resources.processingMetadata,
+      currentJobId: resources.currentJobId,
+    })
     .from(resources)
     .where(eq(resources.id, task.resourceId))
     .limit(1);
 
   const metadata = parseMetadata(task.resourceId, resourceRow?.metadata);
 
+  // Check if this stage is already done OR if another job is processing
+  // (optimistic locking via currentJobId)
   if (metadata.stages.vision) {
     return { ...task, type: 'CLEANUP' };
+  }
+
+  if (resourceRow?.currentJobId && resourceRow.currentJobId !== task.jobId) {
+    console.warn(`[Vision Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, skipping`);
+    return null; // Don't queue next task - another job is handling it
   }
 
   const structured = await loadStructured(env, task.resourceId);
@@ -291,17 +302,27 @@ export async function runVisionStage(task: QueueMessage, env: Env): Promise<Queu
 export async function runCleanupStage(task: QueueMessage, env: Env): Promise<QueueMessage | null> {
   const db = getDb(env.DB);
   if (!env.OPENAI_API_KEY) {
+    throw new Error('Missing OPENAI_API_KEY secret');
   }
   const [resourceRow] = await db
-    .select({ metadata: resources.processingMetadata })
+    .select({
+      metadata: resources.processingMetadata,
+      currentJobId: resources.currentJobId,
+    })
     .from(resources)
     .where(eq(resources.id, task.resourceId))
     .limit(1);
 
   const metadata = parseMetadata(task.resourceId, resourceRow?.metadata);
 
+  // Check if this stage is already done OR if another job is processing
   if (metadata.stages.cleanup) {
     return { ...task, type: 'EMBED' };
+  }
+
+  if (resourceRow?.currentJobId && resourceRow.currentJobId !== task.jobId) {
+    console.warn(`[Cleanup Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, skipping`);
+    return null;
   }
 
   const structured = await loadStructured(env, task.resourceId);
@@ -346,9 +367,37 @@ function namespaceImageId(resourceId: string, image: PDFImage): string {
   return baseId;
 }
 
+function inferMimeTypeFromUrl(url?: string | null): string | null {
+  if (!url) {
+    return null;
+  }
+
+  const match = url.toLowerCase().match(/\.([a-z0-9]+)(?:$|\?)/);
+  if (!match) {
+    return null;
+  }
+
+  switch (match[1]) {
+    case 'png':
+      return 'image/png';
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'webp':
+      return 'image/webp';
+    case 'gif':
+      return 'image/gif';
+    case 'svg':
+      return 'image/svg+xml';
+    default:
+      return null;
+  }
+}
+
 export async function runEmbedStage(task: QueueMessage, env: Env): Promise<QueueMessage | null> {
   const db = getDb(env.DB);
   if (!env.OPENAI_API_KEY) {
+    throw new Error('Missing OPENAI_API_KEY secret');
   }
   if (!env.VECTORIZE) {
     throw new Error('Missing VECTORIZE binding');
@@ -356,10 +405,13 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
   const [resourceRow] = await db
     .select({
       metadata: resources.processingMetadata,
+      currentJobId: resources.currentJobId,
       name: resources.name,
       url: resources.url,
       description: resources.description,
       originalFilename: resources.originalFilename,
+      author: resources.author,
+      attributionUrl: resources.attributionUrl,
     })
     .from(resources)
     .where(eq(resources.id, task.resourceId))
@@ -367,8 +419,14 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
 
   const metadata = parseMetadata(task.resourceId, resourceRow?.metadata);
 
+  // Check if this stage is already done OR if another job is processing
   if (metadata.stages.embed) {
     return { ...task, type: 'FINALIZE' };
+  }
+
+  if (resourceRow?.currentJobId && resourceRow.currentJobId !== task.jobId) {
+    console.warn(`[Embed Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, skipping`);
+    return null;
   }
 
   const structured = await loadStructured(env, task.resourceId);
@@ -389,22 +447,38 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
       base64: img.base64!,
     }));
 
+  const uploadedImageMap: Map<string, UploadedImage> = new Map();
+
   if (imagesToUpload.length > 0) {
     const uploadedImages = await uploadPDFImages(env.FILES, task.resourceId, imagesToUpload);
-    const imageMap = new Map(uploadedImages.map((img) => [img.id, img]));
+    uploadedImages.forEach((img) => {
+      uploadedImageMap.set(img.id, img);
+    });
 
     structured.pages.forEach((page) => {
       page.images.forEach((img) => {
-        const uploaded = imageMap.get(img.id);
+        const uploaded = uploadedImageMap.get(img.id);
         if (uploaded) {
           img.url = uploaded.url;
           img.caption = img.caption || uploaded.caption;
+          img.mimeType = uploaded.mimeType;
         }
       });
     });
 
     await saveStructured(env, task.resourceId, structured);
   }
+
+  const resolveMimeType = (image: PDFImage): string | null => {
+    const uploaded = uploadedImageMap.get(image.id);
+    if (uploaded?.mimeType) {
+      return uploaded.mimeType;
+    }
+    if (typeof image.mimeType === 'string' && image.mimeType.length > 0) {
+      return image.mimeType;
+    }
+    return image.url ? inferMimeTypeFromUrl(image.url) : null;
+  };
 
   await deleteExistingAttachments(env, task.resourceId);
   await deleteExistingFragments(env, task.resourceId);
@@ -417,7 +491,7 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
         gameId: task.gameId,
         resourceId: task.resourceId,
         type: 'image' as const,
-        mimeType: img.url?.endsWith('.png') ? 'image/png' : img.url?.endsWith('.jpg') || img.url?.endsWith('.jpeg') ? 'image/jpeg' : null,
+        mimeType: resolveMimeType(img) ?? 'application/octet-stream',
         url: img.url!,
         originalFilename: img.originalFilename ?? null,
         pageNumber: img.pageNumber ?? null,
@@ -479,8 +553,8 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
           fragmentId: fragment.id,
           gameId: task.gameId,
           resourceId: task.resourceId,
-          pageNumber: fragment.pageNumber ?? undefined,
-          section: fragment.section ?? undefined,
+          ...(fragment.pageNumber != null && { pageNumber: fragment.pageNumber }),
+          ...(fragment.section != null && { section: fragment.section }),
         },
       }))
     );

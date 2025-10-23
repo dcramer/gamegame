@@ -48,33 +48,43 @@ export async function uploadImageToR2(
   const cleanId = imageId.replace(/\.[^./]+$/, '');
   const key = `resources/${resourceId}/attachments/${cleanId}.${ext}`;
 
-  // Upload to R2 directly without conversion
-  await bucket.put(key, imageData, {
-    httpMetadata: {
-      contentType: mimeType,
-    },
-    customMetadata: {
-      resourceId,
-      imageId,
-      originalFilename: metadata.originalFilename || `image.${ext}`,
-      pageNumber: metadata.pageNumber?.toString() || '',
-      bbox: metadata.bbox ? JSON.stringify(metadata.bbox) : '',
-      caption: metadata.caption || '',
-    },
-  });
+  try {
+    // Upload to R2 directly without conversion
+    const result = await bucket.put(key, imageData, {
+      httpMetadata: {
+        contentType: mimeType,
+      },
+      customMetadata: {
+        resourceId,
+        imageId,
+        originalFilename: metadata.originalFilename || `image.${ext}`,
+        pageNumber: metadata.pageNumber?.toString() || '',
+        bbox: metadata.bbox ? JSON.stringify(metadata.bbox) : '',
+        caption: metadata.caption || '',
+      },
+    });
 
-  return {
-    id: cleanId,
-    url: buildAttachmentUrl(resourceId, cleanId, ext),
-    mimeType,
-    originalFilename: metadata.originalFilename ?? cleanId,
-    pageNumber: metadata.pageNumber,
-    bbox: metadata.bbox,
-    caption: metadata.caption,
-    // Note: width/height not available without Sharp - could parse headers if needed
-    width: undefined,
-    height: undefined,
-  };
+    if (!result) {
+      throw new Error(`R2 put returned null for key: ${key}`);
+    }
+
+    return {
+      id: cleanId,
+      url: buildAttachmentUrl(resourceId, cleanId, ext),
+      mimeType,
+      originalFilename: metadata.originalFilename ?? cleanId,
+      pageNumber: metadata.pageNumber,
+      bbox: metadata.bbox,
+      caption: metadata.caption,
+      // Note: width/height not available without Sharp - could parse headers if needed
+      width: undefined,
+      height: undefined,
+    };
+  } catch (error) {
+    const errorMsg = `Failed to upload image to R2 (key: ${key}): ${error instanceof Error ? error.message : String(error)}`;
+    console.error(errorMsg);
+    throw new Error(errorMsg);
+  }
 }
 
 /**
@@ -99,6 +109,7 @@ function detectMimeType(buffer: Buffer): string {
 
 /**
  * Upload multiple images from PDF extraction
+ * Uses Promise.allSettled to continue even if individual uploads fail
  */
 export async function uploadPDFImages(
   bucket: R2Bucket,
@@ -123,7 +134,30 @@ export async function uploadPDFImages(
     });
   });
 
-  return Promise.all(uploads);
+  const results = await Promise.allSettled(uploads);
+
+  const successfulUploads: UploadedImage[] = [];
+  const failedUploads: string[] = [];
+
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      successfulUploads.push(result.value);
+    } else {
+      const imageId = images[index].id;
+      failedUploads.push(imageId);
+      console.error(`Failed to upload image ${imageId}:`, result.reason);
+    }
+  });
+
+  if (failedUploads.length > 0) {
+    console.warn(
+      `Uploaded ${successfulUploads.length}/${images.length} images. ` +
+      `Failed: ${failedUploads.join(', ')}`
+    );
+  }
+
+  // Return successful uploads - caller can check if count matches expected
+  return successfulUploads;
 }
 
 function extractBase64(value: string): string {
@@ -184,18 +218,26 @@ export async function deleteResourceFiles(
 ): Promise<number> {
   const prefix = `resources/${resourceId}/`;
 
-  // List all objects with prefix
-  const listed = await bucket.list({ prefix });
+  let cursor: string | undefined;
+  let totalDeleted = 0;
 
-  if (listed.objects.length === 0) {
-    return 0;
+  while (true) {
+    const listed = await bucket.list({ prefix, cursor });
+
+    if (listed.objects.length > 0) {
+      const keys = listed.objects.map((obj) => obj.key);
+      await bulkDeleteFromR2(bucket, keys);
+      totalDeleted += keys.length;
+    }
+
+    if (!listed.truncated || !listed.cursor) {
+      break;
+    }
+
+    cursor = listed.cursor;
   }
 
-  // Extract keys and delete in bulk
-  const keys = listed.objects.map(obj => obj.key);
-  await bulkDeleteFromR2(bucket, keys);
-
-  return keys.length;
+  return totalDeleted;
 }
 
 /**
@@ -283,7 +325,8 @@ export function normalizeAttachmentUrl(
   if (!key) {
     return url;
   }
-  const match = key.match(/^resources\/${resourceId}\/attachments\/(.+)$/);
+  const escapedResourceId = resourceId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = key.match(new RegExp(`^resources/${escapedResourceId}/attachments/(.+)$`));
   if (!match) {
     return url;
   }

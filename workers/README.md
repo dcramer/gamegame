@@ -172,6 +172,11 @@ pnpm db:studio             # Open Drizzle Studio (DB browser)
 pnpm cli grant-admin <email>          # Grant admin access (local)
 pnpm cli grant-admin <email> --remote # Grant admin access (production)
 
+# Testing
+pnpm test                  # Run tests in watch mode
+pnpm test:ui               # Run tests with visual UI
+pnpm test:run              # Run tests once (CI mode)
+
 # Deployment
 pnpm deploy                # Deploy to production
 ```
@@ -408,10 +413,29 @@ Check R2 public access configuration:
 - **Hono**: 4.6.14+
 - **Node.js**: 18+ required
 
+## Testing
+
+The project uses Vitest with `@cloudflare/vitest-pool-workers` for testing. We prefer integration tests over mocking and use test bindings for Cloudflare services.
+
+```bash
+# Run tests
+pnpm test
+
+# Run tests with UI
+pnpm test:ui
+
+# Run tests once (CI mode)
+pnpm test:run
+
+# Run tests with external API keys
+OPENAI_API_KEY=sk-... pnpm test
+```
+
+See [`docs/testing.md`](./docs/testing.md) for comprehensive testing principles and guidelines.
+
 ## Roadmap
 
 - [ ] Configure Cloudflare Email Workers for magic link emails
-- [ ] Add test suite (Vitest for Workers)
 - [ ] Admin CLI utilities
 - [ ] Performance monitoring & analytics
 - [ ] Multi-game chat context
@@ -419,7 +443,9 @@ Check R2 public access configuration:
 
 ## Documentation
 
-See [`CLAUDE.md`](./CLAUDE.md) for detailed architecture documentation.
+- [`docs/architecture.md`](./docs/architecture.md) - System architecture and data model overview
+- [`docs/testing.md`](./docs/testing.md) - Testing principles and guidelines
+- [`CLAUDE.md`](./CLAUDE.md) - Development automation and AI assistant instructions
 
 ## License
 

@@ -17,6 +17,8 @@ export interface PDFImage {
   base64?: string;
   /** URL to stored image (after upload to blob storage) */
   url?: string;
+  /** MIME type for the stored image */
+  mimeType?: string;
   /** Optional caption or alt text */
   caption?: string;
   /** Page number where this image appears */

@@ -41,7 +41,6 @@
     "drizzle-zod": "^0.8.3",
     "fast-xml-parser": "^5.3.0",
     "hono": "^4.6.14",
-    "langchain": "^0.3.35",
     "lucide-react": "^0.545.0",
     "mime": "^4.1.0",
     "nanoid": "^5.1.6",

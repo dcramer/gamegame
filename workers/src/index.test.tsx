@@ -6,7 +6,6 @@ import type { Env } from './types';
 import { auth } from './middleware/auth';
 
 // Import API routes
-import chatRouter from './routes/api/chat';
 import gamesRouter from './routes/api/games';
 import authRouter from './routes/api/auth';
 import resourcesRouter from './routes/api/resources';
@@ -25,7 +24,6 @@ app.use('*', auth); // Add user to context if authenticated
 
 // API routes
 app.route('/api/health', healthRouter);
-app.route('/api', chatRouter);
 app.route('/api/games', gamesRouter);
 app.route('/api/auth', authRouter);
 app.route('/api/resources', resourcesRouter);

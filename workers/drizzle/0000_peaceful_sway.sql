@@ -3,7 +3,7 @@ CREATE TABLE `attachments` (
 	`game_id` text NOT NULL,
 	`resource_id` text NOT NULL,
 	`type` text DEFAULT 'image' NOT NULL,
-	`mime_type` text,
+	`mime_type` text NOT NULL,
 	`url` text NOT NULL,
 	`original_filename` text,
 	`page_number` integer,
@@ -12,7 +12,7 @@ CREATE TABLE `attachments` (
 	`width` integer,
 	`height` integer,
 	`description` text,
-	`is_good_quality` text,
+	`is_good_quality` integer,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`game_id`) REFERENCES `games`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`resource_id`) REFERENCES `resources`(`id`) ON UPDATE no action ON DELETE cascade
@@ -20,7 +20,7 @@ CREATE TABLE `attachments` (
 --> statement-breakpoint
 CREATE INDEX `idx_attachments_game_id` ON `attachments` (`game_id`);--> statement-breakpoint
 CREATE INDEX `idx_attachments_resource_id` ON `attachments` (`resource_id`);--> statement-breakpoint
-CREATE INDEX `idx_attachments_page` ON `attachments` (`page_number`);--> statement-breakpoint
+CREATE INDEX `idx_attachments_resource_page` ON `attachments` (`resource_id`,`page_number`);--> statement-breakpoint
 CREATE INDEX `idx_attachments_type` ON `attachments` (`type`);--> statement-breakpoint
 CREATE TABLE `bgg_games` (
 	`id` text PRIMARY KEY NOT NULL,
@@ -39,6 +39,7 @@ CREATE TABLE `bgg_games` (
 	`cached_at` integer NOT NULL
 );
 --> statement-breakpoint
+CREATE INDEX `idx_bgg_games_name` ON `bgg_games` (`name`);--> statement-breakpoint
 CREATE TABLE `fragments` (
 	`id` text PRIMARY KEY NOT NULL,
 	`game_id` text NOT NULL,
@@ -56,6 +57,8 @@ CREATE TABLE `fragments` (
 --> statement-breakpoint
 CREATE INDEX `idx_fragments_game_id` ON `fragments` (`game_id`);--> statement-breakpoint
 CREATE INDEX `idx_fragments_resource_id` ON `fragments` (`resource_id`);--> statement-breakpoint
+CREATE INDEX `idx_fragments_version` ON `fragments` (`version`);--> statement-breakpoint
+CREATE INDEX `idx_fragments_page_number` ON `fragments` (`page_number`);--> statement-breakpoint
 CREATE TABLE `games` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
@@ -69,11 +72,13 @@ CREATE TABLE `games` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `games_slug_unique` ON `games` (`slug`);--> statement-breakpoint
 CREATE INDEX `idx_games_name` ON `games` (`name`);--> statement-breakpoint
-CREATE INDEX `idx_games_slug` ON `games` (`slug`);--> statement-breakpoint
 CREATE TABLE `resources` (
 	`id` text PRIMARY KEY NOT NULL,
 	`game_id` text NOT NULL,
 	`name` text NOT NULL,
+	`original_filename` text,
+	`author` text,
+	`attribution_url` text,
 	`url` text NOT NULL,
 	`content` text DEFAULT '' NOT NULL,
 	`version` integer DEFAULT 0 NOT NULL,
@@ -83,6 +88,7 @@ CREATE TABLE `resources` (
 	`current_job_id` text,
 	`processing_stage` text DEFAULT 'ready' NOT NULL,
 	`processing_metadata` text,
+	`description` text,
 	`page_count` integer,
 	`image_count` integer DEFAULT 0,
 	`word_count` integer DEFAULT 0,
@@ -92,6 +98,8 @@ CREATE TABLE `resources` (
 );
 --> statement-breakpoint
 CREATE INDEX `idx_resources_game_id` ON `resources` (`game_id`);--> statement-breakpoint
+CREATE INDEX `idx_resources_status` ON `resources` (`status`);--> statement-breakpoint
+CREATE INDEX `idx_resources_job_id` ON `resources` (`current_job_id`);--> statement-breakpoint
 CREATE TABLE `users` (
 	`id` text PRIMARY KEY NOT NULL,
 	`email` text NOT NULL,
@@ -102,4 +110,20 @@ CREATE TABLE `users` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `users_email_unique` ON `users` (`email`);--> statement-breakpoint
-CREATE INDEX `idx_users_email` ON `users` (`email`);
+CREATE VIRTUAL TABLE fragments_fts USING fts5(
+  content,
+  id UNINDEXED,
+  content='fragments',
+  content_rowid='rowid'
+);--> statement-breakpoint
+CREATE TRIGGER fragments_ai AFTER INSERT ON fragments BEGIN
+  INSERT INTO fragments_fts(rowid, id, content)
+  VALUES (new.rowid, new.id, new.content);
+END;--> statement-breakpoint
+CREATE TRIGGER fragments_ad AFTER DELETE ON fragments BEGIN
+  DELETE FROM fragments_fts WHERE rowid = old.rowid;
+END;--> statement-breakpoint
+CREATE TRIGGER fragments_au AFTER UPDATE ON fragments BEGIN
+  UPDATE fragments_fts SET content = new.content
+  WHERE rowid = new.rowid;
+END;

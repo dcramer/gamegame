@@ -1,4 +1,5 @@
-import { FileIcon } from 'lucide-react';
+import { FileIcon, Pencil } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 interface Attachment {
   id: string;
@@ -13,7 +14,13 @@ interface Attachment {
   height: number | null;
 }
 
-export default function AttachmentList({ attachments }: { attachments: Attachment[] }) {
+interface AttachmentListProps {
+  attachments: Attachment[];
+  gameId: string;
+  resourceId: string;
+}
+
+export default function AttachmentList({ attachments, gameId, resourceId }: AttachmentListProps) {
   if (attachments.length === 0) {
     return (
       <div className="text-sm text-muted-foreground">
@@ -28,7 +35,7 @@ export default function AttachmentList({ attachments }: { attachments: Attachmen
         return (
           <div
             key={attachment.id}
-            className="border rounded-lg overflow-hidden hover:border-primary transition-colors"
+            className="border rounded-lg overflow-hidden hover:border-primary transition-colors group relative"
           >
             <a
               href={attachment.url}
@@ -50,6 +57,13 @@ export default function AttachmentList({ attachments }: { attachments: Attachmen
                 </div>
               )}
             </a>
+            <Link
+              to={`/admin/games/${gameId}/resources/${resourceId}/attachments/${attachment.id}`}
+              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-background/90 hover:bg-background border rounded-md p-1.5"
+              title="Edit attachment"
+            >
+              <Pencil className="h-4 w-4" />
+            </Link>
             <div className="p-2 space-y-1">
               <div className="flex items-center justify-between gap-1">
                 {attachment.pageNumber && (

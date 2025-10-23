@@ -2,21 +2,15 @@ import { env } from 'cloudflare:test';
 import { getDb, games, resources, attachments } from '@/lib/db';
 
 /**
- * Initialize test database with schema
+ * Get test database instance
+ *
+ * Database schema is set up automatically by ./apply-migrations.ts which runs
+ * before all tests. This applies Drizzle migrations from the drizzle/ directory.
  */
 export async function setupTestDb() {
-  const db = getDb(env.DB);
-
-  // Create tables - D1 requires separate exec() calls for each statement
-  await env.DB.exec('CREATE TABLE IF NOT EXISTS games (id TEXT PRIMARY KEY, name TEXT NOT NULL, image_url TEXT, bgg_url TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
-
-  await env.DB.exec('CREATE TABLE IF NOT EXISTS resources (id TEXT PRIMARY KEY, game_id TEXT NOT NULL, name TEXT NOT NULL, url TEXT NOT NULL, content TEXT NOT NULL DEFAULT \'\', version INTEGER NOT NULL DEFAULT 0, pdf_extractor TEXT, processed_at INTEGER, page_count INTEGER, image_count INTEGER DEFAULT 0, word_count INTEGER DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE)');
-
-  await env.DB.exec('CREATE TABLE IF NOT EXISTS attachments (id TEXT PRIMARY KEY, game_id TEXT NOT NULL, resource_id TEXT NOT NULL, type TEXT NOT NULL, url TEXT NOT NULL, mime_type TEXT, original_filename TEXT, page_number INTEGER, bbox TEXT, caption TEXT, width INTEGER, height INTEGER, description TEXT, is_good_quality TEXT, created_at INTEGER NOT NULL, FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE, FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE)');
-
-  await env.DB.exec('CREATE TABLE IF NOT EXISTS fragments (id TEXT PRIMARY KEY, game_id TEXT NOT NULL, resource_id TEXT NOT NULL, content TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 0, page_number INTEGER, page_range_start INTEGER, page_range_end INTEGER, section TEXT, images TEXT, FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE, FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE)');
-
-  return db;
+  // Migrations are already applied by ./apply-migrations.ts setup file
+  // Just return the database instance
+  return getDb(env.DB);
 }
 
 /**
@@ -39,9 +33,14 @@ let idCounter = 0;
  */
 export async function createTestGame(data?: Partial<typeof games.$inferInsert>) {
   const db = getDb(env.DB);
+  const name = data?.name ?? 'Test Game';
+  const slug = data?.slug ?? name.toLowerCase().replace(/\s+/g, '-');
+
   const gameData = {
     id: `test-game-${Date.now()}-${idCounter++}`,
-    name: 'Test Game',
+    name,
+    slug,
+    year: null,
     imageUrl: null,
     bggUrl: null,
     createdAt: new Date(),
@@ -63,6 +62,8 @@ export async function createTestResource(gameId: string, data?: Partial<typeof r
     gameId,
     name: 'Test Resource',
     originalFilename: 'test-resource.pdf',
+    author: null,
+    attributionUrl: null,
     url: 'https://example.com/test.pdf',
     content: 'Test content',
     version: 2,

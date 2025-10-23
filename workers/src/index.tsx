@@ -101,8 +101,8 @@ async function serveR2Object(c: Context<{ Bindings: Env }>, key: string) {
   if (object.size !== undefined) {
     headers.set('Content-Length', object.size.toString());
   }
-  if (object.httpETag) {
-    headers.set('ETag', object.httpETag);
+  if (object.httpEtag) {
+    headers.set('ETag', object.httpEtag);
   }
 
   if (c.req.method === 'HEAD') {

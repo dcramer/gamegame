@@ -1,21 +1,18 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { streamText, convertToCoreMessages, stepCountIs } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
 import type { Env } from '@/types';
 import { getDb, games, resources, fragments } from '@/lib/db';
 import { eq, sql, or } from 'drizzle-orm';
 import { requireAdmin } from '@/middleware/auth';
-import { buildPrompt, getTools } from '@/lib/ai/prompt';
 import { ratelimit } from '@/middleware/ratelimit';
 import { generateSlug, ensureUniqueSlug } from '@/lib/utils/slug';
 import { createJob } from '@/lib/jobs/status';
 import { RESOURCE_SOURCE_FILENAME, buildResourceSourceUrl } from '@/lib/services/r2-storage';
+import { deleteEmbeddings } from '@/lib/ai/vectorize';
+import { streamChatResponse } from './chat-handler';
 
 const gamesRouter = new Hono<{ Bindings: Env }>();
-const MODEL = 'gpt-5';
-
 // List all games
 gamesRouter.get('/', async (c) => {
   const db = getDb(c.env.DB);
@@ -88,28 +85,47 @@ gamesRouter.post(
     // Generate slug from name and year
     const baseSlug = generateSlug(data.name, data.year);
 
-    // Check for slug collisions and ensure uniqueness
-    const existingGames = await db
-      .select({ slug: games.slug })
-      .from(games)
-      .all();
-    const existingSlugs = existingGames.map(g => g.slug);
-    const slug = ensureUniqueSlug(baseSlug, existingSlugs);
+    // Try to insert with increasingly unique slugs on collision
+    // This avoids fetching all existing games on every attempt
+    const maxRetries = 5;
+    let slug = baseSlug;
 
-    const [game] = await db
-      .insert(games)
-      .values({
-        name: data.name,
-        year: data.year,
-        slug,
-        imageUrl: data.imageUrl,
-        bggUrl: data.bggUrl,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .returning();
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const [game] = await db
+          .insert(games)
+          .values({
+            name: data.name,
+            year: data.year,
+            slug,
+            imageUrl: data.imageUrl,
+            bggUrl: data.bggUrl,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .returning();
 
-    return c.json(game, 201);
+        return c.json(game, 201);
+      } catch (error) {
+        // Check if this is a unique constraint violation on slug
+        const isSlugConflict = error instanceof Error &&
+          (error.message.includes('UNIQUE constraint failed') && error.message.includes('slug'));
+
+        if (isSlugConflict && attempt < maxRetries - 1) {
+          // Collision detected - append random suffix for next attempt
+          const randomSuffix = Math.random().toString(36).substring(2, 6);
+          slug = `${baseSlug}-${randomSuffix}`;
+          console.log(`[Create Game] Slug collision detected (attempt ${attempt + 1}), trying: ${slug}`);
+          continue;
+        }
+
+        // Not a slug conflict or out of retries - rethrow
+        throw error;
+      }
+    }
+
+    // This should never be reached, but TypeScript needs it
+    return c.json({ error: 'Failed to create game after multiple retries' }, 500);
   }
 );
 
@@ -134,7 +150,7 @@ gamesRouter.patch(
     const db = getDb(c.env.DB);
 
     // Build update data
-    let updateData: any = { ...data, updatedAt: new Date() };
+    let updateData: Partial<typeof games.$inferInsert> = { ...data, updatedAt: new Date() };
 
     // If slug is explicitly provided, use it (admin's responsibility to ensure uniqueness)
     if (data.slug) {
@@ -188,43 +204,69 @@ gamesRouter.delete('/:gameId', requireAdmin, async (c) => {
   const { gameId } = c.req.param();
   const db = getDb(c.env.DB);
 
-  // Get fragment IDs for Vectorize cleanup
+  // Step 1: Collect all data needed for cleanup BEFORE any deletions
   const fragmentList = await db
     .select({ id: fragments.id })
     .from(fragments)
     .where(eq(fragments.gameId, gameId))
     .all();
 
-  // Get all resources for this game to delete from R2
   const resourceList = await db
     .select({ id: resources.id })
     .from(resources)
     .where(eq(resources.gameId, gameId))
     .all();
 
-  // Delete from D1 (cascades to resources, fragments, attachments)
-  await db.delete(games).where(eq(games.id, gameId));
+  // Step 2: Delete from D1 (source of truth, cascades to resources, fragments, attachments)
+  const result = await db.delete(games).where(eq(games.id, gameId)).returning();
 
-  // Delete from Vectorize
+  if (result.length === 0) {
+    return c.json({ error: 'Game not found' }, 404);
+  }
+
+  const errors: string[] = [];
+
+  // Step 3: Try to delete from Vectorize (log errors but don't fail)
   if (fragmentList.length > 0) {
-    const fragmentIds = fragmentList.map(f => f.id);
-    await c.env.VECTORIZE.deleteByIds(fragmentIds);
+    try {
+      const fragmentIds = fragmentList.map(f => f.id);
+      await deleteEmbeddings(c.env.VECTORIZE, fragmentIds);
+    } catch (error) {
+      const errorMsg = `Failed to delete ${fragmentList.length} embeddings from Vectorize: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(`[Delete Game] ${errorMsg}`);
+      errors.push(errorMsg);
+    }
   }
 
-  // Delete all R2 files for this game's resources
-  const { deleteResourceFiles } = await import('@/lib/services/r2-storage');
+  // Step 4: Try to delete from R2 (log errors but don't fail)
   let totalR2Deleted = 0;
+  const { deleteResourceFiles } = await import('@/lib/services/r2-storage');
   for (const resource of resourceList) {
-    const deleted = await deleteResourceFiles(c.env.FILES, resource.id);
-    totalR2Deleted += deleted;
+    try {
+      const deleted = await deleteResourceFiles(c.env.FILES, resource.id);
+      totalR2Deleted += deleted;
+    } catch (error) {
+      const errorMsg = `Failed to delete R2 files for resource ${resource.id}: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(`[Delete Game] ${errorMsg}`);
+      errors.push(errorMsg);
+    }
   }
-  console.log(`[Delete Game] Deleted ${totalR2Deleted} files from R2`);
+
+  console.log(`[Delete Game] Deleted game ${gameId}: ${fragmentList.length} fragments, ${totalR2Deleted} R2 files`);
+
+  // Return 207 Multi-Status if cleanup had errors (game deleted, but orphaned data remains)
+  // Return 200 only if everything succeeded
+  const statusCode = errors.length > 0 ? 207 : 200;
 
   return c.json({
-    success: true,
+    success: errors.length === 0,
     deletedFragments: fragmentList.length,
     deletedR2Files: totalR2Deleted,
-  });
+    warnings: errors.length > 0 ? errors : undefined,
+    message: errors.length > 0
+      ? 'Game deleted from database, but some cleanup operations failed. Orphaned data may remain in Vectorize or R2.'
+      : 'Game and all associated data deleted successfully',
+  }, statusCode);
 });
 
 // List resources for a game (by slug or ID)
@@ -267,7 +309,8 @@ gamesRouter.get('/:gameIdOrSlug/resources', async (c) => {
 });
 
 // Upload a new resource for a game (admin only, accepts multipart PDF upload)
-gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, async (c) => {
+// Rate limit: 10 uploads per 60 seconds to prevent abuse
+gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, ratelimit(10, 60), async (c) => {
   const { gameIdOrSlug } = c.req.param();
   const db = getDb(c.env.DB);
 
@@ -300,23 +343,36 @@ gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, async (c) => {
     const resourceOriginalFilename = candidateName;
     const initialResourceName = candidateName;
 
-    // Validate file type
+    // Read file buffer first for validation
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+
+    // Validate file type by extension and MIME type
     const fileExtension = file.name?.split('.').pop()?.toLowerCase();
-    const isPdf =
+    const isPdfMimeType =
       file.type === 'application/pdf' ||
       file.type === 'application/x-pdf' ||
       (file.type === '' && fileExtension === 'pdf') ||
       fileExtension === 'pdf';
 
-    if (!isPdf) {
-      return c.json({ error: 'File must be a PDF' }, 400);
+    if (!isPdfMimeType) {
+      return c.json({ error: 'File must be a PDF (invalid file extension or MIME type)' }, 400);
+    }
+
+    // Validate PDF magic bytes: %PDF- (0x25 0x50 0x44 0x46 0x2D)
+    const isPdfMagicBytes = buffer.length >= 5 &&
+      buffer[0] === 0x25 &&  // %
+      buffer[1] === 0x50 &&  // P
+      buffer[2] === 0x44 &&  // D
+      buffer[3] === 0x46 &&  // F
+      buffer[4] === 0x2D;    // -
+
+    if (!isPdfMagicBytes) {
+      return c.json({ error: 'File must be a valid PDF (invalid file content)' }, 400);
     }
 
     const resourceId = crypto.randomUUID();
     const objectKey = `resources/${resourceId}/${RESOURCE_SOURCE_FILENAME}`;
-
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = new Uint8Array(arrayBuffer);
 
     await c.env.FILES.put(objectKey, buffer, {
       httpMetadata: {
@@ -382,21 +438,11 @@ gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, async (c) => {
   }
 });
 
-// Test endpoint to verify routing
-gamesRouter.get('/:gameIdOrSlug/chat-test', async (c) => {
-  return c.json({ message: 'Chat routing works!', gameId: c.req.param('gameIdOrSlug') });
-});
-
 // Chat endpoint - streaming AI responses (by slug or ID)
 // Rate limit: 20 requests per 60s (equivalent to old 10 per 30s)
 gamesRouter.post('/:gameIdOrSlug/chat', ratelimit(20, 60), async (c) => {
   const { gameIdOrSlug } = c.req.param();
   const body = await c.req.json();
-  console.log('Chat request body:', JSON.stringify(body));
-  const { messages } = body;
-  console.log('Messages:', JSON.stringify(messages));
-  console.log('Messages type:', typeof messages, 'Array?', Array.isArray(messages));
-
   // Fetch game data - support both slug and ID lookups
   const db = getDb(c.env.DB);
   const [game] = await db
@@ -409,44 +455,20 @@ gamesRouter.post('/:gameIdOrSlug/chat', ratelimit(20, 60), async (c) => {
     return c.json({ error: 'Game not found' }, 404);
   }
 
-  // Build AI tools with database and vector index bindings (use game.id for internal queries)
-  const tools = getTools(game.id, c.env.DB, c.env.VECTORIZE, c.env.OPENAI_API_KEY);
-
-  // Create OpenAI provider with API key
-  const openai = createOpenAI({
-    apiKey: c.env.OPENAI_API_KEY,
-  });
-
-  // Stream AI response with step limits and telemetry
-  let coreMessages;
-  try {
-    coreMessages = convertToCoreMessages(messages);
-    console.log('Converted messages:', JSON.stringify(coreMessages));
-  } catch (err) {
-    console.error('Error converting messages:', err);
-    // Try using messages directly
-    coreMessages = messages;
+  if (body.messages === undefined) {
+    return c.json({ error: 'messages array is required' }, 400);
   }
 
-  const result = streamText({
-    model: openai(MODEL),
-    system: buildPrompt(game),
-    messages: coreMessages,
-    tools,
-    stopWhen: stepCountIs(5), // Limit multi-step reasoning to prevent runaway costs
-    experimental_telemetry: {
-      isEnabled: true,
-      functionId: 'chat',
-      metadata: {
-        gameId: game.id,
-        gameSlug: game.slug,
-        environment: c.env.ENVIRONMENT || 'development',
-      },
-    },
+  if (!Array.isArray(body.messages)) {
+    return c.json({ error: 'messages must be an array' }, 400);
+  }
+
+  const response = await streamChatResponse(c.env, game, body, {
+    router: 'games',
+    requestedGame: gameIdOrSlug,
   });
 
-  // Return streaming response compatible with @ai-sdk/react useChat hook
-  return result.toUIMessageStreamResponse();
+  return response;
 });
 
 export default gamesRouter;

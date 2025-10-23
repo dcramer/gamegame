@@ -8,8 +8,52 @@ export interface VectorEmbedding {
 }
 
 /**
+ * Validate and sanitize metadata to fit within Vectorize's 10KB limit
+ * Vectorize has a 10KB limit per vector's metadata
+ */
+function validateMetadata(embedding: VectorEmbedding): VectorEmbedding {
+  const MAX_METADATA_SIZE = 10 * 1024; // 10KB in bytes
+  const MAX_SECTION_LENGTH = 500; // Truncate sections longer than this
+
+  // Estimate metadata size (rough approximation)
+  const metadataString = JSON.stringify(embedding.metadata);
+  const estimatedSize = new Blob([metadataString]).size;
+
+  if (estimatedSize <= MAX_METADATA_SIZE) {
+    return embedding;
+  }
+
+  // Metadata too large - try to reduce it
+  const sanitizedMetadata = { ...embedding.metadata };
+
+  // Truncate section if present and long
+  if (sanitizedMetadata.section && typeof sanitizedMetadata.section === 'string') {
+    if (sanitizedMetadata.section.length > MAX_SECTION_LENGTH) {
+      sanitizedMetadata.section = sanitizedMetadata.section.substring(0, MAX_SECTION_LENGTH) + '...';
+      console.warn(`[Vectorize] Truncated long section for fragment ${embedding.id}: ${sanitizedMetadata.section.length} → ${MAX_SECTION_LENGTH} chars`);
+    }
+  }
+
+  // Verify new size
+  const newMetadataString = JSON.stringify(sanitizedMetadata);
+  const newSize = new Blob([newMetadataString]).size;
+
+  if (newSize > MAX_METADATA_SIZE) {
+    // Still too large - remove section entirely
+    delete sanitizedMetadata.section;
+    console.warn(`[Vectorize] Removed section metadata for fragment ${embedding.id} (size: ${newSize} bytes)`);
+  }
+
+  return {
+    ...embedding,
+    metadata: sanitizedMetadata,
+  };
+}
+
+/**
  * Insert embeddings into Vectorize index
  * Batches automatically (max 100 vectors per request)
+ * Validates metadata size to prevent silent failures
  */
 export async function insertEmbeddings(
   index: VectorizeIndex,
@@ -17,9 +61,30 @@ export async function insertEmbeddings(
 ): Promise<void> {
   const BATCH_SIZE = 100;
 
-  for (let i = 0; i < embeddings.length; i += BATCH_SIZE) {
-    const batch = embeddings.slice(i, i + BATCH_SIZE);
+  // Validate and sanitize all embeddings first
+  const sanitizedEmbeddings = embeddings.map(validateMetadata);
+
+  for (let i = 0; i < sanitizedEmbeddings.length; i += BATCH_SIZE) {
+    const batch = sanitizedEmbeddings.slice(i, i + BATCH_SIZE);
     await index.upsert(batch);
+  }
+}
+
+/**
+ * Delete embeddings from Vectorize index in safe batches
+ */
+export async function deleteEmbeddings(
+  index: VectorizeIndex,
+  embeddingIds: string[]
+): Promise<void> {
+  if (embeddingIds.length === 0) {
+    return;
+  }
+
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < embeddingIds.length; i += BATCH_SIZE) {
+    const batch = embeddingIds.slice(i, i + BATCH_SIZE);
+    await index.deleteByIds(batch);
   }
 }
 

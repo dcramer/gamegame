@@ -164,8 +164,28 @@ export async function cleanupMarkdownBatch(
   pages: Array<{ markdown: string; pageNumber: number }>,
   openaiApiKey: string
 ): Promise<string[]> {
-  // Process pages in parallel for efficiency
-  const promises = pages.map((page) => cleanupMarkdown(page.markdown, page.pageNumber, openaiApiKey));
+  if (pages.length === 0) {
+    return [];
+  }
 
-  return Promise.all(promises);
+  const MAX_CONCURRENCY = 5;
+  const results: string[] = new Array(pages.length);
+  let cursor = 0;
+
+  const worker = async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= pages.length) {
+        break;
+      }
+
+      const page = pages[index];
+      results[index] = await cleanupMarkdown(page.markdown, page.pageNumber, openaiApiKey);
+    }
+  };
+
+  const workerCount = Math.min(MAX_CONCURRENCY, pages.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+
+  return results;
 }

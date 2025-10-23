@@ -27,6 +27,7 @@ export interface Env {
   // Environment
   ENVIRONMENT?: string;
   R2_PUBLIC_URL?: string; // Public URL for R2 bucket (e.g., https://pub-xxx.r2.dev or custom domain)
+  CHAT_MODEL?: string; // OpenAI model to use for chat (default: gpt-4o)
 }
 
 export type ProcessingTaskType = 'INGEST' | 'VISION' | 'CLEANUP' | 'EMBED' | 'FINALIZE';

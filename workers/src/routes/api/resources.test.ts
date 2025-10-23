@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { SELF, env } from 'cloudflare:test';
 import { setupTestDb, cleanupTestDb, createTestGame, createTestResource, createTestAttachment } from '@/test-utils/setup';
 import { getDb, fragments } from '@/lib/db';
@@ -79,7 +79,7 @@ describe('Resources Endpoint Integration Tests', () => {
       const response = await SELF.fetch(`http://localhost/api/resources/${resource.id}`);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data).toMatchObject({
         id: resource.id,
         gameId: game.id,
@@ -94,7 +94,7 @@ describe('Resources Endpoint Integration Tests', () => {
       const response = await SELF.fetch('http://localhost/api/resources/nonexistent');
 
       expect(response.status).toBe(404);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toBe('Resource not found');
     });
   });

@@ -16,7 +16,6 @@ export const games = sqliteTable('games', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 }, (table) => ({
   nameIdx: index('idx_games_name').on(table.name),
-  slugIdx: index('idx_games_slug').on(table.slug),
 }));
 
 // Resources table
@@ -47,6 +46,8 @@ export const resources = sqliteTable('resources', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 }, (table) => ({
   gameIdx: index('idx_resources_game_id').on(table.gameId),
+  statusIdx: index('idx_resources_status').on(table.status),
+  jobIdx: index('idx_resources_job_id').on(table.currentJobId),
 }));
 
 // Fragments table (text chunks for RAG)
@@ -66,6 +67,8 @@ export const fragments = sqliteTable('fragments', {
 }, (table) => ({
   gameIdx: index('idx_fragments_game_id').on(table.gameId),
   resourceIdx: index('idx_fragments_resource_id').on(table.resourceId),
+  versionIdx: index('idx_fragments_version').on(table.version),
+  pageIdx: index('idx_fragments_page_number').on(table.pageNumber),
 }));
 
 // Attachments table (images extracted from PDFs)
@@ -74,7 +77,7 @@ export const attachments = sqliteTable('attachments', {
   gameId: text('game_id').notNull().references(() => games.id, { onDelete: 'cascade' }),
   resourceId: text('resource_id').notNull().references(() => resources.id, { onDelete: 'cascade' }),
   type: text('type').notNull().default('image'),
-  mimeType: text('mime_type'),
+  mimeType: text('mime_type').notNull(),
   url: text('url').notNull(),
   originalFilename: text('original_filename'),
   pageNumber: integer('page_number'),
@@ -83,12 +86,12 @@ export const attachments = sqliteTable('attachments', {
   width: integer('width'),
   height: integer('height'),
   description: text('description'), // AI-generated description of the image content
-  isGoodQuality: text('is_good_quality'), // 'good', 'bad', or null
+  isGoodQuality: integer('is_good_quality', { mode: 'boolean' }), // true (good), false (bad), or null
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 }, (table) => ({
   gameIdx: index('idx_attachments_game_id').on(table.gameId),
   resourceIdx: index('idx_attachments_resource_id').on(table.resourceId),
-  pageIdx: index('idx_attachments_page').on(table.pageNumber),
+  resourcePageIdx: index('idx_attachments_resource_page').on(table.resourceId, table.pageNumber),
   typeIdx: index('idx_attachments_type').on(table.type),
 }));
 
@@ -100,9 +103,7 @@ export const users = sqliteTable('users', {
   isAdmin: integer('is_admin', { mode: 'boolean' }).default(false),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
-}, (table) => ({
-  emailIdx: index('idx_users_email').on(table.email),
-}));
+});
 
 // BGG cache table
 export const bggGames = sqliteTable('bgg_games', {
@@ -120,7 +121,9 @@ export const bggGames = sqliteTable('bgg_games', {
   categories: text('categories'), // JSON array
   mechanics: text('mechanics'), // JSON array
   cachedAt: integer('cached_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
-});
+}, (table) => ({
+  nameIdx: index('idx_bgg_games_name').on(table.name),
+}));
 
 // Export types
 export type Game = typeof games.$inferSelect;

@@ -58,19 +58,36 @@ const handler: ExportedHandler<Env> = {
 
         const nextTask = await handleProcessingTask(task, env);
 
-        if (Array.isArray(nextTask)) {
-          for (const child of nextTask) {
-            await env.RESOURCE_QUEUE.send(child);
+        // Enqueue next task(s) before ACK to ensure pipeline continues
+        // If queue send fails, we retry the current message
+        try {
+          if (Array.isArray(nextTask)) {
+            for (const child of nextTask) {
+              await env.RESOURCE_QUEUE.send(child);
+            }
+          } else if (nextTask) {
+            await env.RESOURCE_QUEUE.send(nextTask);
+          } else if (task.type === 'FINALIZE') {
+            queueLog('resource_complete', {
+              resourceId: task.resourceId,
+              jobId: task.jobId,
+            });
           }
-        } else if (nextTask) {
-          await env.RESOURCE_QUEUE.send(nextTask);
-        } else if (task.type === 'FINALIZE') {
-          queueLog('resource_complete', {
+        } catch (queueError) {
+          // Queue send failed - log and retry without marking resource as failed
+          // The current task will be retried, and since handleProcessingTask is idempotent,
+          // it will return the same nextTask
+          queueLog('queue_send_failed', {
+            type: task.type,
             resourceId: task.resourceId,
             jobId: task.jobId,
+            error: queueError instanceof Error ? queueError.message : String(queueError),
           });
+          message.retry();
+          continue; // Skip to next message in batch
         }
 
+        // Only ACK after successful queue send
         message.ack();
       } catch (error) {
         const cause = (error as any)?.cause;
@@ -100,6 +117,8 @@ const handler: ExportedHandler<Env> = {
           .set({
             status: 'failed',
             processingStage: 'failed',
+            processingMetadata: null, // Clear stale metadata
+            currentJobId: null, // Clear job reference
             updatedAt: new Date(),
           })
           .where(eq(resources.id, task.resourceId));

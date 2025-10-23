@@ -261,7 +261,7 @@ export default function AdminResourceDetail() {
 
       <div className="mt-8">
         <h4 className="text-lg font-semibold mb-4">Media Attachments</h4>
-        <AttachmentList attachments={attachments} />
+        <AttachmentList attachments={attachments} gameId={gameId!} resourceId={resourceId!} />
       </div>
     </AdminLayout>
   );

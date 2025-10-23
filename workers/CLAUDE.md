@@ -35,6 +35,15 @@ pnpm db:studio             # Open Drizzle Studio UI
 pnpm build:client          # Build React chat widget (331KB bundle)
 ```
 
+### Testing
+```bash
+pnpm test                  # Run all tests
+pnpm test:ui               # Run tests with visual UI
+pnpm test:run              # Run tests once (CI mode)
+```
+
+See [docs/testing.md](./docs/testing.md) for comprehensive testing principles and guidelines.
+
 ## PDF Extraction
 
 The system uses the **Mistral OCR API** for PDF extraction:
@@ -55,7 +64,7 @@ The system uses the **Mistral OCR API** for PDF extraction:
 - **Storage**: R2 for PDFs and images
 - **Cache**: KV for rate limiting and job status
 - **Queue**: Cloudflare Queues for async PDF processing
-- **AI**: OpenAI GPT-4o for chat, text-embedding-3-small for embeddings
+- **AI**: OpenAI GPT-5 for chat, text-embedding-3-small for embeddings
 
 ### Database Schema (D1/SQLite)
 
