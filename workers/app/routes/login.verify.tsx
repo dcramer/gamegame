@@ -5,7 +5,17 @@ import { Spinner } from '../components/ui/spinner';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import Heading from '../components/Heading';
+import { apiClient } from '../../load-context';
 import { z } from 'zod';
+import { createMeta, createVerifyTitle } from '../lib/meta';
+
+export const meta = () => {
+  return createMeta({
+    title: createVerifyTitle(),
+    description: "Verifying your email address...",
+    noIndex: true, // Don't index verification pages
+  });
+};
 
 // Schema for error response
 const errorResponseSchema = z.object({
@@ -30,7 +40,7 @@ export default function LoginVerify() {
     // Use an async function to properly handle all promise rejections
     const verifyToken = async () => {
       try {
-        const res = await fetch(`/api/auth/verify?token=${encodeURIComponent(token)}`);
+        const res = await apiClient.fetch(`/auth/verify?token=${encodeURIComponent(token)}`);
 
         if (res.ok) {
           // Auth response may not have a body for verify endpoint, but validate if present

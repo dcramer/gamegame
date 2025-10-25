@@ -19,6 +19,11 @@ export interface UploadedImage {
  * Note: We store images as-is from Mistral OCR without conversion
  * since Sharp (native image processing) doesn't work in Workers
  */
+
+/**
+ * @deprecated Use buildResourceSourceKey(resourceId, extension) instead
+ * Legacy constant for backward compatibility
+ */
 export const RESOURCE_SOURCE_FILENAME = 'source.pdf';
 
 /**
@@ -29,10 +34,13 @@ export function r2KeyToUrl(r2Key: string): string {
 }
 
 /**
- * Build R2 key for a resource source PDF
+ * Build R2 key for a resource source file
+ * @param resourceId - The resource ID
+ * @param extension - The file extension (without dot), e.g., 'pdf', 'txt', 'png'
  */
-export function buildResourceSourceKey(resourceId: string): string {
-  return `resources/${resourceId}/${RESOURCE_SOURCE_FILENAME}`;
+export function buildResourceSourceKey(resourceId: string, extension: string = 'pdf'): string {
+  const normalizedExt = extension.toLowerCase();
+  return `resources/${resourceId}/source.${normalizedExt}`;
 }
 
 /**
@@ -44,10 +52,12 @@ export function buildAttachmentKey(resourceId: string, attachmentId: string, ext
 }
 
 /**
- * Build URL for a resource source PDF (deprecated - use r2KeyToUrl instead)
+ * Build URL for a resource source file
+ * @param resourceId - The resource ID
+ * @param extension - The file extension (without dot), defaults to 'pdf' for backward compat
  */
-export function buildResourceSourceUrl(resourceId: string): string {
-  return r2KeyToUrl(buildResourceSourceKey(resourceId));
+export function buildResourceSourceUrl(resourceId: string, extension: string = 'pdf'): string {
+  return r2KeyToUrl(buildResourceSourceKey(resourceId, extension));
 }
 
 /**
@@ -55,6 +65,39 @@ export function buildResourceSourceUrl(resourceId: string): string {
  */
 export function buildAttachmentUrl(resourceId: string, attachmentId: string, ext: string): string {
   return r2KeyToUrl(buildAttachmentKey(resourceId, attachmentId, ext));
+}
+
+/**
+ * Extract file extension from R2 key or filename
+ * @param keyOrFilename - R2 key or filename
+ * @returns Extension without dot, or empty string if none found
+ */
+export function getExtensionFromKey(keyOrFilename: string): string {
+  const lastDot = keyOrFilename.lastIndexOf('.');
+  const lastSlash = keyOrFilename.lastIndexOf('/');
+
+  // If dot comes after last slash (or no slash), it's a valid extension
+  if (lastDot > lastSlash) {
+    return keyOrFilename.slice(lastDot + 1).toLowerCase();
+  }
+
+  return '';
+}
+
+/**
+ * Get the resource ID and extension from an R2 source key
+ * @param r2Key - R2 key like 'resources/{id}/source.{ext}'
+ * @returns {resourceId, extension} or null if invalid format
+ */
+export function parseResourceSourceKey(r2Key: string): { resourceId: string; extension: string } | null {
+  const match = r2Key.match(/^resources\/([^/]+)\/source\.([^./]+)$/);
+  if (match) {
+    return {
+      resourceId: match[1],
+      extension: match[2],
+    };
+  }
+  return null;
 }
 
 export async function uploadImageToR2(
@@ -177,13 +220,16 @@ export async function uploadPDFImages(
   });
 
   if (failedUploads.length > 0) {
-    console.warn(
-      `Uploaded ${successfulUploads.length}/${images.length} images. ` +
-      `Failed: ${failedUploads.join(', ')}`
-    );
+    const errorMsg =
+      `Failed to upload ${failedUploads.length}/${images.length} images. ` +
+      `Failed IDs: ${failedUploads.join(', ')}. ` +
+      `This will result in missing images in the knowledge base.`;
+    console.error(errorMsg);
+
+    // Throw error to make failures explicit and prevent partial processing
+    throw new Error(errorMsg);
   }
 
-  // Return successful uploads - caller can check if count matches expected
   return successfulUploads;
 }
 
@@ -270,6 +316,7 @@ export async function deleteResourceFiles(
 /**
  * Extract R2 key from URL
  * Handles both relative URLs (/uploads/path) and full URLs (https://...)
+ * Now supports any file extension, not just .pdf
  */
 export function extractR2KeyFromUrl(url: string): string | null {
   if (!url) {
@@ -280,16 +327,19 @@ export function extractR2KeyFromUrl(url: string): string | null {
 
   if (withoutQuery.startsWith('/uploads/')) {
     const relative = withoutQuery.replace('/uploads/', '');
+    // Check if it's a bare resource reference (no filename)
     const resourceRoot = relative.match(/^resources\/([^/]+)$/);
     if (resourceRoot) {
-      return `resources/${resourceRoot[1]}/${RESOURCE_SOURCE_FILENAME}`;
+      // Default to .pdf for backward compatibility with bare references
+      return `resources/${resourceRoot[1]}/source.pdf`;
     }
     return relative;
   }
 
-  const bareResourceMatch = withoutQuery.match(/^\/resources\/([^/]+)\/source\.pdf$/);
+  // Match source files with any extension: /resources/{id}/source.{ext}
+  const bareResourceMatch = withoutQuery.match(/^\/resources\/([^/]+)\/source\.([^./]+)$/);
   if (bareResourceMatch) {
-    return `resources/${bareResourceMatch[1]}/${RESOURCE_SOURCE_FILENAME}`;
+    return `resources/${bareResourceMatch[1]}/source.${bareResourceMatch[2]}`;
   }
 
   const bareAttachmentMatch = withoutQuery.match(/^\/resources\/([^/]+)\/attachments\/(.+)$/);
@@ -299,7 +349,8 @@ export function extractR2KeyFromUrl(url: string): string | null {
 
   const resourceRootMatch = withoutQuery.match(/^\/(?:files|uploads)\/resources\/([^/]+)$/);
   if (resourceRootMatch) {
-    return `resources/${resourceRootMatch[1]}/${RESOURCE_SOURCE_FILENAME}`;
+    // Default to .pdf for backward compatibility with bare references
+    return `resources/${resourceRootMatch[1]}/source.pdf`;
   }
 
   const attachmentMatch = withoutQuery.match(/^\/(?:files|uploads)\/resources\/([^/]+)\/attachments\/(.+)$/);

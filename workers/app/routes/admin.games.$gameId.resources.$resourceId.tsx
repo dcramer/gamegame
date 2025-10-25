@@ -1,19 +1,33 @@
-import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router';
-import { Download, ArrowLeft } from 'lucide-react';
+import { useParams, useNavigate, useLocation, useLoaderData, Outlet } from 'react-router';
+import { Download, RefreshCw, Trash2 } from 'lucide-react';
 import AdminLayout from '../components/AdminLayout';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import { Spinner } from '../components/ui/spinner';
-import { SaveButton } from '../components/ui/save-button';
-import Heading from '../components/Heading';
-import AttachmentList from '../components/AttachmentList';
-import { resourceSchema, type Attachment, attachmentsListSchema } from '../lib/schemas';
+import { PageHeader } from '../components/PageHeader';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { useFlashNotifications } from '../hooks/useFlashNotifications';
+import { resourceSchema, attachmentsListSchema } from '../lib/schemas';
 import { z } from 'zod';
+import { apiClient } from '../../load-context';
+import type { Route } from './+types/admin.games.$gameId.resources.$resourceId';
+import { createMeta, createAdminTitle } from '../lib/meta';
+import { useNotifications } from '../contexts/NotificationContext';
+
+export const meta = ({ data }: Route.MetaArgs) => {
+  if (!data?.resource) {
+    return createMeta({
+      title: createAdminTitle('Resource Not Found'),
+      noIndex: true,
+    });
+  }
+
+  return createMeta({
+    title: createAdminTitle(data.resource.name, data.game.name),
+    description: `Manage ${data.resource.name} for ${data.game.name}.`,
+    noIndex: true,
+  });
+};
 
 // Extended Resource schema with additional UI fields
-const extendedResourceSchema = resourceSchema.extend({
+export const extendedResourceSchema = resourceSchema.extend({
   originalFilename: z.string().optional(),
   description: z.string().nullable().optional(),
   author: z.string().nullable().optional(),
@@ -22,124 +36,114 @@ const extendedResourceSchema = resourceSchema.extend({
   // createdAt and updatedAt already defined in base schema as coerced numbers
 });
 
-type Resource = z.infer<typeof extendedResourceSchema>;
+export async function loader({ params, context }: Route.LoaderArgs) {
+  const [resourceRes, attachmentsRes, gameRes] = await Promise.all([
+    context.api.fetch(`/resources/${params.resourceId}`),
+    context.api.fetch(`/resources/${params.resourceId}/attachments`),
+    context.api.fetch(`/games/${params.gameId}`),
+  ]);
 
-export default function AdminResourceDetail() {
+  if (!resourceRes.ok) throw new Error('Resource not found');
+  if (!attachmentsRes.ok) throw new Error('Failed to load attachments');
+  if (!gameRes.ok) throw new Error('Game not found');
+
+  const [resourceJson, attachmentsJson, gameJson] = await Promise.all([
+    resourceRes.json(),
+    attachmentsRes.json(),
+    gameRes.json(),
+  ]);
+
+  const resource = extendedResourceSchema.parse(resourceJson);
+  const attachments = attachmentsListSchema.parse(attachmentsJson);
+  const game = gameJson as { name: string };
+
+  return { resource, attachments, game };
+}
+
+export default function AdminResourceLayout() {
   const { gameId, resourceId } = useParams<{ gameId: string; resourceId: string }>();
-  const [resource, setResource] = useState<Resource | null>(null);
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { resource, attachments, game } = useLoaderData<typeof loader>();
 
-  // Form state
-  const [name, setName] = useState('');
-  const [content, setContent] = useState('');
-  const [description, setDescription] = useState('');
-  const [author, setAuthor] = useState('');
-  const [attributionUrl, setAttributionUrl] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  // Flash notifications for feedback
+  const { addToast, addPendingJobNotification, updatePendingJobWithId } = useFlashNotifications();
+  const { removeNotification } = useNotifications();
 
-  useEffect(() => {
-    if (!resourceId) return;
+  // Determine active tab from URL
+  const isAttachmentsTab = location.pathname.endsWith('/attachments');
+  const activeTab = isAttachmentsTab ? 'attachments' : 'details';
 
-    const loadResourceData = async () => {
-      try {
-        const [resourceRes, attachmentsRes] = await Promise.all([
-          fetch(`/api/resources/${resourceId}`),
-          fetch(`/api/resources/${resourceId}/attachments`),
-        ]);
-
-        if (!resourceRes.ok) throw new Error('Resource not found');
-        if (!attachmentsRes.ok) throw new Error('Failed to load attachments');
-
-        const [resourceJson, attachmentsJson] = await Promise.all([
-          resourceRes.json(),
-          attachmentsRes.json(),
-        ]);
-
-        const resourceData = extendedResourceSchema.parse(resourceJson);
-        const attachmentsData = attachmentsListSchema.parse(attachmentsJson);
-        setResource(resourceData);
-        setName(resourceData.name || '');
-        setContent(resourceData.content || '');
-        setDescription(resourceData.description || '');
-        setAuthor(resourceData.author || '');
-        setAttributionUrl(resourceData.attributionUrl || '');
-        setAttachments(attachmentsData);
-        setLoading(false);
-      } catch (err) {
-        console.error('Failed to load resource:', err);
-        setResource(null);
-        setLoading(false);
-      }
+  const handleReprocess = async (from: 'ingest' | 'vision' | 'cleanup' | 'metadata' | 'embed' = 'cleanup') => {
+    // Map 'from' parameter to user-friendly titles and descriptions
+    const jobTitles = {
+      ingest: { title: 'Full Reprocess', description: 'Complete pipeline from scratch' },
+      vision: { title: 'Improve Image Descriptions', description: 'Re-analyzing image content' },
+      cleanup: { title: 'Clean Up Markdown', description: 'Fixing formatting issues' },
+      metadata: { title: 'Regenerate Metadata', description: 'Updating document title and description' },
+      embed: { title: 'Regenerate Embeddings', description: 'Updating search index' },
     };
+    const { title, description } = jobTitles[from];
 
-    loadResourceData();
-  }, [resourceId]);
+    // Create the notification immediately for instant feedback
+    const notificationId = addPendingJobNotification(title, description);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!resourceId) return;
-
-    setSaving(true);
-    setSaveStatus('idle');
     try {
-      const payload = {
-        name,
-        content,
-        description: description.trim() ? description : null,
-        author: author.trim() ? author : null,
-        attributionUrl: attributionUrl.trim() ? attributionUrl : null,
-      };
+      const url = from === 'ingest'
+        ? `/resources/${resourceId}/reprocess`
+        : `/resources/${resourceId}/reprocess?from=${from}`;
 
-      const response = await fetch(`/api/resources/${resourceId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      const response = await apiClient.fetch(url, {
+        method: 'POST',
       });
 
       if (response.ok) {
-        const updatedResource = extendedResourceSchema.parse(await response.json());
-        setResource((prev) => (prev ? { ...prev, ...updatedResource } : updatedResource));
-        setName(updatedResource.name || '');
-        setContent(updatedResource.content || '');
-        setDescription(updatedResource.description || '');
-        setAuthor(updatedResource.author || '');
-        setAttributionUrl(updatedResource.attributionUrl || '');
-        setSaveStatus('success');
+        const data = await response.json() as { jobId?: string; message?: string };
+        if (data.jobId) {
+          // Update the pending notification with the actual job ID to start polling
+          updatePendingJobWithId(notificationId, data.jobId);
+        } else {
+          // No job ID returned, remove the pending notification and show success toast
+          removeNotification(notificationId);
+          addToast('success', data.message || 'Resource queued for reprocessing.');
+        }
       } else {
-        setSaveStatus('error');
+        // Request failed, remove the pending notification and show error
+        removeNotification(notificationId);
+        const error = await response.json() as { error?: string };
+        addToast('error', error.error || 'Failed to reprocess resource');
       }
     } catch (error) {
-      console.error('Update error:', error);
-      setSaveStatus('error');
-    } finally {
-      setSaving(false);
+      console.error('Reprocess error:', error);
+      // Exception thrown, remove the pending notification and show error
+      removeNotification(notificationId);
+      addToast('error', 'Failed to reprocess resource');
     }
   };
 
-  if (loading) {
-    return (
-      <AdminLayout>
-        <div className="flex items-center justify-center py-12">
-          <Spinner size="lg" />
-        </div>
-      </AdminLayout>
-    );
-  }
+  const handleDelete = async () => {
+    if (!confirm(`Are you sure you want to delete "${resource.name}"? This action cannot be undone.`)) {
+      return;
+    }
 
-  if (!resource) {
-    return (
-      <AdminLayout>
-        <div className="text-center py-12">
-          <p className="text-xl mb-4">Resource not found</p>
-          <Button asChild>
-            <Link to={`/admin/games/${gameId}`}>Back to Game</Link>
-          </Button>
-        </div>
-      </AdminLayout>
-    );
-  }
+    try {
+      const response = await apiClient.fetch(`/resources/${resourceId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        addToast('success', 'Resource deleted successfully');
+        // Navigate back to game page
+        navigate(`/admin/games/${gameId}`);
+      } else {
+        const error = await response.json() as { error?: string };
+        addToast('error', error.error || 'Failed to delete resource');
+      }
+    } catch (error) {
+      console.error('Delete error:', error);
+      addToast('error', 'Failed to delete resource');
+    }
+  };
 
   const stats = [
     typeof resource.fragmentCount === 'number' ? `${resource.fragmentCount.toLocaleString()} chunks` : null,
@@ -152,105 +156,163 @@ export default function AdminResourceDetail() {
 
   return (
     <AdminLayout>
-      <div className="mb-6">
-        <Button asChild variant="ghost" size="sm" className="mb-4">
-          <Link to={`/admin/games/${gameId}`}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Game
-          </Link>
-        </Button>
+      <PageHeader
+        breadcrumbs={[
+          { label: 'Admin', href: '/admin' },
+          { label: 'Games', href: '/admin' },
+          { label: game.name, href: `/admin/games/${gameId}` },
+          { label: resource.name },
+        ]}
+        title={resource.name}
+        stats={stats}
+      />
 
-        <div className="flex items-center gap-4 mb-2">
-          <Heading className="mb-0">{resource.name}</Heading>
-          <Button asChild size="sm" variant="ghost">
-            <a href={resource.url} target="_blank" rel="noopener noreferrer">
-              <Download className="h-5 w-5" />
-            </a>
-          </Button>
+      <Tabs>
+        <TabsList className="mb-8 -mx-4 px-4">
+          <TabsTrigger
+            active={activeTab === 'details'}
+            onClick={() => navigate(`/admin/games/${gameId}/resources/${resourceId}`)}
+          >
+            Details
+          </TabsTrigger>
+          <TabsTrigger
+            active={activeTab === 'attachments'}
+            onClick={() => navigate(`/admin/games/${gameId}/resources/${resourceId}/attachments`)}
+          >
+            Attachments
+          </TabsTrigger>
+        </TabsList>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-8">
+          {/* Left column - Content */}
+          <div>
+            <TabsContent className="mt-0">
+              <Outlet context={{ resource, attachments }} />
+            </TabsContent>
+          </div>
+
+          {/* Right column - Actions sidebar */}
+          <div className="lg:sticky lg:top-8 lg:self-start space-y-8">
+            <div>
+              <h3 className="text-sm font-semibold mb-3">Reprocessing</h3>
+              <div className="space-y-2">
+                <button
+                  onClick={() => handleReprocess('ingest')}
+                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group"
+                >
+                  <div className="flex items-start gap-3">
+                    <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm mb-1">Full Reprocess</div>
+                      <div className="text-xs text-muted-foreground leading-relaxed">
+                        Complete pipeline from scratch
+                      </div>
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleReprocess('vision')}
+                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group"
+                >
+                  <div className="flex items-start gap-3">
+                    <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm mb-1">Improve Image Descriptions</div>
+                      <div className="text-xs text-muted-foreground leading-relaxed">
+                        Re-analyze image content
+                      </div>
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleReprocess('cleanup')}
+                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group"
+                >
+                  <div className="flex items-start gap-3">
+                    <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm mb-1">Clean Up Markdown</div>
+                      <div className="text-xs text-muted-foreground leading-relaxed">
+                        Fix formatting issues
+                      </div>
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleReprocess('metadata')}
+                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group"
+                >
+                  <div className="flex items-start gap-3">
+                    <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm mb-1">Regenerate Metadata</div>
+                      <div className="text-xs text-muted-foreground leading-relaxed">
+                        Update document title and description
+                      </div>
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleReprocess('embed')}
+                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group"
+                >
+                  <div className="flex items-start gap-3">
+                    <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm mb-1">Regenerate Embeddings</div>
+                      <div className="text-xs text-muted-foreground leading-relaxed">
+                        Update search index
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-3">Download</h3>
+              <a
+                href={resource.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group"
+              >
+                <div className="flex items-start gap-3">
+                  <Download className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground" />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm mb-1">Download Resource</div>
+                    <div className="text-xs text-muted-foreground leading-relaxed">
+                      Get the original source file
+                    </div>
+                  </div>
+                </div>
+              </a>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-3">Danger Zone</h3>
+              <button
+                onClick={handleDelete}
+                className="w-full text-left p-3 rounded-lg border border-red-500/50 bg-card hover:bg-red-500/10 hover:border-red-500 transition-colors group"
+              >
+                <div className="flex items-start gap-3">
+                  <Trash2 className="h-4 w-4 mt-0.5 text-red-500" />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm mb-1 text-red-500">Delete Resource</div>
+                    <div className="text-xs text-muted-foreground leading-relaxed">
+                      Permanently removes all data
+                    </div>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
         </div>
-        <p className="text-muted-foreground text-sm">{stats}</p>
-      </div>
-
-      <form onSubmit={handleSave} className="grid gap-4 mb-8">
-        <div className="grid gap-2">
-          <Label htmlFor="name">Document Title</Label>
-          <Input
-            id="name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Game Manual.pdf"
-            required
-          />
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="originalFilename">Original Filename</Label>
-          <Input id="originalFilename" type="text" value={resource.originalFilename} readOnly className="font-mono" />
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="description">Summary</Label>
-          <textarea
-            id="description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={4}
-            placeholder="Short summary of this resource"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono"
-          />
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="author">Author / Creator</Label>
-          <Input
-            id="author"
-            type="text"
-            value={author}
-            onChange={(e) => setAuthor(e.target.value)}
-            placeholder="e.g. Fantasy Flight Games"
-          />
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="attributionUrl">Attribution URL</Label>
-          <Input
-            id="attributionUrl"
-            type="url"
-            value={attributionUrl}
-            onChange={(e) => setAttributionUrl(e.target.value)}
-            placeholder="https://publisher.com/rulebook"
-          />
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="content">Markdown Content</Label>
-          <textarea
-            id="content"
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={16}
-            placeholder="Markdown Content"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono"
-            required
-          />
-        </div>
-
-        <SaveButton
-          type="submit"
-          status={saveStatus}
-          isLoading={saving}
-          successText="Changes saved."
-          errorText="Failed to save changes. Please try again."
-          onStatusTimeout={() => setSaveStatus('idle')}
-          wrapperClassName="mr-auto"
-        />
-      </form>
-
-      <div className="mt-8">
-        <h4 className="text-lg font-semibold mb-4">Media Attachments</h4>
-        <AttachmentList attachments={attachments} gameId={gameId!} resourceId={resourceId!} />
-      </div>
+      </Tabs>
     </AdminLayout>
   );
 }

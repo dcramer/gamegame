@@ -16,6 +16,7 @@ import {
   MessageCircle,
   MessageCircleQuestion,
 } from 'lucide-react';
+import { apiClient } from '../../load-context';
 
 interface ParsedMessage {
   answer?: string;
@@ -250,7 +251,7 @@ export function Chat({
         let targetUrl = resourceUrls[resourceId];
 
         if (!targetUrl) {
-          const response = await fetch(`/api/resources/${resourceId}`);
+          const response = await apiClient.fetch(`/resources/${resourceId}`);
           if (!response.ok) {
             throw new Error(`Failed to load resource: ${response.status}`);
           }

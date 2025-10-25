@@ -4,10 +4,20 @@ import AdminLayout from '../components/AdminLayout';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Spinner } from '../components/ui/spinner';
-import Heading from '../components/Heading';
+import { PageHeader } from '../components/PageHeader';
 import { Card, CardContent, CardHeader, CardDescription, CardTitle } from '../components/ui/card';
-import { AlertMessage } from '../components/AlertMessage';
+import { useFlashNotifications } from '../hooks/useFlashNotifications';
 import { type BGGGame, bggGamesListSchema, gameSchema } from '../lib/schemas';
+import { apiClient } from '../../load-context';
+import { createMeta, createAdminTitle } from '../lib/meta';
+
+export const meta = () => {
+  return createMeta({
+    title: createAdminTitle('Add Game'),
+    description: "Add a new board game to GameGame.",
+    noIndex: true,
+  });
+};
 
 export default function AdminAddGame() {
   const navigate = useNavigate();
@@ -15,25 +25,24 @@ export default function AdminAddGame() {
   const [searching, setSearching] = useState(false);
   const [bggResults, setBggResults] = useState<BGGGame[]>([]);
   const [importing, setImporting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { addToast } = useFlashNotifications();
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
 
     setSearching(true);
-    setError(null);
     try {
-      const response = await fetch(`/api/bgg/search?q=${encodeURIComponent(searchQuery)}`);
+      const response = await apiClient.fetch(`/bgg/search?q=${encodeURIComponent(searchQuery)}`);
       if (response.ok) {
         const data = bggGamesListSchema.parse(await response.json());
         setBggResults(data);
       } else {
-        setError('Failed to search BGG. Please try again.');
+        addToast('error', 'Failed to search BGG. Please try again.');
       }
     } catch (error) {
       console.error('BGG search error:', error);
-      setError('Failed to search BGG. Please try again.');
+      addToast('error', 'Failed to search BGG. Please try again.');
     } finally {
       setSearching(false);
     }
@@ -41,21 +50,21 @@ export default function AdminAddGame() {
 
   const handleImportFromBGG = async (bggGameId: string) => {
     setImporting(true);
-    setError(null);
     try {
-      const response = await fetch(`/api/bgg/games/${bggGameId}/import`, {
+      const response = await apiClient.fetch(`/bgg/games/${bggGameId}/import`, {
         method: 'POST',
       });
 
       if (response.ok) {
         const game = gameSchema.parse(await response.json());
+        addToast('success', `Successfully imported ${game.name}!`);
         navigate(`/admin/games/${game.id}`);
       } else {
-        setError('Failed to import game from BGG. Please try again.');
+        addToast('error', 'Failed to import game from BGG. Please try again.');
       }
     } catch (error) {
       console.error('Import error:', error);
-      setError('Failed to import game from BGG. Please try again.');
+      addToast('error', 'Failed to import game from BGG. Please try again.');
     } finally {
       setImporting(false);
     }
@@ -63,16 +72,17 @@ export default function AdminAddGame() {
 
   return (
     <AdminLayout>
-      <div className="mx-auto max-w-4xl space-y-2">
-        <Heading className="text-3xl font-semibold tracking-tight">Add Game</Heading>
-        <p className="max-w-xl text-sm text-muted-foreground">
-          Search BoardGameGeek to pull in official art and metadata. You can always refine the details after importing.
-        </p>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: 'Admin', href: '/admin' },
+          { label: 'Games', href: '/admin' },
+          { label: 'Add Game' },
+        ]}
+        title="Add Game"
+        description="Search BoardGameGeek to pull in official art and metadata. You can always refine the details after importing."
+      />
 
-      <div className="mx-auto mt-6 max-w-4xl space-y-8">
-      {error && <AlertMessage variant="error" message={error} onDismiss={() => setError(null)} />}
-
+      <div className="mx-auto max-w-4xl space-y-8">
       <Card>
         <CardHeader className="space-y-2">
           <CardTitle className="text-2xl font-semibold">Find your game</CardTitle>

@@ -44,6 +44,14 @@ Guard rails (obey all of them):
 6. REMOVE standalone page numbers or running headers/footers only when they are not embedded in rule text.
 7. Do not paraphrase, summarise, or reformat; output must remain valid markdown representing the same rule content.
 
+What to REMOVE (be aggressive with these):
+- Table of contents pages (lists of sections with page numbers like "Setup ... 5", "Gameplay ... 12", etc.)
+- Lists of headings with dots/leaders and page numbers (e.g., "Rules Overview.....3")
+- Pure navigation sections that just list where to find information
+- Copyright/credits pages with no gameplay content
+- Publisher information and marketing text
+- Page numbers that appear alone or as running headers/footers
+
 Output requirements:
 - Return ONLY the cleaned markdown (no explanations, no code fences).
 - Preserve blank lines between sections to keep structure readable.
@@ -55,19 +63,33 @@ Output requirements:
     const cleaned = response.text.trim() || '';
 
     const isNonContentPage = isLikelyNonContentPage(markdown);
+    const looksSubstantial = isSubstantialContent(cleaned);
+    const reductionPercent = markdown.length > 0 ? Math.round((1 - cleaned.length / markdown.length) * 100) : 0;
+
+    // Log cleanup results for debugging
+    console.log(
+      JSON.stringify({
+        module: 'markdown-cleanup',
+        event: 'page_cleaned',
+        pageNumber,
+        originalLength: markdown.length,
+        cleanedLength: cleaned.length,
+        reductionPercent,
+        isNonContentPage,
+        looksSubstantial,
+        wasEmptied: cleaned.length === 0,
+      })
+    );
 
     // Safety check: if the LLM removed too much content (>80% reduction),
     // return original to avoid data loss unless the cleaned output still looks substantial
-    const looksSubstantial = isSubstantialContent(cleaned);
     if (!isNonContentPage && !looksSubstantial && cleaned.length > 0 && cleaned.length < markdown.length * 0.2) {
       console.log(
         JSON.stringify({
           module: 'markdown-cleanup',
-          event: 'excessive_reduction',
+          event: 'excessive_reduction_reverted',
           pageNumber,
-          originalLength: markdown.length,
-          cleanedLength: cleaned.length,
-          reductionPercent: Math.round((1 - cleaned.length / markdown.length) * 100),
+          reason: 'Cleaned content too small and not substantial',
         })
       );
       return markdown;
@@ -158,19 +180,25 @@ function isSubstantialContent(markdown: string): boolean {
  * Batch cleanup multiple pages of markdown in parallel
  * @param pages Array of markdown strings with their page numbers
  * @param openaiApiKey OpenAI API key
+ * @param options Optional configuration including progress callback
  * @returns Array of cleaned markdown strings in the same order
  */
 export async function cleanupMarkdownBatch(
   pages: Array<{ markdown: string; pageNumber: number }>,
-  openaiApiKey: string
+  openaiApiKey: string,
+  options?: {
+    onProgress?: (processed: number, total: number) => Promise<void>;
+  }
 ): Promise<string[]> {
   if (pages.length === 0) {
     return [];
   }
 
+  const { onProgress } = options ?? {};
   const MAX_CONCURRENCY = 5;
   const results: string[] = new Array(pages.length);
   let cursor = 0;
+  let completed = 0;
 
   const worker = async () => {
     while (true) {
@@ -181,6 +209,12 @@ export async function cleanupMarkdownBatch(
 
       const page = pages[index];
       results[index] = await cleanupMarkdown(page.markdown, page.pageNumber, openaiApiKey);
+
+      // Report progress after each page is completed
+      completed++;
+      if (onProgress) {
+        await onProgress(completed, pages.length);
+      }
     }
   };
 

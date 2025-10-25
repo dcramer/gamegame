@@ -1,0 +1,1 @@
+import{p as r}from"./chunk-OIYGIGL5-CJLaNaD0.js";import{a as x}from"./utils-CyyZbp74.js";function s({children:t,className:o}){return r.jsx("h2",{className:x("text-3xl lg:text-5xl font-extrabold mb-6",o),children:t})}export{s as H};

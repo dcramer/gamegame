@@ -1,0 +1,1 @@
+import{a as e,p as n}from"./chunk-OIYGIGL5-CJLaNaD0.js";const o=e.createContext(void 0);function u({user:t,children:r}){return n.jsx(o.Provider,{value:{user:t,isLoading:!1},children:r})}function i(){const t=e.useContext(o);if(t===void 0)throw new Error("useAuth must be used within an AuthProvider");return t}export{u as A,i as u};

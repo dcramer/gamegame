@@ -1,7 +1,7 @@
 name = "gamegame"
 main = "worker.ts"
 compatibility_date = "2025-01-15"
-compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
+compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env", "global_fetch_strictly_public"]
 account_id = "3f121ae4e5f2c3be251559c828d3805d"
 
 # Workers AI compatibility
@@ -123,6 +123,10 @@ bucket_name = "gamegame-files"
 # [[routes]]
 # pattern = "gamegame.ai/*"
 # zone_name = "gamegame.ai"
+
+# Scheduled triggers
+[triggers]
+crons = ["*/10 * * * *"]  # Run every 10 minutes
 
 # Observability
 [observability]

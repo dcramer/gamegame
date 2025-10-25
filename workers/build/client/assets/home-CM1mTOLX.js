@@ -1,0 +1,1 @@
+import{c as e,a as t}from"./meta-CNUq8pDr.js";const r=()=>e({title:t(),description:"Get instant answers to board game rules with AI-powered assistance. Search hundreds of games and rulebooks."});export{r as meta};

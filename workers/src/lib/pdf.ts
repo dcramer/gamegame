@@ -168,11 +168,84 @@ export function replaceImageReferences(
 }
 
 /**
- * Extract text and structured metadata from a PDF using Mistral OCR
+ * Extract text and structured metadata from any supported document format
+ * Handles plain text, markdown, PDFs, images, and Word docs
+ *
+ * @param buf - File buffer
+ * @param mistralApiKey - Mistral API key (required for PDFs and images)
+ * @param mimeType - MIME type of the document (optional, will be detected if not provided)
+ */
+export async function extractTextFromDocument(
+  buf: Buffer,
+  mistralApiKey: string,
+  mimeType?: string
+): Promise<PDFExtractionResult> {
+  // Handle plain text files - no OCR needed
+  if (mimeType === 'text/plain') {
+    const decoder = new TextDecoder('utf-8');
+    const text = decoder.decode(buf);
+
+    // Parse markdown headings (plain text might contain markdown-style headings)
+    const sections = parseMarkdownHeadings(text, 1);
+
+    const structured: StructuredPDFContent = {
+      pages: [
+        {
+          pageNumber: 1,
+          markdown: text,
+          images: [],
+          sections,
+        },
+      ],
+      pageCount: 1,
+    };
+
+    return {
+      text,
+      structured,
+    };
+  }
+
+  // Handle markdown files - same as plain text
+  if (mimeType === 'text/markdown') {
+    const decoder = new TextDecoder('utf-8');
+    const text = decoder.decode(buf);
+
+    const sections = parseMarkdownHeadings(text, 1);
+
+    const structured: StructuredPDFContent = {
+      pages: [
+        {
+          pageNumber: 1,
+          markdown: text,
+          images: [],
+          sections,
+        },
+      ],
+      pageCount: 1,
+    };
+
+    return {
+      text,
+      structured,
+    };
+  }
+
+  // For PDFs, images, and Word docs - use Mistral OCR
+  return extractTextFromPdf(buf, mistralApiKey, mimeType);
+}
+
+/**
+ * Extract text and structured metadata from a PDF (or image/DOCX) using Mistral OCR
+ *
+ * @param buf - File buffer
+ * @param mistralApiKey - Mistral API key
+ * @param mimeType - MIME type (optional, defaults to PDF)
  */
 export async function extractTextFromPdf(
   buf: Buffer,
-  mistralApiKey: string
+  mistralApiKey: string,
+  mimeType: string = 'application/pdf'
 ): Promise<PDFExtractionResult> {
   const { Mistral } = await import('@mistralai/mistralai');
 
@@ -182,12 +255,12 @@ export async function extractTextFromPdf(
 
   const base64 = buf.toString('base64');
 
-  // Call Mistral OCR
+  // Call Mistral OCR with appropriate MIME type
   const result = await client.ocr.process({
     model: 'mistral-ocr-latest',
     document: {
       type: 'document_url',
-      documentUrl: `data:application/pdf;base64,${base64}`,
+      documentUrl: `data:${mimeType};base64,${base64}`,
     },
     includeImageBase64: true,
   });

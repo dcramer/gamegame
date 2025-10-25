@@ -39,7 +39,7 @@ export const resources = sqliteTable('resources', {
   processedAt: integer('processed_at', { mode: 'timestamp' }),
   status: text('status').notNull().default('ready'),
   currentJobId: text('current_job_id'),
-  processingStage: text('processing_stage').notNull().default('ready'),
+  processingStage: text('processing_stage').default('ready'),
   processingMetadata: text('processing_metadata'),
   description: text('description'),
 

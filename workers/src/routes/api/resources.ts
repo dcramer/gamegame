@@ -20,6 +20,29 @@ import {
 const resourcesRouter = new Hono<{ Bindings: Env }>();
 
 /**
+ * Get all active jobs (admin only)
+ * Returns all resources with status 'processing' or 'queued'
+ */
+resourcesRouter.get('/jobs', requireAdmin, async (c) => {
+  const db = getDb(c.env.DB);
+
+  const activeResources = await db
+    .select({
+      id: resources.id,
+      name: resources.name,
+      gameId: resources.gameId,
+      status: resources.status,
+      currentJobId: resources.currentJobId,
+      processingStage: resources.processingStage,
+    })
+    .from(resources)
+    .where(sql`${resources.status} IN ('processing', 'queued') AND ${resources.currentJobId} IS NOT NULL`)
+    .all();
+
+  return c.json(activeResources);
+});
+
+/**
  * Get job status for a resource (admin only)
  *
  * Security: Requires admin authentication to prevent information disclosure.
@@ -84,10 +107,14 @@ resourcesRouter.get('/:resourceId', async (c) => {
     .from(fragments)
     .where(eq(fragments.resourceId, resourceId));
 
+  // Convert Date objects to timestamps for proper JSON serialization
   const response = {
     ...resource,
     url: normalizeResourceSourceUrl(resource.id, resource.url) ?? resource.url,
     fragmentCount: Number(fragmentCount),
+    processedAt: resource.processedAt ? resource.processedAt.getTime() : null,
+    createdAt: resource.createdAt ? resource.createdAt.getTime() : null,
+    updatedAt: resource.updatedAt ? resource.updatedAt.getTime() : null,
   };
 
   return c.json(validateResponse(response, resourceSchema));
@@ -96,8 +123,23 @@ resourcesRouter.get('/:resourceId', async (c) => {
 /**
  * Reprocess a resource (admin only)
  * Deletes existing fragments and attachments, then re-queues for processing
+ *
+ * Query parameter: ?from=stage
+ * - ingest (default): Full reprocess from PDF extraction
+ * - vision: Re-run vision analysis and subsequent stages (skips PDF extraction)
+ * - cleanup: Re-run markdown cleanup and subsequent stages (skips PDF extraction and vision)
+ * - metadata: Re-run metadata generation and subsequent stages (skips PDF extraction, vision, and cleanup)
+ * - embed: Re-run chunking and embedding (skips PDF extraction, vision, cleanup, and metadata)
  */
 resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
+  const fromStage = (c.req.query('from') as 'ingest' | 'vision' | 'cleanup' | 'metadata' | 'embed') || 'ingest';
+
+  // Validate from parameter
+  if (!['ingest', 'vision', 'cleanup', 'metadata', 'embed'].includes(fromStage)) {
+    return c.json({
+      error: 'Invalid "from" parameter. Must be one of: ingest, vision, cleanup, metadata, embed'
+    }, 400);
+  }
   const { resourceId } = c.req.param();
   const db = getDb(c.env.DB);
 
@@ -125,13 +167,20 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
     .where(eq(games.id, resource.gameId))
     .limit(1);
 
+  // Check if structured data exists when skipping INGEST stage
+  if (fromStage !== 'ingest') {
+    const structuredKey = `resources/${resourceId}/structured.json`;
+    const structuredObject = await c.env.FILES.get(structuredKey);
+
+    if (!structuredObject) {
+      return c.json({
+        error: `No structured data found for this resource. Use ?from=ingest to extract from PDF first.`
+      }, 400);
+    }
+  }
+
   const normalizedUrl = normalizeResourceSourceUrl(resource.id, resource.url) ?? resource.url;
   const sourceKey = normalizedUrl ? extractR2KeyFromUrl(normalizedUrl) : null;
-
-  // Clean up old job if exists
-  if (resource.currentJobId) {
-    await deleteJob(c.env.JOB_STATUS_KV, resource.currentJobId);
-  }
 
   // Clean up old fragments and their embeddings before reprocessing
   const oldFragments = await db
@@ -165,10 +214,15 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
     // Delete from D1
     await db.delete(attachments).where(eq(attachments.resourceId, resourceId));
 
-    // Delete R2 files
+    // Delete R2 files using bulk delete for efficiency
     try {
-      for (const attachment of oldAttachments) {
-        await c.env.FILES.delete(attachment.r2Key);
+      const { bulkDeleteFromR2 } = await import('@/lib/services/r2-storage');
+      const keys = oldAttachments
+        .map((attachment) => attachment.r2Key)
+        .filter((key): key is string => typeof key === 'string' && key.length > 0);
+
+      if (keys.length > 0) {
+        await bulkDeleteFromR2(c.env.FILES, keys);
       }
     } catch (error) {
       console.error('Failed to delete old attachment files during reprocess:', error);
@@ -179,35 +233,96 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
   // Create new job and enqueue for processing
   const jobId = await createJob(c.env.JOB_STATUS_KV, resourceId, resource.gameId);
 
-  // Reset resource to empty state and mark as processing
+  // Build processing metadata based on starting stage
+  let processingMetadata: string | null = null;
+  if (fromStage !== 'ingest') {
+    const stageCompletion: Record<typeof fromStage, { ingest: boolean; vision: boolean; cleanup: boolean; metadata: boolean; embed: boolean }> = {
+      vision: { ingest: true, vision: false, cleanup: false, metadata: false, embed: false },
+      cleanup: { ingest: true, vision: true, cleanup: false, metadata: false, embed: false },
+      metadata: { ingest: true, vision: true, cleanup: true, metadata: false, embed: false },
+      embed: { ingest: true, vision: true, cleanup: true, metadata: true, embed: false },
+    };
+    processingMetadata = JSON.stringify({
+      structuredKey: `resources/${resourceId}/structured.json`,
+      stages: stageCompletion[fromStage],
+    });
+  }
+
+  // Map stage names to ProcessingTaskType
+  const stageToTaskType: Record<typeof fromStage, 'INGEST' | 'VISION' | 'CLEANUP' | 'METADATA' | 'EMBED'> = {
+    ingest: 'INGEST',
+    vision: 'VISION',
+    cleanup: 'CLEANUP',
+    metadata: 'METADATA',
+    embed: 'EMBED',
+  };
+
+  const taskType = stageToTaskType[fromStage];
+  const processingStage = fromStage;
+
+  // Reset resource to processing state
   await db
     .update(resources)
     .set({
       status: 'processing',
       currentJobId: jobId,
-      processingStage: 'ingest',
-      processingMetadata: null,
+      processingStage,
+      processingMetadata,
       url: normalizedUrl,
       updatedAt: new Date(),
     })
     .where(eq(resources.id, resourceId));
 
-  await c.env.RESOURCE_QUEUE.send({
-    jobId,
-    resourceId,
-    gameId: resource.gameId,
-    name: resource.name,
-    type: 'INGEST',
-    url: normalizedUrl,
-    gameName: game?.name, // Include game name for vision analysis
-    sourceKey: sourceKey || undefined,
-  });
+  // Send to queue (this is the critical operation - must succeed before cleanup)
+  try {
+    await c.env.RESOURCE_QUEUE.send({
+      jobId,
+      resourceId,
+      gameId: resource.gameId,
+      name: resource.name,
+      type: taskType,
+      url: fromStage === 'ingest' ? normalizedUrl : undefined,
+      gameName: game?.name, // Include game name for vision analysis
+      sourceKey: fromStage === 'ingest' ? (sourceKey || undefined) : undefined,
+    });
+  } catch (error) {
+    // If queue send fails, revert the resource status
+    await db
+      .update(resources)
+      .set({
+        status: 'failed',
+        currentJobId: null,
+        processingStage: null,
+        processingMetadata: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(resources.id, resourceId));
+
+    // Delete the job we just created since it will never process
+    await deleteJob(c.env.JOB_STATUS_KV, jobId);
+
+    throw error;
+  }
+
+  // Only delete old job AFTER successful queue send
+  // This prevents race condition where old job is deleted but new job fails to enqueue
+  if (resource.currentJobId && resource.currentJobId !== jobId) {
+    await deleteJob(c.env.JOB_STATUS_KV, resource.currentJobId);
+  }
+
+  const stageMessages: Record<typeof fromStage, string> = {
+    ingest: 'Resource queued for full reprocessing',
+    vision: 'Resource queued for vision re-analysis (skipping PDF extraction)',
+    cleanup: 'Resource queued for markdown re-cleaning (skipping PDF extraction and vision analysis)',
+    metadata: 'Resource queued for metadata regeneration (skipping PDF extraction, vision analysis, and markdown cleanup)',
+    embed: 'Resource queued for re-embedding (skipping all previous stages)',
+  };
 
   const response = {
     resourceId,
     jobId,
     status: 'queued',
-    message: 'Resource queued for reprocessing',
+    message: stageMessages[fromStage],
   };
 
   return c.json(validateResponse(response, uploadResponseSchema), 202);
@@ -271,7 +386,15 @@ resourcesRouter.patch(
       return c.json({ error: 'Resource not found' }, 404);
     }
 
-    return c.json(updated);
+    // Convert Date objects to timestamps for proper JSON serialization
+    const response = {
+      ...updated,
+      processedAt: updated.processedAt ? updated.processedAt.getTime() : null,
+      createdAt: updated.createdAt ? updated.createdAt.getTime() : null,
+      updatedAt: updated.updatedAt ? updated.updatedAt.getTime() : null,
+    };
+
+    return c.json(validateResponse(response, resourceSchema));
   }
 );
 

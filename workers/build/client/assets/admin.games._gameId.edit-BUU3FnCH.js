@@ -1,0 +1,1 @@
+import{w as s,C as m,p as e,H as t}from"./chunk-OIYGIGL5-CJLaNaD0.js";const o=s(function(){const{gameId:a}=m();return a?e.jsx(t,{to:`/admin/games/${a}`,replace:!0}):e.jsx(t,{to:"/admin/games",replace:!0})});export{o as default};

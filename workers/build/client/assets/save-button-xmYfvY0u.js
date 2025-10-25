@@ -1,0 +1,6 @@
+import{a as i,p as n}from"./chunk-OIYGIGL5-CJLaNaD0.js";import{c as l}from"./clsx-B-dksMZM.js";import{c as f}from"./utils-CyyZbp74.js";/**
+ * @license lucide-react v0.545.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const m=[["path",{d:"M21 12a9 9 0 1 1-6.219-8.56",key:"13zald"}]],d=f("loader-circle",m);function p(t,e){const r=i.useRef(t);i.useEffect(()=>{r.current=t},[t]),i.useEffect(()=>{if(e===null)return;const s=setTimeout(()=>r.current(),e);return()=>clearTimeout(s)},[e])}const x=3e3;function h({status:t,isLoading:e=!1,autoHideMs:r=x,onStatusTimeout:s,children:o,disabled:c,className:a,...u}){return p(()=>{s?.()},t!=="idle"&&!e?r:null),n.jsxs("button",{...u,disabled:e||c,className:l("inline-flex items-center justify-center gap-2 rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70",a),children:[e&&n.jsx(d,{className:"h-4 w-4 animate-spin"}),n.jsx("span",{children:o??"Save Changes"})]})}export{h as S};

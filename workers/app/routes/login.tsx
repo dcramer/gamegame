@@ -8,14 +8,23 @@ import { Card, CardContent } from '../components/ui/card';
 import Heading from '../components/Heading';
 import { AlertMessage } from '../components/AlertMessage';
 import { useFormState } from '../hooks/useFormState';
-import { useFetchForm } from '../hooks/useAsyncForm';
+import { useApiForm } from '../hooks/useAsyncForm';
+import { createMeta, createLoginTitle } from '../lib/meta';
+
+export const meta = () => {
+  return createMeta({
+    title: createLoginTitle(),
+    description: "Sign in to GameGame to access admin features and manage board game resources.",
+    noIndex: true, // Don't index login pages
+  });
+};
 
 export default function Login() {
   const form = useFormState({ email: '' });
   const [sent, setSent] = useState(false);
 
-  const { handleSubmit, loading, error } = useFetchForm({
-    url: '/api/auth/login',
+  const { handleSubmit, loading, error } = useApiForm({
+    url: '/auth/login',
     method: 'POST',
     onSuccess: () => {
       setSent(true);

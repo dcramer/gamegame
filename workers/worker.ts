@@ -17,6 +17,7 @@ import uploadRouter from './src/routes/api/upload';
 import attachmentsRouter from './src/routes/api/attachments';
 import healthRouter from './src/routes/api/health';
 import queueHandler from './src/workers/resource-processor';
+import cleanupJobsHandler from './src/workers/cleanup-stalled-jobs';
 import { RESOURCE_SOURCE_FILENAME } from './src/lib/services/r2-storage';
 
 /**
@@ -220,6 +221,7 @@ const worker: ExportedHandler<Env> = {
     return env.ASSETS.fetch(request);
   },
   queue: queueHandler.queue,
+  scheduled: cleanupJobsHandler.scheduled,
 };
 
 export default worker;

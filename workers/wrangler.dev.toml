@@ -4,7 +4,11 @@
 name = "gamegame"
 main = "src/index.tsx"
 compatibility_date = "2025-01-15"
-compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
+compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env", "global_fetch_strictly_public"]
+
+# Dev server configuration
+[dev]
+port = 8787
 
 # Serve static files from public directory
 [assets]

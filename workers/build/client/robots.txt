@@ -1,0 +1,22 @@
+# GameGame Robots.txt
+# Allow all crawlers by default, with specific exclusions
+
+User-agent: *
+
+# Disallow admin routes
+Disallow: /admin/
+Disallow: /admin
+
+# Disallow API endpoints
+Disallow: /api/
+
+# Allow public game pages and resources
+Allow: /
+Allow: /games/
+Allow: /login
+
+# Crawl delay (optional - reduces server load)
+# Crawl-delay: 1
+
+# Sitemap location (uncomment when sitemap is available)
+# Sitemap: https://gamegame.com/sitemap.xml

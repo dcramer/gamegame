@@ -6,10 +6,46 @@ import {
   ScrollRestoration,
   isRouteErrorResponse,
   useRouteError,
+  useLoaderData,
 } from "react-router";
+import { useEffect, useRef } from "react";
 import type { LinksFunction } from "react-router";
+import type { Route } from "./+types/root";
+import { AuthProvider } from "./lib/auth-context";
+import { userSchema } from "./lib/schemas";
+import { NotificationProvider, useNotifications, type JobNotification } from "./contexts/NotificationContext";
+import { NotificationContainer } from "./components/NotificationContainer";
+import { useFlashNotifications } from "./hooks/useFlashNotifications";
 
 import "./styles/globals.css";
+
+export async function loader({ context }: Route.LoaderArgs) {
+  try {
+    const res = await context.api.fetch('/auth/me');
+
+    if (res.ok) {
+      const user = userSchema.parse(await res.json());
+
+      // If user is admin, fetch active jobs
+      let activeJobs: Array<{ id: string; name: string; currentJobId: string; status: string }> = [];
+      if (user.isAdmin) {
+        try {
+          const jobsRes = await context.api.fetch('/resources/jobs');
+          if (jobsRes.ok) {
+            activeJobs = await jobsRes.json();
+          }
+        } catch (error) {
+          console.error('Failed to fetch active jobs:', error);
+        }
+      }
+
+      return { user, activeJobs };
+    }
+  } catch {
+    // Not authenticated or error, ignore
+  }
+  return { user: null, activeJobs: [] };
+}
 
 export const links: LinksFunction = () => [
   { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
@@ -47,8 +83,66 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Component to restore active job notifications on app load
+ */
+function JobRestorer({ activeJobs }: { activeJobs: Array<{ id: string; name: string; currentJobId: string; status: string }> }) {
+  const { addJobNotification } = useFlashNotifications();
+  const { notifications } = useNotifications();
+  const hasInitialized = useRef(false);
+
+  useEffect(() => {
+    // Prevent double execution in React StrictMode or when component remounts
+    if (hasInitialized.current || activeJobs.length === 0) return;
+
+    hasInitialized.current = true;
+    console.log('[Job Restore - Root] Restoring active jobs:', activeJobs);
+
+    // Get existing job IDs to avoid duplicates
+    const existingJobIds = new Set(
+      notifications
+        .filter((n): n is JobNotification => n.type === 'job')
+        .map((n) => n.jobId)
+    );
+
+    for (const resource of activeJobs) {
+      if (resource.currentJobId) {
+        // Skip if notification already exists for this job
+        if (existingJobIds.has(resource.currentJobId)) {
+          console.log('[Job Restore - Root] Skipping duplicate notification for:', {
+            jobId: resource.currentJobId,
+            resourceName: resource.name,
+          });
+          continue;
+        }
+
+        console.log('[Job Restore - Root] Adding notification for:', {
+          jobId: resource.currentJobId,
+          resourceName: resource.name,
+          status: resource.status,
+        });
+        addJobNotification(resource.currentJobId, `Processing ${resource.name}`);
+      }
+    }
+    // Only run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return null;
+}
+
 export default function Root() {
-  return <Outlet />;
+  const { user, activeJobs } = useLoaderData<typeof loader>();
+
+  return (
+    <AuthProvider user={user}>
+      <NotificationProvider>
+        <JobRestorer activeJobs={activeJobs || []} />
+        <NotificationContainer />
+        <Outlet />
+      </NotificationProvider>
+    </AuthProvider>
+  );
 }
 
 export function ErrorBoundary() {

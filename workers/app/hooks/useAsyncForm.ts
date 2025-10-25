@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { apiClient } from '../../load-context';
 
 export interface UseAsyncFormOptions<T = any, R = any> {
   onSubmit: (data: T) => Promise<R>;
@@ -88,16 +89,16 @@ export function useAsyncForm<T = any, R = any>(
 }
 
 /**
- * Simplified version for common fetch-based form submissions.
+ * Simplified version for common API-based form submissions using apiClient.
  *
  * @example
- * const { handleSubmit, loading, error } = useFetchForm({
- *   url: '/api/games',
+ * const { handleSubmit, loading, error } = useApiForm({
+ *   url: '/games',
  *   method: 'POST',
  *   onSuccess: (data) => navigate(`/games/${data.id}`)
  * });
  */
-export function useFetchForm<T = any, R = any>(options: {
+export function useApiForm<T = any, R = any>(options: {
   url: string;
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   headers?: HeadersInit;
@@ -108,7 +109,7 @@ export function useFetchForm<T = any, R = any>(options: {
 
   return useAsyncForm<T, R>({
     onSubmit: async (data) => {
-      const response = await fetch(url, {
+      const response = await apiClient.fetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',

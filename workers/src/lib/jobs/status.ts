@@ -1,4 +1,5 @@
 import type { KVNamespace } from '@cloudflare/workers-types';
+import { nanoid } from 'nanoid';
 
 export type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
@@ -23,7 +24,7 @@ export async function createJob(
   resourceId: string,
   gameId: string
 ): Promise<string> {
-  const jobId = crypto.randomUUID();
+  const jobId = nanoid();
   const job: ResourceJob = {
     jobId,
     resourceId,

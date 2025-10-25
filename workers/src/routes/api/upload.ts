@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { nanoid } from 'nanoid';
 import type { Env } from '@/types';
 import { requireAdmin } from '@/middleware/auth';
 
@@ -34,7 +35,7 @@ uploadRouter.post('/upload', requireAdmin, async (c) => {
     // Generate unique filename with safe extension extraction
     const nameParts = file.name ? file.name.split('.') : [];
     const extension = nameParts.length > 1 ? nameParts[nameParts.length - 1] : 'jpg';
-    const filename = `games/uploaded-${Date.now()}-${crypto.randomUUID()}.${extension}`;
+    const filename = `games/uploaded-${Date.now()}-${nanoid()}.${extension}`;
 
     // Read file data
     const arrayBuffer = await file.arrayBuffer();
@@ -99,7 +100,7 @@ uploadRouter.post('/', requireAdmin, async (c) => {
     const nameParts = file.name ? file.name.split('.') : [];
     const extension = nameParts.length > 1 ? nameParts[nameParts.length - 1] : 'bin';
     const prefix = type === 'image' ? 'games' : 'uploads';
-    const filename = `${prefix}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+    const filename = `${prefix}/${Date.now()}-${nanoid()}.${extension}`;
 
     // Read file data
     const arrayBuffer = await file.arrayBuffer();

@@ -30,7 +30,7 @@ export interface Env {
   CHAT_MODEL?: string; // OpenAI model to use for chat (default: gpt-4o)
 }
 
-export type ProcessingTaskType = 'INGEST' | 'VISION' | 'CLEANUP' | 'EMBED' | 'FINALIZE';
+export type ProcessingTaskType = 'INGEST' | 'VISION' | 'CLEANUP' | 'METADATA' | 'EMBED' | 'FINALIZE';
 
 export interface QueueMessage {
   jobId: string;

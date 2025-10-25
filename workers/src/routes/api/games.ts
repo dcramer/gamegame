@@ -1,16 +1,24 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { nanoid } from 'nanoid';
 import type { Env } from '@/types';
-import { getDb, games, resources, fragments } from '@/lib/db';
-import { eq, sql, or } from 'drizzle-orm';
+import { getDb, games, resources, fragments, attachments } from '@/lib/db';
+import { eq, sql, or, asc } from 'drizzle-orm';
 import { requireAdmin } from '@/middleware/auth';
 import { ratelimit } from '@/middleware/ratelimit';
 import { generateSlug } from '@/lib/utils/slug';
 import { createJob } from '@/lib/jobs/status';
-import { RESOURCE_SOURCE_FILENAME, buildResourceSourceUrl } from '@/lib/services/r2-storage';
+import { RESOURCE_SOURCE_FILENAME, buildResourceSourceUrl, buildResourceSourceKey, r2KeyToUrl } from '@/lib/services/r2-storage';
 import { deleteEmbeddings } from '@/lib/ai/vectorize';
 import { streamChatResponse } from './chat-handler';
+import {
+  extractFileExtension,
+  isSupportedExtension,
+  validateFileContent,
+  getFileTypeName,
+  getMimeTypeForExtension,
+} from '@/lib/file-types';
 import {
   gamesListSchema,
   gameSchema,
@@ -35,6 +43,8 @@ gamesRouter.get('/', async (c) => {
       imageUrl: games.imageUrl,
       bggUrl: games.bggUrl,
       resourceCount: sql<number>`COUNT(DISTINCT ${resources.id})`,
+      createdAt: games.createdAt,
+      updatedAt: games.updatedAt,
     })
     .from(games)
     .leftJoin(resources, eq(games.id, resources.gameId))
@@ -59,6 +69,8 @@ gamesRouter.get('/:gameIdOrSlug', async (c) => {
       imageUrl: games.imageUrl,
       bggUrl: games.bggUrl,
       resourceCount: db.$count(resources, eq(resources.gameId, games.id)),
+      createdAt: games.createdAt,
+      updatedAt: games.updatedAt,
     })
     .from(games)
     .where(or(eq(games.slug, gameIdOrSlug), eq(games.id, gameIdOrSlug)))
@@ -112,7 +124,14 @@ gamesRouter.post(
           })
           .returning();
 
-        return c.json(validateResponse(game, gameSchema), 201);
+        // Convert Date objects to timestamps for proper JSON serialization
+        const response = {
+          ...game,
+          createdAt: game.createdAt ? game.createdAt.getTime() : undefined,
+          updatedAt: game.updatedAt ? game.updatedAt.getTime() : undefined,
+        };
+
+        return c.json(validateResponse(response, gameSchema), 201);
       } catch (error) {
         // Check if this is a unique constraint violation on slug
         const isSlugConflict = error instanceof Error &&
@@ -223,7 +242,14 @@ gamesRouter.patch(
       return c.json({ error: 'Game not found' }, 404);
     }
 
-    return c.json(validateResponse(game, gameSchema));
+    // Convert Date objects to timestamps for proper JSON serialization
+    const response = {
+      ...game,
+      createdAt: game.createdAt ? game.createdAt.getTime() : undefined,
+      updatedAt: game.updatedAt ? game.updatedAt.getTime() : undefined,
+    };
+
+    return c.json(validateResponse(response, gameSchema));
   }
 );
 
@@ -326,6 +352,9 @@ gamesRouter.get('/:gameIdOrSlug/resources', async (c) => {
       version: resources.version,
       pdfExtractor: resources.pdfExtractor,
       processedAt: resources.processedAt,
+      status: resources.status,
+      currentJobId: resources.currentJobId,
+      processingStage: resources.processingStage,
       pageCount: resources.pageCount,
       imageCount: resources.imageCount,
       wordCount: resources.wordCount,
@@ -337,13 +366,85 @@ gamesRouter.get('/:gameIdOrSlug/resources', async (c) => {
     .groupBy(resources.id)
     .all();
 
-  return c.json(validateResponse(resourceList, resourcesListSchema));
+  // Convert Date objects to timestamps for proper JSON serialization
+  const parsed = resourceList.map((resource) => ({
+    ...resource,
+    processedAt: resource.processedAt ? resource.processedAt.getTime() : null,
+  }));
+
+  return c.json(validateResponse(parsed, resourcesListSchema));
 });
 
-// Upload a new resource for a game (admin only, accepts multipart PDF upload)
+// Get all attachments for a game (by slug or ID)
+gamesRouter.get('/:gameIdOrSlug/attachments', async (c) => {
+  const { gameIdOrSlug } = c.req.param();
+  const db = getDb(c.env.DB);
+
+  // Get game to ensure it exists and get its ID
+  const [game] = await db
+    .select({ id: games.id })
+    .from(games)
+    .where(or(eq(games.slug, gameIdOrSlug), eq(games.id, gameIdOrSlug)))
+    .limit(1);
+
+  if (!game) {
+    return c.json({ error: 'Game not found' }, 404);
+  }
+
+  // Get attachments for this game with resource names
+  const attachmentsList = await db
+    .select({
+      id: attachments.id,
+      resourceId: attachments.resourceId,
+      resourceName: resources.name,
+      type: attachments.type,
+      r2Key: attachments.r2Key,
+      mimeType: attachments.mimeType,
+      originalFilename: attachments.originalFilename,
+      pageNumber: attachments.pageNumber,
+      bbox: attachments.bbox,
+      caption: attachments.caption,
+      width: attachments.width,
+      height: attachments.height,
+      description: attachments.description,
+      isGoodQuality: attachments.isGoodQuality,
+      createdAt: attachments.createdAt,
+    })
+    .from(attachments)
+    .innerJoin(resources, eq(attachments.resourceId, resources.id))
+    .where(eq(attachments.gameId, game.id))
+    .orderBy(asc(resources.name), asc(attachments.pageNumber), asc(attachments.createdAt))
+    .all();
+
+  // Helper to parse bbox JSON safely
+  function parseBbox(bboxValue: string | null | undefined): number[] | undefined {
+    if (!bboxValue) return undefined;
+    try {
+      const parsed = JSON.parse(typeof bboxValue === 'string' ? bboxValue : String(bboxValue));
+      if (Array.isArray(parsed) && parsed.every(v => typeof v === 'number')) {
+        return parsed;
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  // Convert to proper format with URLs
+  const parsed = attachmentsList.map((attachment) => ({
+    ...attachment,
+    url: r2KeyToUrl(attachment.r2Key),
+    bbox: parseBbox(attachment.bbox),
+    createdAt: attachment.createdAt ? attachment.createdAt.toISOString() : new Date().toISOString(),
+  }));
+
+  return c.json(parsed);
+});
+
+// Upload a new resource for a game (admin only, accepts multipart document/image upload)
 // Rate limit: 10 uploads per 60 seconds to prevent abuse
 // Max file size: 100MB
-const MAX_PDF_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_FILE_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB
 
 gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, ratelimit(10, 60), async (c) => {
   const { gameIdOrSlug } = c.req.param();
@@ -365,21 +466,21 @@ gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, ratelimit(10, 60), as
     const fileEntry = formData.get('file');
 
     if (!fileEntry || typeof fileEntry === 'string') {
-      return c.json({ error: 'A PDF file is required' }, 400);
+      return c.json({ error: 'A file is required' }, 400);
     }
 
     const file = fileEntry as File;
 
     // Validate file size
-    if (file.size > MAX_PDF_UPLOAD_SIZE) {
-      return c.json({ error: `PDF must be less than ${MAX_PDF_UPLOAD_SIZE / 1024 / 1024}MB` }, 400);
+    if (file.size > MAX_FILE_UPLOAD_SIZE) {
+      return c.json({ error: `File must be less than ${MAX_FILE_UPLOAD_SIZE / 1024 / 1024}MB` }, 400);
     }
 
     const declaredName = formData.get('name');
     const candidateName =
       (typeof file.name === 'string' && file.name.trim().length > 0 ? file.name.trim() : undefined) ??
       (typeof declaredName === 'string' && declaredName.trim().length > 0 ? declaredName.trim() : undefined) ??
-      'Uploaded Rulebook';
+      'Uploaded Document';
     const resourceOriginalFilename = candidateName;
     const initialResourceName = candidateName;
 
@@ -387,49 +488,46 @@ gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, ratelimit(10, 60), as
     const arrayBuffer = await file.arrayBuffer();
     const buffer = new Uint8Array(arrayBuffer);
 
-    // SECURITY: Validate PDF magic bytes FIRST (don't trust user-supplied metadata)
-    // PDF files must start with: %PDF- (0x25 0x50 0x44 0x46 0x2D)
-    const isPdfMagicBytes = buffer.length >= 5 &&
-      buffer[0] === 0x25 &&  // %
-      buffer[1] === 0x50 &&  // P
-      buffer[2] === 0x44 &&  // D
-      buffer[3] === 0x46 &&  // F
-      buffer[4] === 0x2D;    // -
+    // Extract and validate file extension (defense in depth - don't trust user metadata)
+    const fileExtension = extractFileExtension(file.name || '');
 
-    if (!isPdfMagicBytes) {
-      return c.json({ error: 'File must be a valid PDF (invalid file content)' }, 400);
+    if (!fileExtension) {
+      return c.json({ error: 'File must have a valid extension' }, 400);
     }
 
-    // Secondary check: Validate file extension (defense in depth)
-    // Extract extension safely (null bytes, multiple dots, etc.)
-    const filename = (file.name || '').replace(/\0/g, ''); // Remove null bytes
-    const lastDotIndex = filename.lastIndexOf('.');
-    const fileExtension = lastDotIndex >= 0 ? filename.slice(lastDotIndex + 1).toLowerCase() : '';
-
-    if (fileExtension !== 'pdf') {
-      return c.json({ error: 'File must have .pdf extension' }, 400);
+    if (!isSupportedExtension(fileExtension)) {
+      return c.json({
+        error: `Unsupported file type: .${fileExtension}. Supported: PDF, TXT, MD, DOCX, PNG, JPG, WebP, etc.`
+      }, 400);
     }
 
-    // Tertiary check: Validate MIME type if provided (defense in depth)
-    if (file.type && file.type !== 'application/pdf' && file.type !== 'application/x-pdf') {
-      return c.json({ error: 'File must have PDF MIME type' }, 400);
+    // SECURITY: Validate file content matches extension using magic bytes
+    const validation = validateFileContent(buffer, fileExtension);
+    if (!validation.valid) {
+      return c.json({
+        error: validation.error || `File content does not match .${fileExtension} extension`
+      }, 400);
     }
 
-    const resourceId = crypto.randomUUID();
-    const objectKey = `resources/${resourceId}/${RESOURCE_SOURCE_FILENAME}`;
+    // Determine MIME type from extension (more reliable than user-supplied MIME type)
+    const mimeType = getMimeTypeForExtension(fileExtension);
+
+    const resourceId = nanoid();
+    const objectKey = buildResourceSourceKey(resourceId, fileExtension);
 
     await c.env.FILES.put(objectKey, buffer, {
       httpMetadata: {
-        contentType: file.type || 'application/pdf',
+        contentType: mimeType,
       },
       customMetadata: {
         resourceId,
         gameId: game.id,
         originalFilename: file.name || '',
+        fileExtension: fileExtension,
       },
     });
 
-    const resourceUrl = buildResourceSourceUrl(resourceId);
+    const resourceUrl = buildResourceSourceUrl(resourceId, fileExtension);
 
     const jobId = await createJob(c.env.JOB_STATUS_KV, resourceId, game.id);
 
@@ -476,8 +574,8 @@ gamesRouter.post('/:gameIdOrSlug/resources', requireAdmin, ratelimit(10, 60), as
 
     return c.json(validateResponse(response, uploadResponseSchema), 202);
   } catch (error) {
-    console.error('Failed to upload resource PDF:', error instanceof Error ? error.message : error);
-    return c.json({ error: 'Failed to upload resource PDF' }, 500);
+    console.error('Failed to upload resource:', error instanceof Error ? error.message : error);
+    return c.json({ error: 'Failed to upload resource' }, 500);
   }
 });
 

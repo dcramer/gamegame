@@ -2,7 +2,9 @@ import type { Env, QueueMessage } from '@/types';
 import { nanoid } from 'nanoid';
 import { getDb, resources, fragments, attachments } from '../db';
 import { eq } from 'drizzle-orm';
-import { extractTextFromPdf, rebuildMarkdownFromPages, replaceImageReferences } from '../pdf';
+import { extractTextFromDocument, extractTextFromPdf, rebuildMarkdownFromPages, replaceImageReferences } from '../pdf';
+import { getExtensionFromKey } from '../services/r2-storage';
+import { getMimeTypeForExtension } from '../file-types';
 import { chunkStructuredPDF, calculateResourceStats } from '../services/chunking';
 import { uploadPDFImages, extractR2KeyFromUrl, r2KeyToUrl } from '../services/r2-storage';
 import type { UploadedImage } from '../services/r2-storage';
@@ -12,7 +14,7 @@ import type { StructuredPDFContent, PDFImage } from '../types/pdf';
 import { enrichPDFImagesWithVision } from '../services/vision';
 import { cleanupMarkdownBatch } from '../services/markdown-cleanup';
 import { updateJob } from '../jobs/status';
-import { summarizeResource } from '../services/resource-summary';
+import { generateResourceMetadata } from '../services/resource-metadata';
 
 const STRUCTURED_KEY = (resourceId: string) => `resources/${resourceId}/structured.json`;
 
@@ -22,8 +24,8 @@ interface ResourceProcessingMetadata {
     ingest: boolean;
     vision: boolean;
     cleanup: boolean;
+    metadata: boolean;
     embed: boolean;
-    summary: boolean;
   };
 }
 
@@ -34,9 +36,43 @@ function defaultMetadata(resourceId: string): ResourceProcessingMetadata {
       ingest: false,
       vision: false,
       cleanup: false,
+      metadata: false,
       embed: false,
-      summary: false,
     },
+  };
+}
+
+/**
+ * Type guard to check if a value is a boolean
+ */
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === 'boolean';
+}
+
+/**
+ * Validate and normalize stage flags, ensuring all are booleans
+ */
+function validateStages(stages: unknown): ResourceProcessingMetadata['stages'] {
+  const defaults = {
+    ingest: false,
+    vision: false,
+    cleanup: false,
+    metadata: false,
+    embed: false,
+  };
+
+  if (!stages || typeof stages !== 'object') {
+    return defaults;
+  }
+
+  const stageObj = stages as Record<string, unknown>;
+
+  return {
+    ingest: isBoolean(stageObj.ingest) ? stageObj.ingest : defaults.ingest,
+    vision: isBoolean(stageObj.vision) ? stageObj.vision : defaults.vision,
+    cleanup: isBoolean(stageObj.cleanup) ? stageObj.cleanup : defaults.cleanup,
+    metadata: isBoolean(stageObj.metadata) ? stageObj.metadata : defaults.metadata,
+    embed: isBoolean(stageObj.embed) ? stageObj.embed : defaults.embed,
   };
 }
 
@@ -46,20 +82,26 @@ function parseMetadata(resourceId: string, value?: string | null): ResourceProce
   }
 
   try {
-    const parsed = JSON.parse(value) as ResourceProcessingMetadata;
-    if (!parsed.structuredKey) {
-      parsed.structuredKey = STRUCTURED_KEY(resourceId);
+    const parsed = JSON.parse(value);
+
+    // Validate that parsed is an object
+    if (!parsed || typeof parsed !== 'object') {
+      console.warn(`[parseMetadata] Invalid metadata format for resource ${resourceId}, using defaults`);
+      return defaultMetadata(resourceId);
     }
-    if (!parsed.stages) {
-      parsed.stages = defaultMetadata(resourceId).stages;
-    } else {
-      parsed.stages = {
-        ...defaultMetadata(resourceId).stages,
-        ...parsed.stages,
-      };
-    }
-    return parsed;
-  } catch {
+
+    const structuredKey = typeof parsed.structuredKey === 'string' && parsed.structuredKey.length > 0
+      ? parsed.structuredKey
+      : STRUCTURED_KEY(resourceId);
+
+    const stages = validateStages(parsed.stages);
+
+    return {
+      structuredKey,
+      stages,
+    };
+  } catch (error) {
+    console.warn(`[parseMetadata] Failed to parse metadata for resource ${resourceId}:`, error);
     return defaultMetadata(resourceId);
   }
 }
@@ -89,26 +131,33 @@ async function loadStructured(env: Env, resourceId: string): Promise<StructuredP
   return JSON.parse(text) as StructuredPDFContent;
 }
 
-async function deleteStructured(env: Env, resourceId: string): Promise<void> {
-  try {
-    await env.FILES.delete(STRUCTURED_KEY(resourceId));
-  } catch (error) {
-    console.warn(`[${resourceId}] Failed to delete structured data:`, error);
-  }
-}
+// Unused for now - keeping structured data for potential reprocessing
+// async function deleteStructured(env: Env, resourceId: string): Promise<void> {
+//   try {
+//     await env.FILES.delete(STRUCTURED_KEY(resourceId));
+//   } catch (error) {
+//     console.warn(`[${resourceId}] Failed to delete structured data:`, error);
+//   }
+// }
 
-async function fetchPdfBuffer(task: QueueMessage, env: Env): Promise<Buffer> {
+async function fetchDocumentBuffer(task: QueueMessage, env: Env): Promise<{ buffer: Buffer; mimeType: string }> {
   if (task.sourceKey) {
     const object = await env.FILES.get(task.sourceKey);
     if (object) {
       const arrayBuffer = await object.arrayBuffer();
-      return Buffer.from(arrayBuffer);
+      const buffer = Buffer.from(arrayBuffer);
+
+      // Get MIME type from R2 metadata or derive from extension
+      const mimeType = object.httpMetadata?.contentType ||
+                      getMimeTypeForExtension(getExtensionFromKey(task.sourceKey));
+
+      return { buffer, mimeType };
     }
-    console.warn(`[${task.resourceId}] Source PDF not found in R2 at key ${task.sourceKey}, falling back to URL fetch`);
+    console.warn(`[${task.resourceId}] Source file not found in R2 at key ${task.sourceKey}, falling back to URL fetch`);
   }
 
   if (!task.url) {
-    throw new Error('No URL or source key provided for PDF ingestion');
+    throw new Error('No URL or source key provided for document ingestion');
   }
 
   const keyFromUrl = extractR2KeyFromUrl(task.url);
@@ -116,17 +165,33 @@ async function fetchPdfBuffer(task: QueueMessage, env: Env): Promise<Buffer> {
     const object = await env.FILES.get(keyFromUrl);
     if (object) {
       const arrayBuffer = await object.arrayBuffer();
-      return Buffer.from(arrayBuffer);
+      const buffer = Buffer.from(arrayBuffer);
+
+      const mimeType = object.httpMetadata?.contentType ||
+                      getMimeTypeForExtension(getExtensionFromKey(keyFromUrl));
+
+      return { buffer, mimeType };
     }
   }
 
   const response = await fetch(task.url);
   if (!response.ok) {
-    throw new Error(`Failed to fetch PDF (status ${response.status} ${response.statusText})`);
+    throw new Error(`Failed to fetch document (status ${response.status} ${response.statusText})`);
   }
 
   const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  const buffer = Buffer.from(arrayBuffer);
+
+  // Try to get MIME type from response headers
+  const mimeType = response.headers.get('content-type') || 'application/pdf';
+
+  return { buffer, mimeType };
+}
+
+/** @deprecated Use fetchDocumentBuffer instead */
+async function fetchPdfBuffer(task: QueueMessage, env: Env): Promise<Buffer> {
+  const { buffer } = await fetchDocumentBuffer(task, env);
+  return buffer;
 }
 
 async function deleteExistingAttachments(env: Env, resourceId: string) {
@@ -198,8 +263,7 @@ export async function runIngestStage(task: QueueMessage, env: Env): Promise<Queu
     .limit(1);
 
   if (!resourceRow) {
-    console.error(`[Ingest Stage] Resource ${task.resourceId} not found, aborting`);
-    return null;
+    throw new Error(`Resource ${task.resourceId} was deleted during processing`);
   }
 
   const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
@@ -222,11 +286,11 @@ export async function runIngestStage(task: QueueMessage, env: Env): Promise<Queu
     return null; // Don't queue next task - another job is handling it
   }
 
-  const buffer = await fetchPdfBuffer(task, env);
-  const extraction = await extractTextFromPdf(buffer, env.MISTRAL_API_KEY);
+  const { buffer, mimeType } = await fetchDocumentBuffer(task, env);
+  const extraction = await extractTextFromDocument(buffer, env.MISTRAL_API_KEY, mimeType);
 
   if (!extraction.structured) {
-    throw new Error('PDF extraction did not return structured content');
+    throw new Error('Document extraction did not return structured content');
   }
 
   const structured = extraction.structured;
@@ -248,7 +312,7 @@ export async function runIngestStage(task: QueueMessage, env: Env): Promise<Queu
   await updateJob(env.JOB_STATUS_KV, task.jobId, {
     status: 'processing',
     currentStep: 'Vision analysis pending',
-    progress: 20,
+    progress: 15,
   });
 
   const hasImages = structured.pages.some((page) => page.images.length > 0);
@@ -285,8 +349,7 @@ export async function runVisionStage(task: QueueMessage, env: Env): Promise<Queu
 
   // Check if resource exists
   if (!resourceRow) {
-    console.error(`[Vision Stage] Resource ${task.resourceId} not found, aborting job ${task.jobId}`);
-    return null; // Resource was deleted, stop processing
+    throw new Error(`Resource ${task.resourceId} was deleted during processing`);
   }
 
   const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
@@ -318,7 +381,7 @@ export async function runVisionStage(task: QueueMessage, env: Env): Promise<Queu
 
     await updateJob(env.JOB_STATUS_KV, task.jobId, {
       currentStep: 'Cleanup pending',
-      progress: 35,
+      progress: 30,
     });
 
     return { ...task, type: 'CLEANUP' };
@@ -329,6 +392,15 @@ export async function runVisionStage(task: QueueMessage, env: Env): Promise<Queu
     logContext: {
       resourceId: task.resourceId,
       jobId: task.jobId,
+    },
+    onProgress: async (processed, total) => {
+      // Update job status with detailed progress
+      // Progress range for vision: 25-35%
+      const progressPercent = 25 + Math.floor((processed / total) * 10);
+      await updateJob(env.JOB_STATUS_KV, task.jobId, {
+        currentStep: `Vision analysis: ${processed}/${total} images`,
+        progress: progressPercent,
+      });
     },
   });
 
@@ -346,7 +418,7 @@ export async function runVisionStage(task: QueueMessage, env: Env): Promise<Queu
 
   await updateJob(env.JOB_STATUS_KV, task.jobId, {
     currentStep: 'Markdown cleanup pending',
-    progress: 45,
+    progress: 30,
   });
 
   return { ...task, type: 'CLEANUP' };
@@ -366,14 +438,18 @@ export async function runCleanupStage(task: QueueMessage, env: Env): Promise<Que
     .where(eq(resources.id, task.resourceId))
     .limit(1);
 
-  const metadata = parseMetadata(task.resourceId, resourceRow?.metadata);
+  if (!resourceRow) {
+    throw new Error(`Resource ${task.resourceId} was deleted during processing`);
+  }
+
+  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
 
   // Check if this stage is already done OR if another job is processing
   if (metadata.stages.cleanup) {
-    return { ...task, type: 'EMBED' };
+    return { ...task, type: 'METADATA' };
   }
 
-  if (resourceRow?.currentJobId && resourceRow.currentJobId !== task.jobId) {
+  if (resourceRow.currentJobId && resourceRow.currentJobId !== task.jobId) {
     console.warn(`[Cleanup Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, skipping`);
     return null;
   }
@@ -385,7 +461,18 @@ export async function runCleanupStage(task: QueueMessage, env: Env): Promise<Que
       markdown: page.markdown,
       pageNumber: page.pageNumber,
     })),
-    env.OPENAI_API_KEY
+    env.OPENAI_API_KEY,
+    {
+      onProgress: async (processed, total) => {
+        // Update job status with detailed progress
+        // Progress range for cleanup: 40-50%
+        const progressPercent = 40 + Math.floor((processed / total) * 10);
+        await updateJob(env.JOB_STATUS_KV, task.jobId, {
+          currentStep: `Markdown cleanup: ${processed}/${total} pages`,
+          progress: progressPercent,
+        });
+      },
+    }
   );
 
   structured.pages.forEach((page, index) => {
@@ -398,6 +485,108 @@ export async function runCleanupStage(task: QueueMessage, env: Env): Promise<Que
   await db
     .update(resources)
     .set({
+      processingStage: 'metadata',
+      processingMetadata: serializeMetadata(metadata),
+      updatedAt: new Date(),
+    })
+    .where(eq(resources.id, task.resourceId));
+
+  await updateJob(env.JOB_STATUS_KV, task.jobId, {
+    currentStep: 'Metadata pending',
+    progress: 45,
+  });
+
+  return { ...task, type: 'METADATA' };
+}
+
+export async function runMetadataStage(task: QueueMessage, env: Env): Promise<QueueMessage | null> {
+  const db = getDb(env.DB);
+  if (!env.OPENAI_API_KEY) {
+    throw new Error('Missing OPENAI_API_KEY secret');
+  }
+
+  const [resourceRow] = await db
+    .select({
+      metadata: resources.processingMetadata,
+      currentJobId: resources.currentJobId,
+      name: resources.name,
+      originalFilename: resources.originalFilename,
+      description: resources.description,
+    })
+    .from(resources)
+    .where(eq(resources.id, task.resourceId))
+    .limit(1);
+
+  if (!resourceRow) {
+    throw new Error(`Resource ${task.resourceId} was deleted during processing`);
+  }
+
+  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
+
+  // Check if this stage is already done OR if another job is processing
+  if (metadata.stages.metadata) {
+    return { ...task, type: 'EMBED' };
+  }
+
+  if (resourceRow.currentJobId && resourceRow.currentJobId !== task.jobId) {
+    console.warn(`[Metadata Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, skipping`);
+    return null;
+  }
+
+  const structured = await loadStructured(env, task.resourceId);
+
+  // Rebuild markdown to get the full content for metadata generation
+  const markdownContent = rebuildMarkdownFromPages(structured);
+
+  console.log(
+    JSON.stringify({
+      module: 'pdf-processor',
+      stage: 'metadata',
+      event: 'metadata_generation_started',
+      resourceId: task.resourceId,
+      contentLength: markdownContent.length,
+    })
+  );
+
+  const metadataResult = await generateResourceMetadata(markdownContent, env.OPENAI_API_KEY, {
+    existingName: resourceRow?.name,
+    originalFilename: resourceRow?.originalFilename,
+  });
+
+  let resolvedName = resourceRow?.name ?? task.name;
+  let resolvedDescription = resourceRow?.description ?? null;
+
+  if (metadataResult) {
+    resolvedName = metadataResult.name;
+    resolvedDescription = metadataResult.description;
+    console.log(
+      JSON.stringify({
+        module: 'pdf-processor',
+        stage: 'metadata',
+        event: 'metadata_generated',
+        resourceId: task.resourceId,
+        name: metadataResult.name,
+        descriptionLength: metadataResult.description.length,
+      })
+    );
+  } else {
+    console.log(
+      JSON.stringify({
+        module: 'pdf-processor',
+        stage: 'metadata',
+        event: 'metadata_generation_failed',
+        resourceId: task.resourceId,
+        reason: 'generateResourceMetadata returned null',
+      })
+    );
+  }
+
+  metadata.stages.metadata = true;
+  await db
+    .update(resources)
+    .set({
+      name: resolvedName,
+      description: resolvedDescription,
       processingStage: 'embed',
       processingMetadata: serializeMetadata(metadata),
       updatedAt: new Date(),
@@ -461,8 +650,6 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
       currentJobId: resources.currentJobId,
       name: resources.name,
       url: resources.url,
-      description: resources.description,
-      originalFilename: resources.originalFilename,
       author: resources.author,
       attributionUrl: resources.attributionUrl,
     })
@@ -470,14 +657,18 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
     .where(eq(resources.id, task.resourceId))
     .limit(1);
 
-  const metadata = parseMetadata(task.resourceId, resourceRow?.metadata);
+  if (!resourceRow) {
+    throw new Error(`Resource ${task.resourceId} was deleted during processing`);
+  }
+
+  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
 
   // Check if this stage is already done OR if another job is processing
   if (metadata.stages.embed) {
     return { ...task, type: 'FINALIZE' };
   }
 
-  if (resourceRow?.currentJobId && resourceRow.currentJobId !== task.jobId) {
+  if (resourceRow.currentJobId && resourceRow.currentJobId !== task.jobId) {
     console.warn(`[Embed Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, skipping`);
     return null;
   }
@@ -600,6 +791,7 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
   if (fragmentRecords.length > 0) {
     const FRAGMENT_BATCH_SIZE = 10;
 
+    // Step 1: Insert fragments to D1 (source of truth)
     for (let i = 0; i < fragmentRecords.length; i += FRAGMENT_BATCH_SIZE) {
       const fragmentBatch = fragmentRecords.slice(i, i + FRAGMENT_BATCH_SIZE);
       if (fragmentBatch.length > 0) {
@@ -607,41 +799,38 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
       }
     }
 
-    await insertEmbeddings(
-      env.VECTORIZE!,
-      fragmentRecords.map((fragment, index) => ({
-        id: fragment.id,
-        values: embeddingsData[index].embedding,
-        metadata: {
-          fragmentId: fragment.id,
-          gameId: task.gameId,
-          resourceId: task.resourceId,
-          ...(fragment.pageNumber != null && { pageNumber: fragment.pageNumber }),
-          ...(fragment.section != null && { section: fragment.section }),
-        },
-      }))
-    );
-  }
-
-  let summaryResult: Awaited<ReturnType<typeof summarizeResource>> | null = null;
-  if (!metadata.stages.summary && env.OPENAI_API_KEY) {
-    summaryResult = await summarizeResource(finalContent, env.OPENAI_API_KEY, {
-      existingName: resourceRow?.name,
-      originalFilename: resourceRow?.originalFilename,
-    });
-
-    if (summaryResult) {
-      metadata.stages.summary = true;
+    // Step 2: Insert embeddings to Vectorize with rollback on failure
+    try {
+      await insertEmbeddings(
+        env.VECTORIZE!,
+        fragmentRecords.map((fragment, index) => ({
+          id: fragment.id,
+          values: embeddingsData[index].embedding,
+          metadata: {
+            fragmentId: fragment.id,
+            gameId: task.gameId,
+            resourceId: task.resourceId,
+            ...(fragment.pageNumber != null && { pageNumber: fragment.pageNumber }),
+            ...(fragment.section != null && { section: fragment.section }),
+          },
+        }))
+      );
+    } catch (vectorizeError) {
+      // Rollback: Delete the fragments we just inserted since Vectorize failed
+      console.error(`[Embed Stage] Vectorize insert failed, rolling back D1 fragments:`, vectorizeError);
+      try {
+        await db.delete(fragments).where(eq(fragments.resourceId, task.resourceId));
+        console.log(`[Embed Stage] Successfully rolled back ${fragmentRecords.length} fragments from D1`);
+      } catch (rollbackError) {
+        console.error(`[Embed Stage] Rollback failed - orphaned fragments in D1:`, rollbackError);
+      }
+      throw vectorizeError; // Re-throw to mark job as failed
     }
   }
 
-  const resolvedName = summaryResult?.name ?? resourceRow?.name ?? task.name;
-  const resolvedDescription = summaryResult?.description ?? resourceRow?.description ?? null;
-  const resolvedAuthor = resourceRow?.author ?? null;
-  const resolvedAttributionUrl = resourceRow?.attributionUrl ?? null;
-
   const stats = calculateResourceStats(finalContent, structured);
 
+  metadata.stages.embed = true;
   await db
     .update(resources)
     .set({
@@ -650,18 +839,7 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
       pdfExtractor: 'mistral',
       processedAt: new Date(),
       processingStage: 'finalize',
-      processingMetadata: serializeMetadata({
-        ...metadata,
-        stages: {
-          ...metadata.stages,
-          embed: true,
-        },
-      }),
-      originalFilename: resourceRow?.originalFilename ?? task.name,
-      name: resolvedName,
-      description: resolvedDescription,
-      author: resolvedAuthor,
-      attributionUrl: resolvedAttributionUrl,
+      processingMetadata: serializeMetadata(metadata),
       pageCount: stats.pageCount,
       imageCount: stats.imageCount,
       wordCount: stats.wordCount,
@@ -671,7 +849,7 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
 
   await updateJob(env.JOB_STATUS_KV, task.jobId, {
     currentStep: 'Finalizing resource',
-    progress: 90,
+    progress: 85,
   });
 
   return { ...task, type: 'FINALIZE' };
@@ -679,7 +857,8 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
 
 export async function runFinalizeStage(task: QueueMessage, env: Env): Promise<QueueMessage | null> {
   const db = getDb(env.DB);
-  await deleteStructured(env, task.resourceId);
+  // Keep structured.json for reprocessing - don't delete it
+  // await deleteStructured(env, task.resourceId);
 
   await db
     .update(resources)
@@ -710,6 +889,8 @@ export async function handleProcessingTask(task: QueueMessage, env: Env): Promis
       return runVisionStage(task, env);
     case 'CLEANUP':
       return runCleanupStage(task, env);
+    case 'METADATA':
+      return runMetadataStage(task, env);
     case 'EMBED':
       return runEmbedStage(task, env);
     case 'FINALIZE':

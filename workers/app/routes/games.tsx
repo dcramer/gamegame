@@ -6,6 +6,7 @@ import Heading from '../components/Heading';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { getDb, games } from '../../src/lib/db';
+import { createMeta, createGamesTitle } from '../lib/meta';
 
 interface Game {
   id: string;
@@ -16,6 +17,13 @@ interface Game {
   bggUrl: string | null;
   resourceCount?: number;
 }
+
+export const meta = () => {
+  return createMeta({
+    title: createGamesTitle(),
+    description: "Browse our collection of board games. Get instant answers to rules questions with AI-powered assistance.",
+  });
+};
 
 export async function loader({ context }: Route.LoaderArgs) {
   const { cloudflare } = context;

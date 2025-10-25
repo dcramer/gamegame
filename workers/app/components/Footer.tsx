@@ -1,29 +1,12 @@
-import { useState, useEffect } from "react";
 import { GitHubLogoIcon } from "@radix-ui/react-icons";
 import { Dices } from "lucide-react";
 import { Link } from "react-router";
-import { type User, userSchema } from "../lib/schemas";
+import { useAuth } from "../lib/auth-context";
 
 const GITHUB_URL = "https://github.com/getsentry/gamegame";
 
 export default function Footer() {
-  const [user, setUser] = useState<User | null>(null);
-
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const res = await fetch('/api/auth/me');
-        if (res.ok) {
-          const data = userSchema.parse(await res.json());
-          setUser(data);
-        }
-      } catch {
-        // Not authenticated, ignore
-      }
-    };
-
-    checkAuth();
-  }, []);
+  const { user } = useAuth();
 
   return (
     <footer className="container mx-auto px-4 py-8 text-center text-muted-foreground font-mono text-xs">

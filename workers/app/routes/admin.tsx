@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { useState } from 'react';
+import { Link, useNavigate, useLoaderData } from 'react-router';
 import AdminLayout from '../components/AdminLayout';
 import { Button } from '../components/ui/button';
-import { Spinner } from '../components/ui/spinner';
-import Heading from '../components/Heading';
-import { AlertMessage } from '../components/AlertMessage';
+import { PageHeader } from '../components/PageHeader';
+import { useFlashNotifications } from '../hooks/useFlashNotifications';
 import { EmptyState } from '../components/EmptyState';
 import {
   Table,
@@ -15,71 +14,67 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { type Game, gamesListSchema } from '../lib/schemas';
+import { apiClient } from '../../load-context';
+import type { Route } from './+types/admin';
+import { createMeta, createAdminTitle } from '../lib/meta';
+
+export const meta = () => {
+  return createMeta({
+    title: createAdminTitle('Games'),
+    description: "Manage board games, upload rulebooks, and configure game resources.",
+    noIndex: true, // Don't index admin pages
+  });
+};
+
+export async function loader({ context }: Route.LoaderArgs) {
+  const res = await context.api.fetch('/games');
+  if (!res.ok) {
+    throw new Error('Failed to load games');
+  }
+  const data = await res.json();
+  const games = gamesListSchema.parse(data);
+  return { games };
+}
 
 export default function AdminGames() {
   const navigate = useNavigate();
-  const [games, setGames] = useState<Game[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const loadGames = async () => {
-      try {
-        const res = await fetch('/api/games');
-        const data = await res.json();
-        setGames(gamesListSchema.parse(data));
-        setLoading(false);
-      } catch (err) {
-        console.error('Failed to load games:', err);
-        setLoading(false);
-      }
-    };
-
-    loadGames();
-  }, []);
+  const { games: initialGames } = useLoaderData<typeof loader>();
+  const [games, setGames] = useState<Game[]>(initialGames);
+  const { addToast } = useFlashNotifications();
 
   const handleDelete = async (gameId: string, name: string) => {
     if (!confirm(`Delete ${name}? This will remove all resources.`)) {
       return;
     }
 
-    setError(null);
     try {
-      const response = await fetch(`/api/games/${gameId}`, {
+      const response = await apiClient.fetch(`/games/${gameId}`, {
         method: 'DELETE',
       });
 
       if (response.ok) {
         setGames(games.filter((g) => g.id !== gameId));
+        addToast('success', `Deleted ${name} successfully!`);
       } else {
-        setError('Failed to delete game. Please try again.');
+        addToast('error', 'Failed to delete game. Please try again.');
       }
     } catch (error) {
       console.error('Delete error:', error);
-      setError('Failed to delete game. Please try again.');
+      addToast('error', 'Failed to delete game. Please try again.');
     }
   };
 
-  if (loading) {
-    return (
-      <AdminLayout>
-        <div className="flex items-center justify-center py-12">
-          <Spinner size="lg" />
-        </div>
-      </AdminLayout>
-    );
-  }
-
   return (
     <AdminLayout>
-      <div className="flex items-center justify-between mb-6">
-        <Heading className="text-3xl">Games</Heading>
-        <Button asChild>
-          <Link to="/admin/add-game">Add Game</Link>
-        </Button>
-      </div>
-
-      {error && <AlertMessage variant="error" message={error} onDismiss={() => setError(null)} />}
+      <PageHeader
+        breadcrumbs={[{ label: 'Admin' }]}
+        title="Games"
+        actions={
+          <Button asChild>
+            <Link to="/admin/add-game">Add Game</Link>
+          </Button>
+        }
+      />
 
       {games.length === 0 ? (
         <EmptyState

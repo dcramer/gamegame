@@ -15,10 +15,11 @@ const queueLog = (event: string, data: Record<string, unknown>) => {
  */
 const STAGE_START_STATUS: Record<ProcessingTaskType, { step: string; progress: number }> = {
   INGEST: { step: 'Starting PDF ingestion', progress: 5 },
-  VISION: { step: 'Running vision analysis', progress: 30 },
-  CLEANUP: { step: 'Cleaning markdown', progress: 50 },
-  EMBED: { step: 'Embedding content', progress: 70 },
-  FINALIZE: { step: 'Finalizing resource', progress: 90 },
+  VISION: { step: 'Running vision analysis', progress: 25 },
+  CLEANUP: { step: 'Cleaning markdown', progress: 40 },
+  METADATA: { step: 'Generating metadata', progress: 55 },
+  EMBED: { step: 'Embedding content', progress: 75 },
+  FINALIZE: { step: 'Finalizing resource', progress: 95 },
 };
 
 const handler: ExportedHandler<Env> = {
@@ -90,25 +91,62 @@ const handler: ExportedHandler<Env> = {
         // Only ACK after successful queue send
         message.ack();
       } catch (error) {
-        const cause = (error as any)?.cause;
-        const causeMessage = cause
-          ? cause.message ?? (typeof cause === 'object' ? JSON.stringify(cause) : String(cause))
-          : undefined;
+        // Build comprehensive error context for debugging
+        const errorObj = error as any;
         const errorMessage = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-        const logMessage = causeMessage ? `${errorMessage} | Cause: ${causeMessage}` : errorMessage;
+        const errorStack = error instanceof Error ? error.stack : undefined;
+
+        // Capture error cause chain (can be nested multiple levels deep)
+        const causes: Array<{ message: string; stack?: string }> = [];
+        let currentCause = errorObj?.cause;
+        while (currentCause && causes.length < 5) { // Limit to 5 levels to prevent infinite loops
+          if (currentCause instanceof Error) {
+            causes.push({
+              message: `${currentCause.name}: ${currentCause.message}`,
+              stack: currentCause.stack,
+            });
+            currentCause = (currentCause as any).cause;
+          } else if (typeof currentCause === 'object') {
+            causes.push({
+              message: JSON.stringify(currentCause),
+            });
+            currentCause = currentCause.cause;
+          } else {
+            causes.push({
+              message: String(currentCause),
+            });
+            break;
+          }
+        }
+
+        const fullErrorMessage = causes.length > 0
+          ? `${errorMessage} | Caused by: ${causes.map(c => c.message).join(' → ')}`
+          : errorMessage;
+
         queueLog('task_error', {
           type: task.type,
           resourceId: task.resourceId,
           jobId: task.jobId,
-          error: logMessage,
-          stack: error instanceof Error ? error.stack : undefined,
-          causeStack: cause instanceof Error ? cause.stack : undefined,
+          error: errorMessage,
+          fullError: fullErrorMessage,
+          stack: errorStack,
+          causes: causes.length > 0 ? causes : undefined,
         });
+
+        // Store full error context in job status for admin visibility
+        const errorContext = {
+          message: errorMessage,
+          stack: errorStack ? errorStack.split('\n').slice(0, 10).join('\n') : undefined, // First 10 lines of stack
+          causes: causes.map(c => ({
+            message: c.message,
+            stack: c.stack ? c.stack.split('\n').slice(0, 5).join('\n') : undefined, // First 5 lines per cause
+          })),
+        };
 
         await updateJob(env.JOB_STATUS_KV, task.jobId, {
           status: 'failed',
-          currentStep: `Processing failed: ${errorMessage}`,
-          error: causeMessage ? `${errorMessage} | ${causeMessage}` : errorMessage || 'Unknown processing error',
+          currentStep: `${task.type} stage failed: ${errorMessage}`,
+          error: JSON.stringify(errorContext),
         });
 
         const db = getDb(env.DB);

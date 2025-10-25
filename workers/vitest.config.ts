@@ -15,6 +15,8 @@ export default defineWorkersConfig(async () => {
           miniflare: {
             // Use in-memory D1 for tests
             d1Databases: ['DB'],
+            // Use in-memory KV for tests
+            kvNamespaces: ['JOB_STATUS_KV', 'RATE_LIMIT_KV'],
             // Enable Node.js compat for uuid and other Node packages
             compatibilityFlags: ['nodejs_compat'],
             compatibilityDate: '2025-01-15',

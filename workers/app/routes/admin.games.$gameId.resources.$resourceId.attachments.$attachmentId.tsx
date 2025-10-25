@@ -1,16 +1,39 @@
-import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
+import { useParams, useLoaderData } from 'react-router';
+import { RefreshCw } from 'lucide-react';
 import AdminLayout from '../components/AdminLayout';
-import { AlertMessage } from '../components/AlertMessage';
+import { useFlashNotifications } from '../hooks/useFlashNotifications';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Spinner } from '../components/ui/spinner';
 import { SaveButton } from '../components/ui/save-button';
-import Heading from '../components/Heading';
+import { PageHeader } from '../components/PageHeader';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { attachmentSchema } from '../lib/schemas';
 import { z } from 'zod';
+import { apiClient } from '../../load-context';
+import type { Route } from './+types/admin.games.$gameId.resources.$resourceId.attachments.$attachmentId';
+import { createMeta, createAdminTitle } from '../lib/meta';
+
+export const meta = ({ data }: Route.MetaArgs) => {
+  if (!data?.attachment) {
+    return createMeta({
+      title: createAdminTitle('Attachment Not Found'),
+      noIndex: true,
+    });
+  }
+
+  const attachmentName = data.attachment.originalFilename ||
+                         data.attachment.description ||
+                         `Attachment ${data.attachment.id}`;
+
+  return createMeta({
+    title: createAdminTitle(attachmentName, data.resource.name, data.game.name),
+    description: `Edit attachment from ${data.resource.name}.`,
+    noIndex: true,
+  });
+};
 
 // Extended Attachment schema with additional UI fields
 const extendedAttachmentSchema = attachmentSchema.extend({
@@ -20,49 +43,49 @@ const extendedAttachmentSchema = attachmentSchema.extend({
 
 type Attachment = z.infer<typeof extendedAttachmentSchema>;
 
+export async function loader({ params, context }: Route.LoaderArgs) {
+  const [attachmentRes, resourceRes, gameRes] = await Promise.all([
+    context.api.fetch(`/attachments/${params.attachmentId}`),
+    context.api.fetch(`/resources/${params.resourceId}`),
+    context.api.fetch(`/games/${params.gameId}`),
+  ]);
+
+  if (!attachmentRes.ok) throw new Error('Attachment not found');
+  if (!resourceRes.ok) throw new Error('Resource not found');
+  if (!gameRes.ok) throw new Error('Game not found');
+
+  const [attachmentJson, resourceJson, gameJson] = await Promise.all([
+    attachmentRes.json(),
+    resourceRes.json(),
+    gameRes.json(),
+  ]);
+
+  const attachment = extendedAttachmentSchema.parse(attachmentJson);
+  const resource = resourceJson as { name: string };
+  const game = gameJson as { name: string };
+
+  return { attachment, resource, game };
+}
+
 export default function AdminEditAttachment() {
-  const { gameId, resourceId, attachmentId } = useParams<{
+  const { gameId, resourceId } = useParams<{
     gameId: string;
     resourceId: string;
-    attachmentId: string;
   }>();
-  const [attachment, setAttachment] = useState<Attachment | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { attachment: initialAttachment, resource, game } = useLoaderData<typeof loader>();
+  const [attachment, setAttachment] = useState<Attachment>(initialAttachment);
 
   // Form state
-  const [description, setDescription] = useState('');
-  const [originalFilename, setOriginalFilename] = useState('');
+  const [description, setDescription] = useState(initialAttachment.description || '');
+  const [originalFilename, setOriginalFilename] = useState(initialAttachment.originalFilename || '');
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [reprocessing, setReprocessing] = useState(false);
-  const [reprocessStatus, setReprocessStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  useEffect(() => {
-    if (!attachmentId) return;
-
-    const loadAttachment = async () => {
-      try {
-        const res = await fetch(`/api/attachments/${attachmentId}`);
-        if (!res.ok) throw new Error('Attachment not found');
-        const json = await res.json();
-        const data = extendedAttachmentSchema.parse(json);
-        setAttachment(data);
-        setDescription(data.description || '');
-        setOriginalFilename(data.originalFilename || '');
-        setLoading(false);
-      } catch (err) {
-        console.error('Failed to load attachment:', err);
-        setAttachment(null);
-        setLoading(false);
-      }
-    };
-
-    loadAttachment();
-  }, [attachmentId]);
+  const { addToast } = useFlashNotifications();
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!attachmentId) return;
 
     setSaving(true);
     setSaveStatus('idle');
@@ -72,7 +95,7 @@ export default function AdminEditAttachment() {
         originalFilename: originalFilename.trim() ? originalFilename : null,
       };
 
-      const response = await fetch(`/api/attachments/${attachmentId}`, {
+      const response = await apiClient.fetch(`/attachments/${attachment.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -84,24 +107,24 @@ export default function AdminEditAttachment() {
         setDescription(updatedAttachment.description || '');
         setOriginalFilename(updatedAttachment.originalFilename || '');
         setSaveStatus('success');
+        addToast('success', 'Attachment details saved successfully!');
       } else {
         setSaveStatus('error');
+        addToast('error', 'Failed to save attachment details. Please try again.');
       }
     } catch (error) {
       console.error('Update error:', error);
       setSaveStatus('error');
+      addToast('error', 'Failed to save attachment details. Please try again.');
     } finally {
       setSaving(false);
     }
   };
 
   const handleReprocess = async () => {
-    if (!attachmentId) return;
-
     setReprocessing(true);
-    setReprocessStatus(null);
     try {
-      const response = await fetch(`/api/attachments/${attachmentId}/reprocess`, {
+      const response = await apiClient.fetch(`/attachments/${attachment.id}/reprocess`, {
         method: 'POST',
       });
 
@@ -109,63 +132,37 @@ export default function AdminEditAttachment() {
         const updatedAttachment = extendedAttachmentSchema.parse(await response.json());
         setAttachment(updatedAttachment);
         setDescription(updatedAttachment.description || '');
-        setReprocessStatus({ type: 'success', message: 'Vision analysis completed successfully!' });
+        addToast('success', 'Vision analysis completed successfully!');
       } else {
         const errorJson = await response.json();
         const errorMsg = (errorJson as { error?: string }).error || 'Unknown error';
-        setReprocessStatus({ type: 'error', message: `Reprocessing failed: ${errorMsg}` });
+        addToast('error', `Reprocessing failed: ${errorMsg}`);
       }
     } catch (error) {
       console.error('Reprocess error:', error);
-      setReprocessStatus({ type: 'error', message: 'Failed to reprocess attachment' });
+      addToast('error', 'Failed to reprocess attachment');
     } finally {
       setReprocessing(false);
     }
   };
 
-  if (loading) {
-    return (
-      <AdminLayout>
-        <div className="flex items-center justify-center py-12">
-          <Spinner size="lg" />
-        </div>
-      </AdminLayout>
-    );
-  }
-
-  if (!attachment) {
-    return (
-      <AdminLayout>
-        <div className="text-center py-12">
-          <p className="text-xl mb-4">Attachment not found</p>
-          <Button asChild>
-            <Link to={`/admin/games/${gameId}/resources/${resourceId}`}>Back to Resource</Link>
-          </Button>
-        </div>
-      </AdminLayout>
-    );
-  }
-
   return (
     <AdminLayout>
-      <div className="mb-6">
-        <Button asChild variant="ghost" size="sm" className="mb-4">
-          <Link to={`/admin/games/${gameId}/resources/${resourceId}`}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Resource
-          </Link>
-        </Button>
+      <PageHeader
+        breadcrumbs={[
+          { label: 'Admin', href: '/admin' },
+          { label: 'Games', href: '/admin' },
+          { label: game.name, href: `/admin/games/${gameId}` },
+          { label: resource.name, href: `/admin/games/${gameId}/resources/${resourceId}` },
+          { label: 'Edit Attachment' },
+        ]}
+        title="Edit Attachment"
+        stats={attachment.pageNumber ? `Page ${attachment.pageNumber}` : undefined}
+      />
 
-        <div className="flex items-center gap-4 mb-2">
-          <Heading className="mb-0">Edit Attachment</Heading>
-        </div>
-        {attachment.pageNumber && (
-          <p className="text-muted-foreground text-sm">Page {attachment.pageNumber}</p>
-        )}
-      </div>
-
+      <div className="space-y-12">
       {/* Image Preview */}
-      <div className="mb-8">
+      <div>
         <Label className="mb-2 block">Preview</Label>
         <div className="border rounded-lg overflow-hidden max-w-2xl bg-muted">
           {attachment.type === 'image' && attachment.mimeType?.startsWith('image/') ? (
@@ -192,18 +189,14 @@ export default function AdminEditAttachment() {
         )}
       </div>
 
-      {/* Reprocess Status */}
-      {reprocessStatus && (
-        <AlertMessage
-          variant={reprocessStatus.type}
-          message={reprocessStatus.message}
-          onDismiss={() => setReprocessStatus(null)}
-        />
-      )}
-
       {/* Edit Form */}
-      <form onSubmit={handleSave} className="grid gap-4 mb-8">
-        <div className="grid gap-2">
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardTitle>Attachment Details</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSave} className="space-y-6">
+        <div className="space-y-2">
           <Label htmlFor="originalFilename">Filename</Label>
           <Input
             id="originalFilename"
@@ -214,7 +207,7 @@ export default function AdminEditAttachment() {
           />
         </div>
 
-        <div className="grid gap-2">
+        <div className="space-y-2">
           <Label htmlFor="description">Description</Label>
           <textarea
             id="description"
@@ -234,8 +227,6 @@ export default function AdminEditAttachment() {
             type="submit"
             status={saveStatus}
             isLoading={saving}
-            successText="Changes saved."
-            errorText="Failed to save changes. Please try again."
             onStatusTimeout={() => setSaveStatus('idle')}
           />
 
@@ -259,10 +250,15 @@ export default function AdminEditAttachment() {
           </Button>
         </div>
       </form>
+          </CardContent>
+        </Card>
 
       {/* Additional Metadata */}
-      <div className="border-t pt-6">
-        <h3 className="text-lg font-semibold mb-4">Metadata</h3>
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardTitle>Metadata</CardTitle>
+        </CardHeader>
+        <CardContent>
         <dl className="grid grid-cols-2 gap-4 text-sm">
           <div>
             <dt className="font-medium text-muted-foreground">ID</dt>
@@ -283,6 +279,8 @@ export default function AdminEditAttachment() {
             </div>
           )}
         </dl>
+        </CardContent>
+      </Card>
       </div>
     </AdminLayout>
   );

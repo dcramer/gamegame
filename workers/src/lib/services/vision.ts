@@ -17,14 +17,15 @@ export interface VisionAnalysisResult {
 }
 
 /**
- * Retry helper for vision API calls
+ * Retry helper for vision API calls with timeout protection
  */
 async function withRetry<T>(
-  fn: () => Promise<T>,
+  fn: (signal: AbortSignal) => Promise<T>,
   options: {
     maxRetries?: number;
     initialDelay?: number;
     maxDelay?: number;
+    timeoutMs?: number;
     operationName?: string;
   } = {}
 ): Promise<T> {
@@ -32,16 +33,31 @@ async function withRetry<T>(
     maxRetries = 3,
     initialDelay = 1000,
     maxDelay = 5000,
+    timeoutMs = 60000, // 60 second timeout per attempt
     operationName = 'operation',
   } = options;
 
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => {
+      abortController.abort();
+    }, timeoutMs);
+
     try {
-      return await fn();
+      const result = await fn(abortController.signal);
+      clearTimeout(timeoutId);
+      return result;
     } catch (error) {
+      clearTimeout(timeoutId);
+
       lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Check if error was due to timeout
+      if (abortController.signal.aborted) {
+        lastError = new Error(`${operationName} timed out after ${timeoutMs}ms`);
+      }
 
       if (attempt < maxRetries) {
         const delay = Math.min(initialDelay * Math.pow(2, attempt), maxDelay);
@@ -51,6 +67,7 @@ async function withRetry<T>(
           maxAttempts: maxRetries + 1,
           delayMs: delay,
           error: lastError.message,
+          wasTimeout: abortController.signal.aborted,
         });
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
@@ -122,7 +139,7 @@ Format as JSON:
   const openai = createOpenAI({ apiKey: openaiApiKey });
 
   const result = await withRetry(
-    async () => {
+    async (signal) => {
       const { text } = await generateText({
         model: openai('gpt-5'), // GPT-5 reasoning model with vision support
         messages: [
@@ -140,6 +157,7 @@ Format as JSON:
             ],
           },
         ],
+        abortSignal: signal,
       });
 
       if (!text) {
@@ -149,10 +167,11 @@ Format as JSON:
       return text;
     },
     {
-      operationName: 'gpt-5-vision',
+      operationName: `gpt-5-vision${metadata?.imageId ? ` (${metadata.imageId})` : ''}`,
       maxRetries: 3,
       initialDelay: 1000,
       maxDelay: 5000,
+      timeoutMs: 60000, // 60 second timeout per image
     }
   );
 
@@ -210,9 +229,10 @@ export async function batchAnalyzeImages(
   options: {
     maxConcurrency?: number;
     logContext?: VisionLogContext;
+    onProgress?: (processed: number, total: number) => Promise<void>;
   } = {}
 ): Promise<VisionAnalysisResult[]> {
-  const { maxConcurrency = 5, logContext } = options;
+  const { maxConcurrency = 5, logContext, onProgress } = options;
   visionLog('batch_start', {
     resourceId: logContext?.resourceId,
     jobId: logContext?.jobId,
@@ -239,12 +259,18 @@ export async function batchAnalyzeImages(
     );
     results.push(...batchResults);
 
+    const processed = i + batch.length;
     visionLog('batch_progress', {
       resourceId: logContext?.resourceId,
       jobId: logContext?.jobId,
-      processed: i + batch.length,
+      processed,
       total: images.length,
     });
+
+    // Report progress if callback is provided
+    if (onProgress) {
+      await onProgress(processed, images.length);
+    }
   }
 
   visionLog('batch_complete', {
@@ -267,9 +293,10 @@ export async function enrichPDFImagesWithVision(
   options: {
     maxConcurrency?: number;
     logContext?: VisionLogContext;
+    onProgress?: (processed: number, total: number) => Promise<void>;
   } = {}
 ): Promise<void> {
-  const { logContext, maxConcurrency } = options;
+  const { logContext, maxConcurrency, onProgress } = options;
   visionLog('enrich_start', {
     resourceId: logContext?.resourceId,
     jobId: logContext?.jobId,
@@ -337,6 +364,7 @@ export async function enrichPDFImagesWithVision(
     {
       maxConcurrency,
       logContext,
+      onProgress,
     }
   );
 

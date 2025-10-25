@@ -25,6 +25,8 @@ export const gameSchema = z.object({
   imageUrl: z.string().nullable(),
   bggUrl: z.string().nullable(),
   resourceCount: z.number().optional(),
+  createdAt: timestampSchema.optional(),
+  updatedAt: timestampSchema.optional(),
 });
 
 export type Game = z.infer<typeof gameSchema>;

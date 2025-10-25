@@ -5,6 +5,20 @@ import ErrorState from '../components/ErrorState';
 import { Chat } from '../components/Chat';
 import { getDb, games, resources } from '../../src/lib/db';
 import { eq } from 'drizzle-orm';
+import { createMeta, createGameTitle } from '../lib/meta';
+
+export const meta = ({ data }: Route.MetaArgs) => {
+  if (!data?.game) {
+    return createMeta({
+      title: 'Game Not Found | GameGame',
+    });
+  }
+
+  return createMeta({
+    title: createGameTitle(data.game.name),
+    description: `Get instant answers about ${data.game.name} rules. Ask questions and get AI-powered responses based on the official rulebook.`,
+  });
+};
 
 export async function loader({ params, context }: Route.LoaderArgs) {
   const { gameId } = params;
