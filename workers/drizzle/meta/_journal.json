@@ -15,6 +15,20 @@
       "when": 1761349900000,
       "tag": "0001_add_r2_key_to_attachments",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1761435000000,
+      "tag": "0002_add_bgg_id_to_games",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1761435600000,
+      "tag": "0003_add_resource_status_constraint",
+      "breakpoints": true
     }
   ]
 }

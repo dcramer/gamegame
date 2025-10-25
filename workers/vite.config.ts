@@ -1,40 +1,39 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { reactRouter } from "@react-router/dev/vite";
+import { cloudflareDevProxy } from "@react-router/dev/vite/cloudflare";
+import { defineConfig } from "vite";
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { getLoadContext } from './load-context';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Build configuration for React client SPA
-// This builds client/ → public/ for the Worker to serve
 export default defineConfig({
-  root: resolve(__dirname, 'client'),
-  plugins: [react()],
+  plugins: [
+    cloudflareDevProxy({ getLoadContext }),
+    reactRouter(),
+  ],
   server: {
-    host: 'localhost',
     port: 4000,
+    strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:4001',
+        target: 'http://localhost:8787',
         changeOrigin: true,
       },
       '/uploads': {
-        target: 'http://localhost:4001',
+        target: 'http://localhost:8787',
         changeOrigin: true,
       },
     },
   },
-  build: {
-    outDir: resolve(__dirname, 'public'),
-    emptyOutDir: true,
-  },
   resolve: {
     alias: {
-      '@': resolve(__dirname, './client/src'),
+      '@': resolve(__dirname, './app'),
     },
   },
-  esbuild: {
-    jsxImportSource: 'react',
-    jsx: 'automatic',
+  ssr: {
+    resolve: {
+      conditions: ["workerd", "worker", "browser"],
+    },
   },
 });

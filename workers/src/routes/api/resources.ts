@@ -6,15 +6,26 @@ import { getDb, resources, fragments, attachments, games } from '@/lib/db';
 import { eq, sql, asc } from 'drizzle-orm';
 import { requireAdmin } from '@/middleware/auth';
 import { createJob, deleteJob, getJob } from '@/lib/jobs/status';
-import { extractR2KeyFromUrl, normalizeAttachmentUrl, normalizeResourceSourceUrl } from '@/lib/services/r2-storage';
+import { extractR2KeyFromUrl, normalizeResourceSourceUrl, r2KeyToUrl } from '@/lib/services/r2-storage';
 import { deleteEmbeddings } from '@/lib/ai/vectorize';
+import {
+  jobStatusSchema,
+  resourceSchema,
+  attachmentsListSchema,
+  uploadResponseSchema,
+  deleteResourceResponseSchema,
+  validateResponse,
+} from './schemas';
 
 const resourcesRouter = new Hono<{ Bindings: Env }>();
 
 /**
- * Get job status for a resource
+ * Get job status for a resource (admin only)
+ *
+ * Security: Requires admin authentication to prevent information disclosure.
+ * Job IDs can leak processing status, error messages, and resource information.
  */
-resourcesRouter.get('/jobs/:jobId', async (c) => {
+resourcesRouter.get('/jobs/:jobId', requireAdmin, async (c) => {
   const { jobId } = c.req.param();
 
   const job = await getJob(c.env.JOB_STATUS_KV, jobId);
@@ -23,49 +34,11 @@ resourcesRouter.get('/jobs/:jobId', async (c) => {
     return c.json({ error: 'Job not found' }, 404);
   }
 
-  return c.json(job);
+  return c.json(validateResponse(job, jobStatusSchema));
 });
 
-/**
- * List resources for a game
- */
-resourcesRouter.get('/games/:gameId', async (c) => {
-  const { gameId } = c.req.param();
-  const db = getDb(c.env.DB);
-
-  const resourceList = await db
-    .select({
-      id: resources.id,
-      name: resources.name,
-      originalFilename: resources.originalFilename,
-      author: resources.author,
-      attributionUrl: resources.attributionUrl,
-      url: resources.url,
-      version: resources.version,
-      pdfExtractor: resources.pdfExtractor,
-      processedAt: resources.processedAt,
-      status: resources.status,
-      currentJobId: resources.currentJobId,
-      processingStage: resources.processingStage,
-      pageCount: resources.pageCount,
-      imageCount: resources.imageCount,
-      wordCount: resources.wordCount,
-      description: resources.description,
-      fragmentCount: sql<number>`COUNT(${fragments.id})`,
-    })
-    .from(resources)
-    .leftJoin(fragments, eq(resources.id, fragments.resourceId))
-    .where(eq(resources.gameId, gameId))
-    .groupBy(resources.id)
-    .all();
-
-  return c.json(
-    resourceList.map((resource) => ({
-      ...resource,
-      url: normalizeResourceSourceUrl(resource.id, resource.url) ?? resource.url,
-    }))
-  );
-});
+// Note: Resource listing by game moved to /api/games/:gameIdOrSlug/resources
+// This avoids duplicate endpoints and keeps game-related routes together
 
 /**
  * Get single resource
@@ -111,11 +84,13 @@ resourcesRouter.get('/:resourceId', async (c) => {
     .from(fragments)
     .where(eq(fragments.resourceId, resourceId));
 
-  return c.json({
+  const response = {
     ...resource,
     url: normalizeResourceSourceUrl(resource.id, resource.url) ?? resource.url,
     fragmentCount: Number(fragmentCount),
-  });
+  };
+
+  return c.json(validateResponse(response, resourceSchema));
 });
 
 /**
@@ -153,15 +128,52 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
   const normalizedUrl = normalizeResourceSourceUrl(resource.id, resource.url) ?? resource.url;
   const sourceKey = normalizedUrl ? extractR2KeyFromUrl(normalizedUrl) : null;
 
+  // Clean up old job if exists
   if (resource.currentJobId) {
     await deleteJob(c.env.JOB_STATUS_KV, resource.currentJobId);
-    await db
-      .update(resources)
-      .set({
-        currentJobId: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(resources.id, resourceId));
+  }
+
+  // Clean up old fragments and their embeddings before reprocessing
+  const oldFragments = await db
+    .select({ id: fragments.id })
+    .from(fragments)
+    .where(eq(fragments.resourceId, resourceId))
+    .all();
+
+  if (oldFragments.length > 0) {
+    // Delete from D1 (cascade will handle fragment deletion)
+    await db.delete(fragments).where(eq(fragments.resourceId, resourceId));
+
+    // Delete embeddings from Vectorize
+    try {
+      const fragmentIds = oldFragments.map(f => f.id);
+      await deleteEmbeddings(c.env.VECTORIZE, fragmentIds);
+    } catch (error) {
+      console.error('Failed to delete old embeddings during reprocess:', error);
+      // Continue - embeddings will be orphaned but won't affect functionality
+    }
+  }
+
+  // Clean up old attachments and their R2 files
+  const oldAttachments = await db
+    .select({ id: attachments.id, r2Key: attachments.r2Key })
+    .from(attachments)
+    .where(eq(attachments.resourceId, resourceId))
+    .all();
+
+  if (oldAttachments.length > 0) {
+    // Delete from D1
+    await db.delete(attachments).where(eq(attachments.resourceId, resourceId));
+
+    // Delete R2 files
+    try {
+      for (const attachment of oldAttachments) {
+        await c.env.FILES.delete(attachment.r2Key);
+      }
+    } catch (error) {
+      console.error('Failed to delete old attachment files during reprocess:', error);
+      // Continue - orphaned files aren't critical
+    }
   }
 
   // Create new job and enqueue for processing
@@ -191,15 +203,14 @@ resourcesRouter.post('/:resourceId/reprocess', requireAdmin, async (c) => {
     sourceKey: sourceKey || undefined,
   });
 
-  return c.json(
-    {
-      resourceId,
-      jobId,
-      status: 'queued',
-      message: 'Resource queued for reprocessing',
-    },
-    202 // Accepted
-  );
+  const response = {
+    resourceId,
+    jobId,
+    status: 'queued',
+    message: 'Resource queued for reprocessing',
+  };
+
+  return c.json(validateResponse(response, uploadResponseSchema), 202);
 });
 
 /**
@@ -275,7 +286,7 @@ resourcesRouter.get('/:resourceId/attachments', async (c) => {
     .select({
       id: attachments.id,
       type: attachments.type,
-      url: attachments.url,
+      r2Key: attachments.r2Key,
       mimeType: attachments.mimeType,
       originalFilename: attachments.originalFilename,
       pageNumber: attachments.pageNumber,
@@ -283,23 +294,41 @@ resourcesRouter.get('/:resourceId/attachments', async (c) => {
       caption: attachments.caption,
       width: attachments.width,
       height: attachments.height,
+      description: attachments.description,
+      isGoodQuality: attachments.isGoodQuality,
     })
     .from(attachments)
     .where(eq(attachments.resourceId, resourceId))
     .orderBy(asc(attachments.pageNumber), asc(attachments.createdAt))
     .all();
 
+  // Helper to safely parse bbox JSON
+  const parseBbox = (bboxValue: string | null | undefined): number[] | undefined => {
+    if (!bboxValue) return undefined;
+    try {
+      const parsed = JSON.parse(typeof bboxValue === 'string' ? bboxValue : String(bboxValue));
+      if (Array.isArray(parsed) && parsed.every(v => typeof v === 'number')) {
+        return parsed;
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
   const parsed = attachmentList.map((attachment) => ({
     ...attachment,
-    url: normalizeAttachmentUrl(resourceId, attachment.url) ?? attachment.url,
-    bbox: attachment.bbox ? JSON.parse(attachment.bbox as string) : undefined,
+    url: r2KeyToUrl(attachment.r2Key),
+    bbox: parseBbox(attachment.bbox),
   }));
 
-  return c.json(parsed);
+  return c.json(validateResponse(parsed, attachmentsListSchema));
 });
 
 /**
  * Delete resource (admin only)
+ * Note: D1 CASCADE handles database deletions (fragments, attachments)
+ * We collect data before deletion to clean up external resources (Vectorize, R2)
  */
 resourcesRouter.delete('/:resourceId', requireAdmin, async (c) => {
   const { resourceId } = c.req.param();
@@ -313,7 +342,7 @@ resourcesRouter.delete('/:resourceId', requireAdmin, async (c) => {
     .all();
 
   const attachmentList = await db
-    .select({ url: attachments.url })
+    .select({ r2Key: attachments.r2Key })
     .from(attachments)
     .where(eq(attachments.resourceId, resourceId))
     .all();
@@ -356,7 +385,7 @@ resourcesRouter.delete('/:resourceId', requireAdmin, async (c) => {
   // Return 200 only if everything succeeded
   const statusCode = errors.length > 0 ? 207 : 200;
 
-  return c.json({
+  const response = {
     success: errors.length === 0,
     deletedFragments: fragmentList.length,
     deletedAttachments: attachmentList.length,
@@ -365,7 +394,9 @@ resourcesRouter.delete('/:resourceId', requireAdmin, async (c) => {
     message: errors.length > 0
       ? 'Resource deleted from database, but some cleanup operations failed. Orphaned data may remain in Vectorize or R2.'
       : 'Resource and all associated data deleted successfully',
-  }, statusCode);
+  };
+
+  return c.json(validateResponse(response, deleteResourceResponseSchema), statusCode);
 });
 
 export default resourcesRouter;

@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ES2022",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
@@ -17,13 +17,14 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "jsxImportSource": "hono/jsx",
+    "jsxImportSource": "react",
     "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers", "@types/node"],
+    "rootDirs": [".", "./.react-router/types"],
     "paths": {
-      "@/*": ["./src/*"],
+      "@/*": ["./src/*", "./app/*"],
       "@langchain/core/dist/runnables/uuid": ["./src/shims/langchain-uuid.ts"]
     }
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "public"]
+  "include": ["src/**/*", "app/**/*", "load-context.ts", ".react-router/types/**/*"],
+  "exclude": ["node_modules", "dist", "public", "build"]
 }

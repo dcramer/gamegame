@@ -4,6 +4,10 @@ import { nanoid } from 'nanoid';
 // Helper for consistent ID generation (nanoid ensures <=64 bytes for Vectorize)
 const generateId = () => nanoid();
 
+// Resource status enum
+export const RESOURCE_STATUSES = ['ready', 'queued', 'processing', 'completed', 'failed'] as const;
+export type ResourceStatus = typeof RESOURCE_STATUSES[number];
+
 // Games table
 export const games = sqliteTable('games', {
   id: text('id').primaryKey().$defaultFn(() => generateId()),
@@ -11,11 +15,13 @@ export const games = sqliteTable('games', {
   year: integer('year'),
   slug: text('slug').notNull().unique(),
   imageUrl: text('image_url'),
+  bggId: text('bgg_id').unique(), // BoardGameGeek game ID
   bggUrl: text('bgg_url'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 }, (table) => ({
   nameIdx: index('idx_games_name').on(table.name),
+  bggIdIdx: index('idx_games_bgg_id').on(table.bggId),
 }));
 
 // Resources table
@@ -78,7 +84,7 @@ export const attachments = sqliteTable('attachments', {
   resourceId: text('resource_id').notNull().references(() => resources.id, { onDelete: 'cascade' }),
   type: text('type').notNull().default('image'),
   mimeType: text('mime_type').notNull(),
-  url: text('url').notNull(),
+  r2Key: text('r2_key').notNull(), // R2 key: resources/{resourceId}/attachments/{id}.{ext}
   originalFilename: text('original_filename'),
   pageNumber: integer('page_number'),
   bbox: text('bbox'), // JSON array: [x1, y1, x2, y2]

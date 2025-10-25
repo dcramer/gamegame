@@ -4,7 +4,7 @@ import { getDb, resources, fragments, attachments } from '../db';
 import { eq } from 'drizzle-orm';
 import { extractTextFromPdf, rebuildMarkdownFromPages, replaceImageReferences } from '../pdf';
 import { chunkStructuredPDF, calculateResourceStats } from '../services/chunking';
-import { uploadPDFImages, deleteAttachmentsByUrls, extractR2KeyFromUrl } from '../services/r2-storage';
+import { uploadPDFImages, extractR2KeyFromUrl, r2KeyToUrl } from '../services/r2-storage';
 import type { UploadedImage } from '../services/r2-storage';
 import { generateEmbeddings } from '../ai/embeddings';
 import { insertEmbeddings, deleteEmbeddings } from '../ai/vectorize';
@@ -132,19 +132,20 @@ async function fetchPdfBuffer(task: QueueMessage, env: Env): Promise<Buffer> {
 async function deleteExistingAttachments(env: Env, resourceId: string) {
   const db = getDb(env.DB);
   const existingAttachments = await db
-    .select({ url: attachments.url })
+    .select({ r2Key: attachments.r2Key })
     .from(attachments)
     .where(eq(attachments.resourceId, resourceId))
     .all();
 
   if (existingAttachments.length > 0) {
     await db.delete(attachments).where(eq(attachments.resourceId, resourceId));
-    const urls = existingAttachments
-      .map((attachment) => attachment.url)
-      .filter((url): url is string => typeof url === 'string' && url.length > 0);
+    const keys = existingAttachments
+      .map((attachment) => attachment.r2Key)
+      .filter((key): key is string => typeof key === 'string' && key.length > 0);
 
-    if (urls.length > 0) {
-      await deleteAttachmentsByUrls(env.FILES, urls);
+    if (keys.length > 0) {
+      const { bulkDeleteFromR2 } = await import('../services/r2-storage');
+      await bulkDeleteFromR2(env.FILES, keys);
     }
   }
 }
@@ -184,6 +185,43 @@ export async function runIngestStage(task: QueueMessage, env: Env): Promise<Queu
   if (!env.MISTRAL_API_KEY) {
     throw new Error('Missing MISTRAL_API_KEY secret');
   }
+
+  // Check if this stage is already done OR if another job is processing
+  // (optimistic locking via currentJobId)
+  const [resourceRow] = await db
+    .select({
+      metadata: resources.processingMetadata,
+      currentJobId: resources.currentJobId,
+    })
+    .from(resources)
+    .where(eq(resources.id, task.resourceId))
+    .limit(1);
+
+  if (!resourceRow) {
+    console.error(`[Ingest Stage] Resource ${task.resourceId} not found, aborting`);
+    return null;
+  }
+
+  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
+
+  // If ingest already completed, skip to next stage
+  if (metadata.stages.ingest) {
+    console.log(`[Ingest Stage] Resource ${task.resourceId} already ingested, skipping`);
+    const hasImages = await checkHasImages(env, task.resourceId);
+    return { ...task, type: hasImages ? 'VISION' : 'CLEANUP', url: undefined, sourceKey: undefined };
+  }
+
+  // Optimistic locking: If another job is processing this resource, abort
+  // This handles the case where a reprocess was triggered while this job was retrying
+  if (resourceRow.currentJobId && resourceRow.currentJobId !== task.jobId) {
+    console.warn(
+      `[Ingest Stage] Resource ${task.resourceId} is being processed by a different job ` +
+      `(current: ${resourceRow.currentJobId}, this: ${task.jobId}). ` +
+      `This job will stop. The active job will continue processing.`
+    );
+    return null; // Don't queue next task - another job is handling it
+  }
+
   const buffer = await fetchPdfBuffer(task, env);
   const extraction = await extractTextFromPdf(buffer, env.MISTRAL_API_KEY);
 
@@ -194,7 +232,6 @@ export async function runIngestStage(task: QueueMessage, env: Env): Promise<Queu
   const structured = extraction.structured;
   await saveStructured(env, task.resourceId, structured);
 
-  const metadata = defaultMetadata(task.resourceId);
   metadata.stages.ingest = true;
 
   await db
@@ -222,6 +259,16 @@ export async function runIngestStage(task: QueueMessage, env: Env): Promise<Queu
   return { ...task, type: 'VISION', url: undefined, sourceKey: undefined };
 }
 
+async function checkHasImages(env: Env, resourceId: string): Promise<boolean> {
+  try {
+    const structured = await loadStructured(env, resourceId);
+    return structured.pages.some((page) => page.images.length > 0);
+  } catch {
+    // If we can't load structured data, assume no images
+    return false;
+  }
+}
+
 export async function runVisionStage(task: QueueMessage, env: Env): Promise<QueueMessage | null> {
   const db = getDb(env.DB);
   if (!env.OPENAI_API_KEY) {
@@ -236,7 +283,13 @@ export async function runVisionStage(task: QueueMessage, env: Env): Promise<Queu
     .where(eq(resources.id, task.resourceId))
     .limit(1);
 
-  const metadata = parseMetadata(task.resourceId, resourceRow?.metadata);
+  // Check if resource exists
+  if (!resourceRow) {
+    console.error(`[Vision Stage] Resource ${task.resourceId} not found, aborting job ${task.jobId}`);
+    return null; // Resource was deleted, stop processing
+  }
+
+  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
 
   // Check if this stage is already done OR if another job is processing
   // (optimistic locking via currentJobId)
@@ -244,7 +297,7 @@ export async function runVisionStage(task: QueueMessage, env: Env): Promise<Queu
     return { ...task, type: 'CLEANUP' };
   }
 
-  if (resourceRow?.currentJobId && resourceRow.currentJobId !== task.jobId) {
+  if (resourceRow.currentJobId && resourceRow.currentJobId !== task.jobId) {
     console.warn(`[Vision Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, skipping`);
     return null; // Don't queue next task - another job is handling it
   }
@@ -459,7 +512,8 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
       page.images.forEach((img) => {
         const uploaded = uploadedImageMap.get(img.id);
         if (uploaded) {
-          img.url = uploaded.url;
+          // Store URL converted from R2 key (for attachment references in markdown)
+          img.url = r2KeyToUrl(uploaded.r2Key);
           img.caption = img.caption || uploaded.caption;
           img.mimeType = uploaded.mimeType;
         }
@@ -486,24 +540,33 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
   const attachmentRecords = structured.pages.flatMap((page) =>
     page.images
       .filter((img) => img.url)
-      .map((img) => ({
-        id: img.id,
-        gameId: task.gameId,
-        resourceId: task.resourceId,
-        type: 'image' as const,
-        mimeType: resolveMimeType(img) ?? 'application/octet-stream',
-        url: img.url!,
-        originalFilename: img.originalFilename ?? null,
-        pageNumber: img.pageNumber ?? null,
-        bbox: img.bbox ? JSON.stringify(img.bbox) : null,
-        caption: img.caption ?? null,
-        width: null,
-        height: null,
-        createdAt: new Date(),
-      }))
+      .map((img) => {
+        const uploaded = uploadedImageMap.get(img.id);
+        const r2Key = uploaded?.r2Key ?? extractR2KeyFromUrl(img.url!) ?? img.url!;
+
+        return {
+          id: img.id,
+          gameId: task.gameId,
+          resourceId: task.resourceId,
+          type: 'image' as const,
+          mimeType: resolveMimeType(img) ?? 'application/octet-stream',
+          r2Key,
+          originalFilename: img.originalFilename ?? null,
+          pageNumber: img.pageNumber ?? null,
+          bbox: img.bbox ? JSON.stringify(img.bbox) : null,
+          caption: img.caption ?? null,
+          width: null,
+          height: null,
+          description: img.description ?? null,
+          isGoodQuality: img.isGoodQuality === 'good' ? true : img.isGoodQuality === 'bad' ? false : null,
+          createdAt: new Date(),
+        };
+      })
   );
 
-  const BATCH_SIZE = 10;
+  // SQLite has a limit on bound parameters (SQLITE_MAX_VARIABLE_NUMBER)
+  // With 15 fields per attachment, batch size of 5 = 75 parameters (safe)
+  const BATCH_SIZE = 5;
   for (let i = 0; i < attachmentRecords.length; i += BATCH_SIZE) {
     const batch = attachmentRecords.slice(i, i + BATCH_SIZE);
     if (batch.length > 0) {

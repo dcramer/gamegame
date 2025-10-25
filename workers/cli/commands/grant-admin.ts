@@ -1,4 +1,11 @@
 import { execSync } from 'child_process';
+import { writeFileSync, unlinkSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+function escapeSql(value: string): string {
+  return value.replace(/'/g, "''");
+}
 
 export async function grantAdminCommand() {
   const args = process.argv.slice(3);
@@ -16,43 +23,37 @@ export async function grantAdminCommand() {
 
   const locationFlag = isRemote ? '--remote' : '--local';
   const location = isRemote ? 'production' : 'local';
+  const escapedEmail = escapeSql(email);
 
-  console.log(`\n🔍 Looking for user: ${email} (${location})...\n`);
+  console.log(`\n🔐 Granting admin privileges to: ${email} (${location})...\n`);
+
+  // Create a temporary SQL file with all operations
+  const sqlFile = join(tmpdir(), `grant-admin-${Date.now()}.sql`);
+  const sql = `
+-- Grant admin privileges
+UPDATE users SET is_admin = 1, updated_at = ${Math.floor(Date.now() / 1000)} WHERE email = '${escapedEmail}';
+
+-- Return the updated user to verify
+SELECT id, email, name, is_admin FROM users WHERE email = '${escapedEmail}';
+`.trim();
 
   try {
-    // First, check if user exists
-    const checkUserCmd = `pnpx wrangler d1 execute gamegame ${locationFlag} --command "SELECT id, email, name, is_admin FROM users WHERE email = '${email}';"`;
+    // Write SQL to temp file
+    writeFileSync(sqlFile, sql);
 
-    try {
-      const result = execSync(checkUserCmd, { encoding: 'utf-8', stdio: 'pipe' });
-      console.log(result);
+    // Execute the entire transaction in a single wrangler call
+    const cmd = `pnpx wrangler d1 execute gamegame ${locationFlag} --file="${sqlFile}"`;
+    const result = execSync(cmd, { encoding: 'utf-8', stdio: 'pipe' });
 
-      // Check if user was found
-      if (result.includes('Query returned no results') || result.includes('0 rows')) {
-        console.error(`\n❌ User not found: ${email}`);
-        console.error(`\nMake sure the user has logged in at least once to create their account.`);
-        process.exit(1);
-      }
-    } catch (error: any) {
-      console.error('Error checking user:', error.message);
+    console.log(result);
+
+    // Check if user was found and updated
+    // Look for the email in the output to confirm user exists
+    if (!result.includes(`"email": "${escapedEmail}"`) && !result.includes(`| ${email} |`)) {
+      console.error(`\n❌ User not found: ${email}`);
+      console.error(`\nMake sure the user has logged in at least once to create their account.`);
       process.exit(1);
-    }
-
-    // Grant admin access
-    console.log(`\n🔐 Granting admin privileges...\n`);
-
-    const grantAdminCmd = `pnpx wrangler d1 execute gamegame ${locationFlag} --command "UPDATE users SET is_admin = 1 WHERE email = '${email}';"`;
-    const updateResult = execSync(grantAdminCmd, { encoding: 'utf-8', stdio: 'pipe' });
-    console.log(updateResult);
-
-    // Verify the update
-    console.log(`\n✅ Verifying admin access...\n`);
-
-    const verifyCmd = `pnpx wrangler d1 execute gamegame ${locationFlag} --command "SELECT id, email, name, is_admin FROM users WHERE email = '${email}';"`;
-    const verifyResult = execSync(verifyCmd, { encoding: 'utf-8', stdio: 'pipe' });
-    console.log(verifyResult);
-
-    if (verifyResult.includes('| 1 |') || verifyResult.includes('is_admin: 1')) {
+    } else if (result.includes('"is_admin": 1') || result.includes('| 1 |')) {
       console.log(`\n🎉 Success! ${email} is now an admin.\n`);
     } else {
       console.error(`\n⚠️  Update completed but admin status could not be verified.`);
@@ -60,5 +61,12 @@ export async function grantAdminCommand() {
   } catch (error: any) {
     console.error('\n❌ Error:', error.message);
     process.exit(1);
+  } finally {
+    // Clean up temp file
+    try {
+      unlinkSync(sqlFile);
+    } catch {
+      // Ignore cleanup errors
+    }
   }
 }

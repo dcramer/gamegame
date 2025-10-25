@@ -6,9 +6,6 @@ main = "src/index.tsx"
 compatibility_date = "2025-01-15"
 compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 
-[dev]
-port = 4001
-
 # Serve static files from public directory
 [assets]
 directory = "./public"

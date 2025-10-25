@@ -95,7 +95,7 @@ export async function createTestAttachment(resourceId: string, gameId: string, d
     gameId,
     resourceId,
     type: 'image',
-    url: 'https://example.com/image.png',
+    r2Key: `resources/${resourceId}/attachments/test-image.png`,
     mimeType: 'image/png',
     originalFilename: 'test.png',
     pageNumber: 1,

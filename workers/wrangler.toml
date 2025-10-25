@@ -1,5 +1,5 @@
 name = "gamegame"
-main = "src/index.tsx"
+main = "worker.ts"
 compatibility_date = "2025-01-15"
 compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 account_id = "3f121ae4e5f2c3be251559c828d3805d"
@@ -11,9 +11,9 @@ workers_dev = true
 [dev]
 port = 4000
 
-# Serve static files from public directory (Wrangler 4 Assets)
+# Serve static files from React Router build
 [assets]
-directory = "./public"
+directory = "./build/client"
 binding = "ASSETS"
 
 # D1 Database binding

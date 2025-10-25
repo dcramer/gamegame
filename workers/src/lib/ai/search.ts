@@ -61,7 +61,8 @@ function prepareSearchQuery(query: string): string {
       }
     }
     // Remove remaining unmatched opening parens by converting to spaces
-    while (depth > 0) {
+    // Safety: only scan once to avoid infinite loop
+    if (depth > 0) {
       for (let i = chars.length - 1; i >= 0 && depth > 0; i--) {
         if (chars[i] === '(') {
           chars[i] = ' ';
@@ -74,7 +75,23 @@ function prepareSearchQuery(query: string): string {
     // 3. Remove column prefixes (e.g., "content:") that aren't supported
     sanitized = sanitized.replace(/\w+:/g, '');
 
-    return sanitized.trim();
+    // 4. Escape FTS5 special operators: ^ (prefix), + (must include)
+    // These can cause syntax errors or unexpected behavior
+    sanitized = sanitized.replace(/[\^+]/g, ' ');
+
+    // 5. Safety check: if sanitization resulted in empty query, fall back to safe search
+    const finalSanitized = sanitized.trim();
+    if (!finalSanitized) {
+      // Fall back to extracting keywords from original query
+      const keywords = trimmed
+        .replace(/[^\w\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 2)
+        .slice(0, 5);
+      return keywords.join(' OR ') || 'game';
+    }
+
+    return finalSanitized;
   }
 
   // Natural language query - extract keywords and build OR query
@@ -87,8 +104,8 @@ function prepareSearchQuery(query: string): string {
   // Extract words, removing special FTS5 characters
   const words = trimmed
     .toLowerCase()
-    // Remove FTS5 special chars: - * " ( ) :
-    .replace(/[-*"():]/g, ' ')
+    // Remove FTS5 special chars: - * " ( ) : ^ +
+    .replace(/[-*"():^+]/g, ' ')
     // Remove other punctuation
     .replace(/[^\w\s]/g, ' ')
     .split(/\s+/)
@@ -130,8 +147,8 @@ export async function findRelevantContent(
   // Step 1: Generate embedding for user query
   const [queryEmbedding] = await generateEmbedding(userQuery, openaiApiKey);
 
-  // Step 2: Execute vector and full-text search in parallel
-  const [vectorResults, ftsResults] = await Promise.all([
+  // Step 2: Execute vector and full-text search in parallel with graceful degradation
+  const [vectorResults, ftsResults] = await Promise.allSettled([
     // Vector search via Vectorize
     searchVectorize(vectorIndex, queryEmbedding, gameId, { limit: candidateCount }),
 
@@ -151,6 +168,20 @@ export async function findRelevantContent(
       .all<{ id: string; rank: number }>()
   ]);
 
+  // Handle search failures gracefully - use whatever results we got
+  const vectorMatches = vectorResults.status === 'fulfilled' ? vectorResults.value : [];
+  const ftsMatches = ftsResults.status === 'fulfilled' && ftsResults.value.results
+    ? ftsResults.value.results
+    : [];
+
+  // Log failures for monitoring
+  if (vectorResults.status === 'rejected') {
+    console.error('Vector search failed:', vectorResults.reason);
+  }
+  if (ftsResults.status === 'rejected') {
+    console.error('FTS search failed:', ftsResults.reason);
+  }
+
   // Step 3: Reciprocal Rank Fusion (RRF)
   const rrfK = 50;
   const vectorWeight = 1.0;
@@ -158,16 +189,16 @@ export async function findRelevantContent(
 
   // Build rank maps
   const vectorRanks = new Map(
-    vectorResults.map((r, index) => [r.fragmentId, index])
+    vectorMatches.map((r, index) => [r.fragmentId, index])
   );
   const ftsRanks = new Map(
-    ftsResults.results?.map((r, index) => [r.id, index]) ?? []
+    ftsMatches.map((r, index) => [r.id, index])
   );
 
   // Get all unique fragment IDs
   const allFragmentIds = new Set([
-    ...vectorResults.map(r => r.fragmentId),
-    ...(ftsResults.results?.map((r) => r.id) ?? [])
+    ...vectorMatches.map(r => r.fragmentId),
+    ...ftsMatches.map((r) => r.id)
   ]);
 
   // Calculate RRF scores

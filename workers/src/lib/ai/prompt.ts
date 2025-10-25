@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { findRelevantContent } from './search';
 import type { D1Database, VectorizeIndex } from '@cloudflare/workers-types';
 import { getDb, resources, attachments } from '../db';
-import { normalizeAttachmentUrl, normalizeResourceSourceUrl } from '../services/r2-storage';
+import { normalizeResourceSourceUrl } from '../services/r2-storage';
 import { eq } from 'drizzle-orm';
 
 const GITHUB_URL = 'https://github.com/getsentry/gamegame';
@@ -42,7 +42,8 @@ export function getTools(
   gameId: string,
   db: D1Database,
   vectorIndex: VectorizeIndex,
-  openaiApiKey: string
+  openaiApiKey: string,
+  baseUrl: string
 ) {
   return {
     getKnowledge: tool({
@@ -110,11 +111,13 @@ export function getTools(
                 };
               }
 
+              const { r2KeyToUrl } = await import('../services/r2-storage');
+
               return {
                 success: true,
                 id: attachment.id,
                 type: attachment.type,
-                url: normalizeAttachmentUrl(attachment.resourceId, attachment.url) ?? attachment.url,
+                url: `${baseUrl}${r2KeyToUrl(attachment.r2Key)}`,
                 mimeType: attachment.mimeType ?? 'image/png',
                 caption: attachment.caption,
                 pageNumber: attachment.pageNumber,
@@ -179,7 +182,7 @@ Before answering this question, you MUST ALWAYS use the "getKnowledge" tool to f
 **Attachments (Images/Diagrams)**:
 - When the knowledge base content contains "attachment://{id}" references, these are images or diagrams from the rulebook
 - Use the "getAttachment" tool to retrieve the attachment URL
-- Include helpful images in your response by replacing attachment:// URLs with the actual image URLs: ![description](https://actual-url.com/image.png)
+- Include helpful images in your response by replacing attachment:// URLs with the actual URLs returned from the tool
 - Only include images that directly help answer the user's question - don't include every image from the knowledge base
 - Add descriptive alt text that explains what the image shows
 

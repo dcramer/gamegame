@@ -55,12 +55,12 @@ authRouter.post(
 
     if (!result.success) {
       console.error('Failed to send magic link email:', result.error);
-      // In development, still return the URL for CLI access
+      // In development, log the URL but don't expose in response (security)
       if (c.env.ENVIRONMENT === 'development') {
+        console.log(`[DEV] Magic link for ${email}: ${loginUrl}`);
         return c.json({
           success: true,
-          message: 'Development mode: Use the CLI command `pnpm cli login-url <email>` or check console logs',
-          devLoginUrl: loginUrl, // Only in dev mode
+          message: 'Development mode: Magic link logged to server console. Use CLI command `pnpm cli login-url <email>` to generate a new link.',
         });
       }
       return c.json({ error: 'Failed to send login email. Please try again.' }, 500);
@@ -73,6 +73,12 @@ authRouter.post(
   }
 );
 
+// Schema for magic link JWT payload
+const magicLinkPayloadSchema = z.object({
+  email: z.string().email(),
+  exp: z.number(),
+});
+
 /**
  * Verify magic link token and create JWT session
  */
@@ -84,13 +90,17 @@ authRouter.get('/verify', async (c) => {
   }
 
   try {
-    // Verify magic link JWT
-    const payload = await verify(magicToken, c.env.JWT_SECRET);
-    const email = payload.email as string;
+    // Verify magic link JWT signature and expiry
+    const rawPayload = await verify(magicToken, c.env.JWT_SECRET);
 
-    if (!email) {
+    // Validate payload structure with Zod
+    const parseResult = magicLinkPayloadSchema.safeParse(rawPayload);
+    if (!parseResult.success) {
+      console.warn('Invalid magic link payload structure:', parseResult.error);
       return c.json({ error: 'Invalid token' }, 400);
     }
+
+    const { email } = parseResult.data;
 
     const db = getDb(c.env.DB);
 

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { inArray } from 'drizzle-orm';
 import type { Env } from '@/types';
 import { getDb, games } from '@/lib/db';
 import { requireAdmin } from '@/middleware/auth';
@@ -33,7 +34,29 @@ bggRouter.get(
         fetchThumbnails: false,
       });
 
-      return c.json(results);
+      // Check which games are already imported
+      const bggIds = results.map((r) => r.id).filter(Boolean);
+      const db = getDb(c.env.DB);
+
+      let importedBggIds = new Set<string>();
+      if (bggIds.length > 0) {
+        const existingGames = await db
+          .select({ bggId: games.bggId })
+          .from(games)
+          .where(inArray(games.bggId, bggIds));
+
+        importedBggIds = new Set(
+          existingGames.map((g) => g.bggId).filter((id): id is string => id !== null)
+        );
+      }
+
+      // Add isImported flag to results
+      const resultsWithStatus = results.map((game) => ({
+        ...game,
+        isImported: importedBggIds.has(game.id),
+      }));
+
+      return c.json(resultsWithStatus);
     } catch (error) {
       console.error('BGG search failed:', error);
       return c.json({ error: 'Failed to search BoardGameGeek' }, 500);
@@ -113,6 +136,7 @@ bggRouter.post(
           year,
           slug,
           imageUrl: uploadedImageUrl,
+          bggId, // Store BGG ID for tracking imported games
           bggUrl: `https://boardgamegeek.com/boardgame/${bggId}`,
           createdAt: new Date(),
           updatedAt: new Date(),

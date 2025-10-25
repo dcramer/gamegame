@@ -4,6 +4,10 @@ import { requireAdmin } from '@/middleware/auth';
 
 const uploadRouter = new Hono<{ Bindings: Env }>();
 
+// Maximum file sizes
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_PDF_SIZE = 100 * 1024 * 1024; // 100MB
+
 /**
  * Image upload endpoint for game box art
  * Accepts image files and uploads to R2 storage
@@ -22,9 +26,15 @@ uploadRouter.post('/upload', requireAdmin, async (c) => {
       return c.json({ error: 'File must be an image' }, 400);
     }
 
-    // Generate unique filename
-    const extension = file.name.split('.').pop() || 'jpg';
-    const filename = `games/uploaded-${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${extension}`;
+    // Validate file size
+    if (file.size > MAX_IMAGE_SIZE) {
+      return c.json({ error: `Image must be less than ${MAX_IMAGE_SIZE / 1024 / 1024}MB` }, 400);
+    }
+
+    // Generate unique filename with safe extension extraction
+    const nameParts = file.name ? file.name.split('.') : [];
+    const extension = nameParts.length > 1 ? nameParts[nameParts.length - 1] : 'jpg';
+    const filename = `games/uploaded-${Date.now()}-${crypto.randomUUID()}.${extension}`;
 
     // Read file data
     const arrayBuffer = await file.arrayBuffer();
@@ -57,9 +67,9 @@ uploadRouter.post('/upload', requireAdmin, async (c) => {
 /**
  * Generic file upload endpoint with type filtering
  * Query param 'type' determines allowed content types:
- * - type=image: Only images
- * - type=pdf: Only PDF files
- * - default: All types allowed
+ * - type=image: Only images (max 10MB)
+ * - type=pdf: Only PDF files (max 100MB)
+ * - default: All types allowed (max 100MB)
  */
 uploadRouter.post('/', requireAdmin, async (c) => {
   try {
@@ -79,10 +89,17 @@ uploadRouter.post('/', requireAdmin, async (c) => {
       return c.json({ error: 'File must be a PDF' }, 400);
     }
 
-    // Generate unique filename
-    const extension = file.name.split('.').pop() || 'bin';
+    // Validate file size
+    const maxSize = type === 'image' ? MAX_IMAGE_SIZE : MAX_PDF_SIZE;
+    if (file.size > maxSize) {
+      return c.json({ error: `File must be less than ${maxSize / 1024 / 1024}MB` }, 400);
+    }
+
+    // Generate unique filename with safe extension extraction
+    const nameParts = file.name ? file.name.split('.') : [];
+    const extension = nameParts.length > 1 ? nameParts[nameParts.length - 1] : 'bin';
     const prefix = type === 'image' ? 'games' : 'uploads';
-    const filename = `${prefix}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${extension}`;
+    const filename = `${prefix}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
 
     // Read file data
     const arrayBuffer = await file.arrayBuffer();

@@ -6,7 +6,7 @@ import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
 import type { Env } from './types';
 import type { ExportedHandler } from '@cloudflare/workers-types';
-import { auth } from './middleware/auth';
+import { auth, type AuthUser } from './middleware/auth';
 import { RESOURCE_SOURCE_FILENAME } from './lib/services/r2-storage';
 
 // Import API routes
@@ -19,13 +19,41 @@ import attachmentsRouter from './routes/api/attachments';
 import healthRouter from './routes/api/health';
 import queueHandler from './workers/resource-processor';
 
-const app = new Hono<{ Bindings: Env }>();
+type Variables = {
+  user?: AuthUser;
+};
+
+const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // Global middleware
 app.use('*', logger());
-app.use('*', cors());
+app.use('*', cors({
+  origin: (origin) => {
+    // Allow localhost for development
+    if (!origin || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return origin || '*';
+    }
+    // Add your production domains here
+    const allowedOrigins = [
+      'https://gamegame.pages.dev',
+      'https://www.gamegame.app',
+      'https://gamegame.app',
+    ];
+    return allowedOrigins.includes(origin) ? origin : null;
+  },
+  credentials: true,
+}));
 app.use('*', prettyJSON());
-app.use('*', auth); // Add user to context if authenticated
+// Auth middleware - skip for static assets
+app.use('*', async (c, next) => {
+  // Skip auth for static assets and health checks
+  if (c.req.path.startsWith('/assets/') ||
+      c.req.path.startsWith('/uploads/') ||
+      c.req.path === '/health') {
+    return next();
+  }
+  return auth(c, next);
+});
 
 // Health check
 app.get('/health', (c) => {
@@ -50,10 +78,23 @@ app.get('/assets/*', async (c) => {
   return c.env.ASSETS.fetch(c.req.url);
 });
 
-async function serveR2Object(c: Context<{ Bindings: Env }>, key: string) {
-  if (!key || key.includes('..')) {
+async function serveR2Object(c: Context<{ Bindings: Env; Variables: Variables }>, key: string) {
+  // Decode URL encoding first to catch encoded path traversal attempts
+  const decodedKey = decodeURIComponent(key);
+
+  // Reject dangerous patterns: empty, path traversal, absolute paths, backslashes
+  if (!decodedKey ||
+      decodedKey.includes('..') ||
+      decodedKey.startsWith('/') ||
+      decodedKey.includes('\\')) {
     return c.json({ error: 'Invalid key' }, 400);
   }
+
+  // Normalize to prevent /./ patterns and multiple slashes
+  const normalizedKey = decodedKey.replace(/\/+/g, '/').replace(/\/\./g, '/');
+
+  // Use normalized key for all operations
+  key = normalizedKey;
 
   let object = await c.env.FILES.get(key);
 
@@ -109,7 +150,8 @@ async function serveR2Object(c: Context<{ Bindings: Env }>, key: string) {
     return new Response(null, { status: 200, headers });
   }
 
-  return new Response(object.body, { headers });
+  // Cast needed due to ReadableStream type mismatch between Workers and DOM types
+  return new Response(object.body as BodyInit, { headers });
 }
 
 async function findAttachmentVariantKey(bucket: R2Bucket, key: string): Promise<string | null> {
@@ -153,9 +195,8 @@ app.get('*', async (c) => {
 
 export const workerApp = app;
 
-const worker: ExportedHandler<Env> = {
-  fetch: (request, env, ctx) => app.fetch(request, env, ctx),
+export default {
+  // @ts-expect-error - Hono's fetch signature (with optional params) is compatible but doesn't match ExportedHandler's exact type
+  fetch: app.fetch,
   queue: queueHandler.queue,
-};
-
-export default worker;
+} satisfies ExportedHandler<Env>;

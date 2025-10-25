@@ -2,7 +2,7 @@ import type { R2Bucket } from '@cloudflare/workers-types';
 
 export interface UploadedImage {
   id: string;
-  url: string;
+  r2Key: string; // R2 storage key
   mimeType: string;
   originalFilename: string;
   pageNumber?: number;
@@ -21,13 +21,40 @@ export interface UploadedImage {
  */
 export const RESOURCE_SOURCE_FILENAME = 'source.pdf';
 
-export function buildResourceSourceUrl(resourceId: string): string {
-  return `/uploads/resources/${resourceId}`;
+/**
+ * Convert R2 key to public URL
+ */
+export function r2KeyToUrl(r2Key: string): string {
+  return `/uploads/${r2Key}`;
 }
 
-export function buildAttachmentUrl(resourceId: string, attachmentId: string, ext: string): string {
+/**
+ * Build R2 key for a resource source PDF
+ */
+export function buildResourceSourceKey(resourceId: string): string {
+  return `resources/${resourceId}/${RESOURCE_SOURCE_FILENAME}`;
+}
+
+/**
+ * Build R2 key for an attachment
+ */
+export function buildAttachmentKey(resourceId: string, attachmentId: string, ext: string): string {
   const normalizedExt = ext.toLowerCase();
-  return `/uploads/resources/${resourceId}/attachments/${attachmentId}.${normalizedExt}`;
+  return `resources/${resourceId}/attachments/${attachmentId}.${normalizedExt}`;
+}
+
+/**
+ * Build URL for a resource source PDF (deprecated - use r2KeyToUrl instead)
+ */
+export function buildResourceSourceUrl(resourceId: string): string {
+  return r2KeyToUrl(buildResourceSourceKey(resourceId));
+}
+
+/**
+ * Build URL for an attachment (deprecated - use r2KeyToUrl instead)
+ */
+export function buildAttachmentUrl(resourceId: string, attachmentId: string, ext: string): string {
+  return r2KeyToUrl(buildAttachmentKey(resourceId, attachmentId, ext));
 }
 
 export async function uploadImageToR2(
@@ -70,7 +97,7 @@ export async function uploadImageToR2(
 
     return {
       id: cleanId,
-      url: buildAttachmentUrl(resourceId, cleanId, ext),
+      r2Key: key,
       mimeType,
       originalFilename: metadata.originalFilename ?? cleanId,
       pageNumber: metadata.pageNumber,
