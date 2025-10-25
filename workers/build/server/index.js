@@ -65,8 +65,11 @@ const gameSchema = z.object({
   slug: z.string(),
   year: z.number().nullable().optional(),
   imageUrl: z.string().nullable(),
+  bggId: z.string().nullable(),
   bggUrl: z.string().nullable(),
-  resourceCount: z.number().optional()
+  resourceCount: z.number().optional(),
+  createdAt: timestampSchema.optional(),
+  updatedAt: timestampSchema.optional()
 });
 const gamesListSchema = z.array(gameSchema);
 const bggGameSchema = z.object({
@@ -176,9 +179,18 @@ const chatMessageSchema = z.object({
   // Optional for user messages
   role: z.string(),
   // Accept any string, AI SDK will validate
-  content: z.string()
+  // Content can be string, array of parts, or undefined (if using 'parts' field)
+  content: z.union([
+    z.string(),
+    z.array(z.any())
+  ]).optional(),
+  // AI SDK v5 may use 'parts' internally (from useChat hook)
+  parts: z.array(z.any()).optional()
   // Allow any other fields the AI SDK might expect
-}).passthrough();
+}).passthrough().refine(
+  (msg) => msg.content !== void 0 || msg.parts !== void 0,
+  { message: "Message must have either 'content' or 'parts' field" }
+);
 z.object({
   messages: z.array(chatMessageSchema).min(1)
 });
@@ -843,7 +855,7 @@ const resources = sqliteTable("resources", {
   processedAt: integer("processed_at", { mode: "timestamp" }),
   status: text("status").notNull().default("ready"),
   currentJobId: text("current_job_id"),
-  processingStage: text("processing_stage").notNull().default("ready"),
+  processingStage: text("processing_stage").default("ready"),
   processingMetadata: text("processing_metadata"),
   description: text("description"),
   // Denormalized stats
@@ -986,33 +998,35 @@ const games = UNSAFE_withComponentProps(function Games() {
         children: "Select your game to start getting answers about the rules."
       })]
     }), /* @__PURE__ */ jsxs("div", {
-      className: "flex flex-col gap-4",
+      className: "flex flex-col gap-6",
       children: [/* @__PURE__ */ jsx(Input, {
         placeholder: "Search",
         onChange: handleSearch
       }), /* @__PURE__ */ jsx("div", {
-        className: "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6",
+        className: "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8",
         children: matchingGames.map((game) => /* @__PURE__ */ jsxs(Card, {
-          className: "relative rounded-none lg:rounded hover:ring-ring hover:ring-offset-2 ring-offset-background hover:ring-2",
-          children: [/* @__PURE__ */ jsx(CardContent, {
-            className: "flex flex-col items-center",
-            children: /* @__PURE__ */ jsx("div", {
-              className: "w-full aspect-[3/2] overflow-hidden relative bg-muted flex items-center justify-center",
-              children: game.imageUrl && !imageErrors.has(game.id) ? /* @__PURE__ */ jsx("img", {
+          className: "relative rounded-lg overflow-hidden border-2 border-border hover:border-primary hover:scale-105 transition-all duration-200 hover:shadow-2xl hover:shadow-primary/20 group",
+          children: [/* @__PURE__ */ jsx("div", {
+            className: "w-full aspect-[3/2] overflow-hidden relative bg-muted flex items-center justify-center",
+            children: game.imageUrl && !imageErrors.has(game.id) ? /* @__PURE__ */ jsxs(Fragment, {
+              children: [/* @__PURE__ */ jsx("img", {
                 src: game.imageUrl,
                 alt: game.name,
-                className: "w-full h-full object-cover object-top",
+                className: "w-full h-full object-cover object-top group-hover:scale-110 transition-transform duration-200",
                 onError: () => {
                   setImageErrors((prev) => new Set(prev).add(game.id));
                 }
-              }) : /* @__PURE__ */ jsx("div", {
-                className: "text-4xl text-muted-foreground",
-                children: "🎲"
-              })
+              }), /* @__PURE__ */ jsx("div", {
+                className: "absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+              })]
+            }) : /* @__PURE__ */ jsx("div", {
+              className: "text-4xl text-muted-foreground",
+              children: "🎲"
             })
           }), /* @__PURE__ */ jsx(CardHeader, {
+            className: "py-4",
             children: /* @__PURE__ */ jsx(CardTitle, {
-              className: "text-center text-2xl",
+              className: "text-center text-xl leading-tight",
               children: game.name
             })
           }), /* @__PURE__ */ jsx(Link, {
@@ -2063,7 +2077,7 @@ const admin = UNSAFE_withComponentProps(function AdminGames() {
                 className: "font-medium align-middle",
                 children: [/* @__PURE__ */ jsx(Link, {
                   to: `/admin/games/${game.id}`,
-                  className: "hover:underline",
+                  className: "hover:underline text-lg",
                   children: game.name
                 }), game.bggUrl && /* @__PURE__ */ jsx("div", {
                   className: "text-xs text-muted-foreground mt-1",
@@ -2292,7 +2306,7 @@ const TabsList = React.forwardRef(({ className, ...props }, ref) => /* @__PURE__
   {
     ref,
     className: cn(
-      "inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground",
+      "flex items-center gap-6 border-b border-border",
       className
     ),
     ...props
@@ -2305,8 +2319,8 @@ const TabsTrigger = React.forwardRef(
     {
       ref,
       className: cn(
-        "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
-        active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:bg-background/50",
+        "inline-flex items-center justify-center whitespace-nowrap px-1 pb-3 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border-b-2 -mb-[1px]",
+        active ? "text-foreground border-primary" : "text-muted-foreground border-transparent hover:text-foreground hover:border-border",
         className
       ),
       ...props
@@ -2389,7 +2403,8 @@ const admin_games_$gameId = UNSAFE_withComponentProps(function AdminGameLayout()
     addToast
   } = useFlashNotifications();
   const isAttachmentsTab = location.pathname.endsWith("/attachments");
-  const activeTab = isAttachmentsTab ? "attachments" : "details";
+  const isResourcesTab = location.pathname.endsWith("/resources");
+  const activeTab = isAttachmentsTab ? "attachments" : isResourcesTab ? "resources" : "details";
   const handleReprocessAll = async () => {
     if (!confirm(`Reprocess all ${resources2.length} resources for "${game.name}"?
 
@@ -2419,6 +2434,34 @@ This will re-extract PDFs, re-analyze images, and re-embed all content.`)) {
     } catch (error) {
       console.error("Reprocess all error:", error);
       addToast("error", "Failed to reprocess resources");
+    }
+  };
+  const handleSyncFromBGG = async () => {
+    if (!game.bggId) {
+      addToast("error", "This game does not have a BGG ID");
+      return;
+    }
+    if (!confirm(`Sync "${game.name}" from BoardGameGeek?
+
+This will update the game name, year, and image from BGG.`)) {
+      return;
+    }
+    try {
+      const response = await apiClient.fetch(`/games/${gameId}/sync-from-bgg`, {
+        method: "POST"
+      });
+      if (response.ok) {
+        addToast("success", `Synced ${game.name} from BoardGameGeek`);
+        window.location.reload();
+      } else {
+        const errorData = await response.json().catch(() => ({
+          error: "Unknown error"
+        }));
+        addToast("error", `Failed to sync from BGG: ${errorData.error || "Unknown error"}`);
+      }
+    } catch (error) {
+      console.error("Sync from BGG error:", error);
+      addToast("error", "Failed to sync from BoardGameGeek. Please try again.");
     }
   };
   const handleDeleteGame = async () => {
@@ -2469,77 +2512,105 @@ This action cannot be undone.`;
       }],
       title: game.name,
       stats: resources2.length > 0 ? `${resources2.length} ${resources2.length === 1 ? "resource" : "resources"}` : void 0
-    }), /* @__PURE__ */ jsxs("div", {
-      className: "grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-8",
-      children: [/* @__PURE__ */ jsx("div", {
-        children: /* @__PURE__ */ jsxs(Tabs, {
-          children: [/* @__PURE__ */ jsxs(TabsList, {
-            className: "mb-6",
-            children: [/* @__PURE__ */ jsx(TabsTrigger, {
-              active: activeTab === "details",
-              onClick: () => navigate(`/admin/games/${gameId}`),
-              children: "Details"
-            }), /* @__PURE__ */ jsx(TabsTrigger, {
-              active: activeTab === "attachments",
-              onClick: () => navigate(`/admin/games/${gameId}/attachments`),
-              children: "Attachments"
-            })]
-          }), /* @__PURE__ */ jsx(TabsContent, {
+    }), /* @__PURE__ */ jsxs(Tabs, {
+      children: [/* @__PURE__ */ jsxs(TabsList, {
+        className: "mb-8 -mx-4 px-4",
+        children: [/* @__PURE__ */ jsx(TabsTrigger, {
+          active: activeTab === "details",
+          onClick: () => navigate(`/admin/games/${gameId}`),
+          children: "Details"
+        }), /* @__PURE__ */ jsx(TabsTrigger, {
+          active: activeTab === "resources",
+          onClick: () => navigate(`/admin/games/${gameId}/resources`),
+          children: "Resources"
+        }), /* @__PURE__ */ jsx(TabsTrigger, {
+          active: activeTab === "attachments",
+          onClick: () => navigate(`/admin/games/${gameId}/attachments`),
+          children: "Attachments"
+        })]
+      }), /* @__PURE__ */ jsxs("div", {
+        className: "grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-8",
+        children: [/* @__PURE__ */ jsx("div", {
+          children: /* @__PURE__ */ jsx(TabsContent, {
+            className: "mt-0",
             children: /* @__PURE__ */ jsx(Outlet, {
               context: {
                 game,
                 resources: resources2
               }
             })
-          })]
-        })
-      }), /* @__PURE__ */ jsxs("div", {
-        className: "lg:sticky lg:top-8 lg:self-start space-y-8",
-        children: [resources2.length > 0 && /* @__PURE__ */ jsxs("div", {
-          children: [/* @__PURE__ */ jsx("h3", {
-            className: "text-sm font-semibold mb-3",
-            children: "Reprocessing"
-          }), /* @__PURE__ */ jsx("button", {
-            onClick: handleReprocessAll,
-            className: "w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
-            children: /* @__PURE__ */ jsxs("div", {
-              className: "flex items-start gap-3",
-              children: [/* @__PURE__ */ jsx(RefreshCw, {
-                className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
-              }), /* @__PURE__ */ jsxs("div", {
-                className: "flex-1 min-w-0",
-                children: [/* @__PURE__ */ jsx("div", {
-                  className: "font-medium text-sm mb-1",
-                  children: "Reprocess All Resources"
-                }), /* @__PURE__ */ jsxs("div", {
-                  className: "text-xs text-muted-foreground leading-relaxed",
-                  children: ["Re-extract all PDFs, re-analyze images, and re-embed content for all ", resources2.length, " ", resources2.length === 1 ? "resource" : "resources"]
-                })]
-              })]
-            })
-          })]
+          })
         }), /* @__PURE__ */ jsxs("div", {
-          children: [/* @__PURE__ */ jsx("h3", {
-            className: "text-sm font-semibold mb-3",
-            children: "Danger Zone"
-          }), /* @__PURE__ */ jsx("button", {
-            onClick: handleDeleteGame,
-            className: "w-full text-left p-3 rounded-lg border border-red-500/50 bg-card hover:bg-red-500/10 hover:border-red-500 transition-colors group",
-            children: /* @__PURE__ */ jsxs("div", {
-              className: "flex items-start gap-3",
-              children: [/* @__PURE__ */ jsx(Trash2, {
-                className: "h-4 w-4 mt-0.5 text-red-500"
-              }), /* @__PURE__ */ jsxs("div", {
-                className: "flex-1 min-w-0",
-                children: [/* @__PURE__ */ jsx("div", {
-                  className: "font-medium text-sm mb-1 text-red-500",
-                  children: "Delete Game"
-                }), /* @__PURE__ */ jsx("div", {
-                  className: "text-xs text-muted-foreground leading-relaxed",
-                  children: "Permanently delete this game and all associated resources"
+          className: "lg:sticky lg:top-8 lg:self-start space-y-8",
+          children: [resources2.length > 0 && /* @__PURE__ */ jsxs("div", {
+            children: [/* @__PURE__ */ jsx("h3", {
+              className: "text-sm font-semibold mb-3",
+              children: "Reprocessing"
+            }), /* @__PURE__ */ jsx("button", {
+              onClick: handleReprocessAll,
+              className: "w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
+              children: /* @__PURE__ */ jsxs("div", {
+                className: "flex items-start gap-3",
+                children: [/* @__PURE__ */ jsx(RefreshCw, {
+                  className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
+                }), /* @__PURE__ */ jsxs("div", {
+                  className: "flex-1 min-w-0",
+                  children: [/* @__PURE__ */ jsx("div", {
+                    className: "font-medium text-sm mb-1",
+                    children: "Reprocess All Resources"
+                  }), /* @__PURE__ */ jsxs("div", {
+                    className: "text-xs text-muted-foreground leading-relaxed",
+                    children: ["Re-extract all PDFs, re-analyze images, and re-embed content for all ", resources2.length, " ", resources2.length === 1 ? "resource" : "resources"]
+                  })]
                 })]
-              })]
-            })
+              })
+            })]
+          }), game.bggId && /* @__PURE__ */ jsxs("div", {
+            children: [/* @__PURE__ */ jsx("h3", {
+              className: "text-sm font-semibold mb-3",
+              children: "BoardGameGeek"
+            }), /* @__PURE__ */ jsx("button", {
+              onClick: handleSyncFromBGG,
+              className: "w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
+              children: /* @__PURE__ */ jsxs("div", {
+                className: "flex items-start gap-3",
+                children: [/* @__PURE__ */ jsx(RefreshCw, {
+                  className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
+                }), /* @__PURE__ */ jsxs("div", {
+                  className: "flex-1 min-w-0",
+                  children: [/* @__PURE__ */ jsx("div", {
+                    className: "font-medium text-sm mb-1",
+                    children: "Sync from BGG"
+                  }), /* @__PURE__ */ jsx("div", {
+                    className: "text-xs text-muted-foreground leading-relaxed",
+                    children: "Update game name, year, and image from BoardGameGeek"
+                  })]
+                })]
+              })
+            })]
+          }), /* @__PURE__ */ jsxs("div", {
+            children: [/* @__PURE__ */ jsx("h3", {
+              className: "text-sm font-semibold mb-3",
+              children: "Danger Zone"
+            }), /* @__PURE__ */ jsx("button", {
+              onClick: handleDeleteGame,
+              className: "w-full text-left p-3 rounded-lg border border-red-500/50 bg-card hover:bg-red-500/10 hover:border-red-500 transition-colors group",
+              children: /* @__PURE__ */ jsxs("div", {
+                className: "flex items-start gap-3",
+                children: [/* @__PURE__ */ jsx(Trash2, {
+                  className: "h-4 w-4 mt-0.5 text-red-500"
+                }), /* @__PURE__ */ jsxs("div", {
+                  className: "flex-1 min-w-0",
+                  children: [/* @__PURE__ */ jsx("div", {
+                    className: "font-medium text-sm mb-1 text-red-500",
+                    children: "Delete Game"
+                  }), /* @__PURE__ */ jsx("div", {
+                    className: "text-xs text-muted-foreground leading-relaxed",
+                    children: "Permanently delete this game and all associated resources"
+                  })]
+                })]
+              })
+            })]
           })]
         })]
       })]
@@ -2605,7 +2676,7 @@ const admin_games_$gameId_details = UNSAFE_withComponentProps(function GameDetai
   const {
     gameId
   } = useParams();
-  const navigate = useNavigate();
+  useNavigate();
   const {
     game: initialGame,
     resources: initialResources
@@ -2705,17 +2776,17 @@ const admin_games_$gameId_details = UNSAFE_withComponentProps(function GameDetai
       }
     }
   };
-  const handleDragOver = useCallback((e) => {
+  useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(true);
   }, []);
-  const handleDragLeave = useCallback((e) => {
+  useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
   }, []);
-  const handleDrop = useCallback((e) => {
+  useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
@@ -2724,60 +2795,11 @@ const admin_games_$gameId_details = UNSAFE_withComponentProps(function GameDetai
       handleResourceFiles(files);
     }
   }, [gameId]);
-  const triggerFileInput = (e) => {
-    e.stopPropagation();
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".pdf";
-    input.multiple = true;
-    input.onchange = (e2) => {
-      const files = Array.from(e2.target.files || []);
-      handleResourceFiles(files);
-    };
-    input.click();
-  };
-  const handleReprocess = async (resourceId, resourceName) => {
-    try {
-      const response = await apiClient.fetch(`/resources/${resourceId}/reprocess`, {
-        method: "POST"
-      });
-      if (response.ok) {
-        const data = uploadResponseSchema.parse(await response.json());
-        addJobNotification(data.jobId, "Full Reprocess", `Reprocessing ${resourceName}`);
-      } else {
-        addToast("error", "Failed to reprocess resource");
-      }
-    } catch (error) {
-      console.error("Reprocess error:", error);
-      addToast("error", "Failed to reprocess resource");
-    }
-  };
-  const handleDelete = async (resourceId, resourceName) => {
-    if (!confirm(`Delete resource "${resourceName}"?`)) return;
-    try {
-      const response = await apiClient.fetch(`/resources/${resourceId}`, {
-        method: "DELETE"
-      });
-      if (response.ok) {
-        setResources(resources2.filter((r) => r.id !== resourceId));
-        addToast("success", `Deleted ${resourceName}`);
-      } else {
-        addToast("error", "Failed to delete resource");
-      }
-    } catch (error) {
-      console.error("Delete error:", error);
-      addToast("error", "Failed to delete resource");
-    }
-  };
-  return /* @__PURE__ */ jsxs("div", {
-    className: "space-y-12",
-    children: [/* @__PURE__ */ jsxs(Card, {
+  return /* @__PURE__ */ jsx("div", {
+    children: /* @__PURE__ */ jsx(Card, {
       className: "max-w-2xl",
-      children: [/* @__PURE__ */ jsx(CardHeader, {
-        children: /* @__PURE__ */ jsx(CardTitle, {
-          children: "Game Details"
-        })
-      }), /* @__PURE__ */ jsx(CardContent, {
+      children: /* @__PURE__ */ jsx(CardContent, {
+        className: "pt-6",
         children: /* @__PURE__ */ jsxs("form", {
           onSubmit: handleUpdateGame,
           className: "space-y-6",
@@ -2805,6 +2827,45 @@ const admin_games_$gameId_details = UNSAFE_withComponentProps(function GameDetai
               value: gameBggUrl,
               onChange: (e) => setGameBggUrl(e.target.value),
               placeholder: "e.g. https://boardgamegeek.com/boardgame/13/catan"
+            })]
+          }), /* @__PURE__ */ jsxs("div", {
+            className: "space-y-2",
+            children: [/* @__PURE__ */ jsx(Label, {
+              htmlFor: "bggId",
+              children: "BGG ID"
+            }), /* @__PURE__ */ jsx(Input, {
+              id: "bggId",
+              type: "text",
+              value: game.bggId || "N/A",
+              readOnly: true,
+              className: "bg-muted cursor-not-allowed"
+            })]
+          }), /* @__PURE__ */ jsxs("div", {
+            className: "grid grid-cols-2 gap-4",
+            children: [/* @__PURE__ */ jsxs("div", {
+              className: "space-y-2",
+              children: [/* @__PURE__ */ jsx(Label, {
+                htmlFor: "createdAt",
+                children: "Created"
+              }), /* @__PURE__ */ jsx(Input, {
+                id: "createdAt",
+                type: "text",
+                value: game.createdAt ? new Date(game.createdAt).toLocaleString() : "N/A",
+                readOnly: true,
+                className: "bg-muted cursor-not-allowed"
+              })]
+            }), /* @__PURE__ */ jsxs("div", {
+              className: "space-y-2",
+              children: [/* @__PURE__ */ jsx(Label, {
+                htmlFor: "updatedAt",
+                children: "Last Updated"
+              }), /* @__PURE__ */ jsx(Input, {
+                id: "updatedAt",
+                type: "text",
+                value: game.updatedAt ? new Date(game.updatedAt).toLocaleString() : "N/A",
+                readOnly: true,
+                className: "bg-muted cursor-not-allowed"
+              })]
             })]
           }), /* @__PURE__ */ jsxs("div", {
             className: "space-y-2",
@@ -2879,134 +2940,254 @@ const admin_games_$gameId_details = UNSAFE_withComponentProps(function GameDetai
             children: "Update Game"
           })]
         })
-      })]
-    }), /* @__PURE__ */ jsxs("div", {
-      children: [/* @__PURE__ */ jsx("h2", {
-        className: "text-2xl font-bold mb-6",
-        children: "Resources"
-      }), /* @__PURE__ */ jsx("div", {
-        onDragOver: handleDragOver,
-        onDragLeave: handleDragLeave,
-        onDrop: handleDrop,
-        children: resources2.length === 0 ? /* @__PURE__ */ jsx("div", {
-          className: `flex flex-1 flex-col gap-6 items-center justify-center rounded-lg border ${isDragging ? "border-primary bg-primary/10" : "border-dashed"} shadow-sm p-6 bg-muted min-h-64 cursor-pointer hover:bg-muted/80 transition-colors`,
-          onClick: triggerFileInput,
-          children: /* @__PURE__ */ jsxs("div", {
-            className: "flex flex-col items-center gap-1 text-center",
-            children: [/* @__PURE__ */ jsx("h3", {
-              className: "text-2xl font-bold tracking-tight",
-              children: "There are no resources"
-            }), /* @__PURE__ */ jsx("p", {
-              className: "text-sm text-muted-foreground",
-              children: "Drag a PDF file of a rulebook here, or click to browse files."
-            })]
-          })
-        }) : /* @__PURE__ */ jsxs("div", {
-          className: "flex flex-col gap-4",
-          children: [/* @__PURE__ */ jsx("div", {
-            className: "flex justify-end",
-            children: /* @__PURE__ */ jsx(Button, {
-              onClick: triggerFileInput,
-              children: "Add Resource"
-            })
-          }), /* @__PURE__ */ jsxs(Table, {
-            children: [/* @__PURE__ */ jsx(TableHeader, {
-              children: /* @__PURE__ */ jsxs(TableRow, {
-                children: [/* @__PURE__ */ jsx(TableHead, {
-                  children: "Resource"
-                }), /* @__PURE__ */ jsx(TableHead, {
-                  className: "w-[180px] text-center",
-                  children: "Last Processed"
-                }), /* @__PURE__ */ jsx(TableHead, {
-                  className: "w-[60px] text-center",
-                  children: "Version"
-                }), /* @__PURE__ */ jsx(TableHead, {
-                  className: "w-[120px] text-center",
-                  children: "Actions"
-                })]
-              })
-            }), /* @__PURE__ */ jsx(TableBody, {
-              children: resources2.map((resource) => {
-                const stats = [resource.pageCount && `${resource.pageCount} pages`, resource.imageCount > 0 && `${resource.imageCount} images`, resource.wordCount > 0 && `${(resource.wordCount / 1e3).toFixed(1)}k words`].filter(Boolean).join(", ");
-                return /* @__PURE__ */ jsxs(TableRow, {
-                  className: "cursor-pointer hover:bg-muted/50",
-                  onClick: () => {
-                    navigate(`/admin/games/${gameId}/resources/${resource.id}`);
-                  },
-                  children: [/* @__PURE__ */ jsxs(TableCell, {
-                    children: [/* @__PURE__ */ jsx(Link, {
-                      to: `/admin/games/${gameId}/resources/${resource.id}`,
-                      className: "font-semibold hover:underline",
-                      onClick: (e) => e.stopPropagation(),
-                      children: resource.name
-                    }), stats && /* @__PURE__ */ jsx("div", {
-                      className: "text-xs text-muted-foreground mt-1",
-                      children: stats
-                    })]
-                  }), /* @__PURE__ */ jsx(TableCell, {
-                    className: "text-sm text-muted-foreground text-center align-middle",
-                    children: resource.processedAt ? new Date(resource.processedAt).toLocaleString() : "-"
-                  }), /* @__PURE__ */ jsx(TableCell, {
-                    className: "text-center align-middle",
-                    children: resource.version
-                  }), /* @__PURE__ */ jsx(TableCell, {
-                    className: "text-center align-middle",
-                    children: /* @__PURE__ */ jsxs("div", {
-                      className: "flex items-center justify-center gap-2",
-                      children: [/* @__PURE__ */ jsx(Button, {
-                        size: "sm",
-                        variant: "ghost",
-                        className: "h-8 w-8 p-0",
-                        onClick: (e) => {
-                          e.stopPropagation();
-                          handleReprocess(resource.id, resource.name);
-                        },
-                        title: "Reprocess",
-                        children: /* @__PURE__ */ jsx(RefreshCw, {
-                          className: "h-4 w-4"
-                        })
-                      }), /* @__PURE__ */ jsx(Button, {
-                        size: "sm",
-                        variant: "ghost",
-                        className: "h-8 w-8 p-0",
-                        asChild: true,
-                        title: "Download PDF",
-                        onClick: (e) => e.stopPropagation(),
-                        children: /* @__PURE__ */ jsx("a", {
-                          href: resource.url,
-                          target: "_blank",
-                          rel: "noopener noreferrer",
-                          children: /* @__PURE__ */ jsx(Download, {
-                            className: "h-4 w-4"
-                          })
-                        })
-                      }), /* @__PURE__ */ jsx(Button, {
-                        size: "sm",
-                        variant: "ghost",
-                        className: "h-8 w-8 p-0",
-                        onClick: (e) => {
-                          e.stopPropagation();
-                          handleDelete(resource.id, resource.name);
-                        },
-                        title: "Delete",
-                        children: /* @__PURE__ */ jsx(Trash2, {
-                          className: "h-4 w-4 text-red-500"
-                        })
-                      })]
-                    })
-                  })]
-                }, resource.id);
-              })
-            })]
-          })]
-        })
-      })]
-    })]
+      })
+    })
   });
 });
 const route9 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: admin_games_$gameId_details
+}, Symbol.toStringTag, { value: "Module" }));
+const admin_games_$gameId_resourcesList = UNSAFE_withComponentProps(function GameResourcesTab() {
+  const {
+    gameId
+  } = useParams();
+  const navigate = useNavigate();
+  const {
+    resources: initialResources
+  } = useOutletContext();
+  const [resources2, setResources] = useState(initialResources);
+  const [isDragging, setIsDragging] = useState(false);
+  const {
+    addJobNotification,
+    addToast
+  } = useFlashNotifications();
+  const handleResourceFiles = async (files) => {
+    if (!gameId) return;
+    for (const file of files) {
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("name", file.name);
+        const uploadResponse = await apiClient.fetch(`/games/${gameId}/resources`, {
+          method: "POST",
+          body: formData
+        });
+        if (uploadResponse.ok) {
+          const data = uploadResponseSchema.parse(await uploadResponse.json());
+          addJobNotification(data.jobId, "Upload Resource", `Processing ${file.name}`);
+          const newResource = {
+            id: data.resourceId,
+            gameId,
+            name: file.name,
+            url: "",
+            // Will be set after processing
+            version: 0,
+            status: "processing",
+            currentJobId: data.jobId,
+            processingStage: "ingest",
+            processedAt: null,
+            pageCount: null,
+            imageCount: 0,
+            wordCount: 0,
+            createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+            updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+          };
+          setResources((prev) => [...prev, newResource]);
+        } else {
+          addToast("error", `Failed to upload ${file.name}`);
+        }
+      } catch (error) {
+        console.error("Upload error:", error);
+        addToast("error", `Failed to upload ${file.name}`);
+      }
+    }
+  };
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+  const handleDragLeave = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      handleResourceFiles(files);
+    }
+  }, [gameId]);
+  const triggerFileInput = (e) => {
+    e.stopPropagation();
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".pdf,.txt,.md,.markdown,.docx,.doc,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff";
+    input.multiple = true;
+    input.onchange = (e2) => {
+      const files = Array.from(e2.target.files || []);
+      handleResourceFiles(files);
+    };
+    input.click();
+  };
+  const handleReprocess = async (resourceId, resourceName) => {
+    try {
+      const response = await apiClient.fetch(`/resources/${resourceId}/reprocess`, {
+        method: "POST"
+      });
+      if (response.ok) {
+        const data = uploadResponseSchema.parse(await response.json());
+        addJobNotification(data.jobId, "Full Reprocess", `Reprocessing ${resourceName}`);
+      } else {
+        addToast("error", "Failed to reprocess resource");
+      }
+    } catch (error) {
+      console.error("Reprocess error:", error);
+      addToast("error", "Failed to reprocess resource");
+    }
+  };
+  const handleDelete = async (resourceId, resourceName) => {
+    if (!confirm(`Delete resource "${resourceName}"?`)) return;
+    try {
+      const response = await apiClient.fetch(`/resources/${resourceId}`, {
+        method: "DELETE"
+      });
+      if (response.ok) {
+        setResources((prev) => prev.filter((r) => r.id !== resourceId));
+        addToast("success", `Deleted ${resourceName}`);
+      } else {
+        addToast("error", "Failed to delete resource");
+      }
+    } catch (error) {
+      console.error("Delete error:", error);
+      addToast("error", "Failed to delete resource");
+    }
+  };
+  return /* @__PURE__ */ jsx("div", {
+    onDragOver: handleDragOver,
+    onDragLeave: handleDragLeave,
+    onDrop: handleDrop,
+    children: resources2.length === 0 ? /* @__PURE__ */ jsx("div", {
+      className: `flex flex-1 flex-col gap-6 items-center justify-center rounded-lg border ${isDragging ? "border-primary bg-primary/10" : "border-dashed"} shadow-sm p-6 bg-muted min-h-64 cursor-pointer hover:bg-muted/80 transition-colors`,
+      onClick: triggerFileInput,
+      children: /* @__PURE__ */ jsxs("div", {
+        className: "flex flex-col items-center gap-1 text-center",
+        children: [/* @__PURE__ */ jsx("h3", {
+          className: "text-2xl font-bold tracking-tight",
+          children: "There are no resources"
+        }), /* @__PURE__ */ jsx("p", {
+          className: "text-sm text-muted-foreground",
+          children: "Drag a document, image, or text file here, or click to browse files."
+        })]
+      })
+    }) : /* @__PURE__ */ jsxs("div", {
+      className: "flex flex-col gap-4",
+      children: [/* @__PURE__ */ jsx("div", {
+        className: "flex justify-end",
+        children: /* @__PURE__ */ jsx(Button, {
+          onClick: triggerFileInput,
+          children: "Add Resource"
+        })
+      }), /* @__PURE__ */ jsxs(Table, {
+        children: [/* @__PURE__ */ jsx(TableHeader, {
+          children: /* @__PURE__ */ jsxs(TableRow, {
+            children: [/* @__PURE__ */ jsx(TableHead, {
+              children: "Resource"
+            }), /* @__PURE__ */ jsx(TableHead, {
+              className: "w-[180px] text-center",
+              children: "Last Processed"
+            }), /* @__PURE__ */ jsx(TableHead, {
+              className: "w-[60px] text-center",
+              children: "Version"
+            }), /* @__PURE__ */ jsx(TableHead, {
+              className: "w-[120px] text-center",
+              children: "Actions"
+            })]
+          })
+        }), /* @__PURE__ */ jsx(TableBody, {
+          children: resources2.map((resource) => {
+            const stats = [resource.pageCount && `${resource.pageCount} pages`, resource.imageCount > 0 && `${resource.imageCount} images`, resource.wordCount > 0 && `${(resource.wordCount / 1e3).toFixed(1)}k words`].filter(Boolean).join(", ");
+            return /* @__PURE__ */ jsxs(TableRow, {
+              className: "cursor-pointer hover:bg-muted/50",
+              onClick: () => {
+                navigate(`/admin/games/${gameId}/resources/${resource.id}`);
+              },
+              children: [/* @__PURE__ */ jsxs(TableCell, {
+                children: [/* @__PURE__ */ jsx(Link, {
+                  to: `/admin/games/${gameId}/resources/${resource.id}`,
+                  className: "font-semibold hover:underline",
+                  onClick: (e) => e.stopPropagation(),
+                  children: resource.name
+                }), stats && /* @__PURE__ */ jsx("div", {
+                  className: "text-xs text-muted-foreground mt-1",
+                  children: stats
+                })]
+              }), /* @__PURE__ */ jsx(TableCell, {
+                className: "text-sm text-muted-foreground text-center align-middle",
+                children: resource.processedAt ? new Date(resource.processedAt).toLocaleString() : "-"
+              }), /* @__PURE__ */ jsx(TableCell, {
+                className: "text-center align-middle",
+                children: resource.version
+              }), /* @__PURE__ */ jsx(TableCell, {
+                className: "text-center align-middle",
+                children: /* @__PURE__ */ jsxs("div", {
+                  className: "flex items-center justify-center gap-2",
+                  children: [/* @__PURE__ */ jsx(Button, {
+                    size: "sm",
+                    variant: "ghost",
+                    className: "h-8 w-8 p-0",
+                    onClick: (e) => {
+                      e.stopPropagation();
+                      handleReprocess(resource.id, resource.name);
+                    },
+                    title: "Reprocess",
+                    children: /* @__PURE__ */ jsx(RefreshCw, {
+                      className: "h-4 w-4"
+                    })
+                  }), /* @__PURE__ */ jsx(Button, {
+                    size: "sm",
+                    variant: "ghost",
+                    className: "h-8 w-8 p-0",
+                    asChild: true,
+                    title: "Download",
+                    onClick: (e) => e.stopPropagation(),
+                    children: /* @__PURE__ */ jsx("a", {
+                      href: resource.url,
+                      target: "_blank",
+                      rel: "noopener noreferrer",
+                      children: /* @__PURE__ */ jsx(Download, {
+                        className: "h-4 w-4"
+                      })
+                    })
+                  }), /* @__PURE__ */ jsx(Button, {
+                    size: "sm",
+                    variant: "ghost",
+                    className: "h-8 w-8 p-0",
+                    onClick: (e) => {
+                      e.stopPropagation();
+                      handleDelete(resource.id, resource.name);
+                    },
+                    title: "Delete",
+                    children: /* @__PURE__ */ jsx(Trash2, {
+                      className: "h-4 w-4 text-red-500"
+                    })
+                  })]
+                })
+              })]
+            }, resource.id);
+          })
+        })]
+      })]
+    })
+  });
+});
+const route10 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+  __proto__: null,
+  default: admin_games_$gameId_resourcesList
 }, Symbol.toStringTag, { value: "Module" }));
 const attachmentSchema = z.object({
   id: z.string(),
@@ -3124,7 +3305,7 @@ const admin_games_$gameId_attachments = UNSAFE_withComponentProps(function GameA
     }, resource.resourceId))]
   });
 });
-const route10 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route11 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: admin_games_$gameId_attachments,
   loader: loader$2
@@ -3144,72 +3325,10 @@ const admin_games_$gameId_edit = UNSAFE_withComponentProps(function EditGame() {
     replace: true
   });
 });
-const route11 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route12 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: admin_games_$gameId_edit
 }, Symbol.toStringTag, { value: "Module" }));
-function AttachmentList({ attachments: attachments2, gameId, resourceId }) {
-  if (attachments2.length === 0) {
-    return /* @__PURE__ */ jsx("div", { className: "text-sm text-muted-foreground", children: "No media attachments found for this resource." });
-  }
-  return /* @__PURE__ */ jsx("div", { className: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4", children: attachments2.map((attachment) => {
-    return /* @__PURE__ */ jsxs(
-      "div",
-      {
-        className: "border rounded-lg overflow-hidden hover:border-primary transition-colors group relative",
-        children: [
-          /* @__PURE__ */ jsx(
-            "a",
-            {
-              href: attachment.url,
-              target: "_blank",
-              rel: "noopener noreferrer",
-              className: "block",
-              children: attachment.type === "image" && attachment.mimeType?.startsWith("image/") ? /* @__PURE__ */ jsx("div", { className: "relative aspect-square bg-muted flex items-center justify-center", children: /* @__PURE__ */ jsx(
-                "img",
-                {
-                  src: attachment.url,
-                  alt: attachment.caption || attachment.originalFilename || "Attachment",
-                  className: "w-full h-full object-contain"
-                }
-              ) }) : /* @__PURE__ */ jsx("div", { className: "relative aspect-square bg-muted flex items-center justify-center", children: /* @__PURE__ */ jsx(FileIcon, { className: "h-12 w-12 text-muted-foreground" }) })
-            }
-          ),
-          /* @__PURE__ */ jsx(
-            Link,
-            {
-              to: `/admin/games/${gameId}/resources/${resourceId}/attachments/${attachment.id}`,
-              className: "absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-background/90 hover:bg-background border rounded-md p-1.5",
-              title: "Edit attachment",
-              children: /* @__PURE__ */ jsx(Pencil, { className: "h-4 w-4" })
-            }
-          ),
-          /* @__PURE__ */ jsxs("div", { className: "p-2 space-y-1", children: [
-            /* @__PURE__ */ jsx("div", { className: "flex items-center justify-between gap-1", children: attachment.pageNumber && /* @__PURE__ */ jsxs("p", { className: "text-xs text-muted-foreground", children: [
-              "Page ",
-              attachment.pageNumber
-            ] }) }),
-            attachment.caption && /* @__PURE__ */ jsx("p", { className: "text-xs line-clamp-2", title: attachment.caption, children: attachment.caption }),
-            attachment.originalFilename && /* @__PURE__ */ jsx(
-              "p",
-              {
-                className: "text-xs text-muted-foreground font-mono truncate",
-                title: attachment.originalFilename,
-                children: attachment.originalFilename
-              }
-            ),
-            attachment.width && attachment.height && /* @__PURE__ */ jsxs("p", { className: "text-xs text-muted-foreground", children: [
-              attachment.width,
-              " × ",
-              attachment.height
-            ] })
-          ] })
-        ]
-      },
-      attachment.id
-    );
-  }) });
-}
 const meta$1 = ({
   data
 }) => {
@@ -3225,7 +3344,7 @@ const meta$1 = ({
     noIndex: true
   });
 };
-const extendedResourceSchema = resourceSchema.extend({
+const extendedResourceSchema$1 = resourceSchema.extend({
   originalFilename: z.string().optional(),
   description: z.string().nullable().optional(),
   author: z.string().nullable().optional(),
@@ -3242,7 +3361,7 @@ async function loader$1({
   if (!attachmentsRes.ok) throw new Error("Failed to load attachments");
   if (!gameRes.ok) throw new Error("Game not found");
   const [resourceJson, attachmentsJson, gameJson] = await Promise.all([resourceRes.json(), attachmentsRes.json(), gameRes.json()]);
-  const resource = extendedResourceSchema.parse(resourceJson);
+  const resource = extendedResourceSchema$1.parse(resourceJson);
   const attachments2 = attachmentsListSchema$1.parse(attachmentsJson);
   const game = gameJson;
   return {
@@ -3251,16 +3370,316 @@ async function loader$1({
     game
   };
 }
-const admin_games_$gameId_resources_$resourceId = UNSAFE_withComponentProps(function AdminResourceDetail() {
+const admin_games_$gameId_resources_$resourceId = UNSAFE_withComponentProps(function AdminResourceLayout() {
   const {
     gameId,
     resourceId
   } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
   const {
-    resource: initialResource,
+    resource,
     attachments: attachments2,
     game
   } = useLoaderData();
+  const {
+    addToast,
+    addPendingJobNotification,
+    updatePendingJobWithId
+  } = useFlashNotifications();
+  const {
+    removeNotification
+  } = useNotifications();
+  const isAttachmentsTab = location.pathname.endsWith("/attachments");
+  const activeTab = isAttachmentsTab ? "attachments" : "details";
+  const handleReprocess = async (from = "cleanup") => {
+    const jobTitles = {
+      ingest: {
+        title: "Full Reprocess",
+        description: "Complete pipeline from scratch"
+      },
+      vision: {
+        title: "Improve Image Descriptions",
+        description: "Re-analyzing image content"
+      },
+      cleanup: {
+        title: "Clean Up Markdown",
+        description: "Fixing formatting issues"
+      },
+      metadata: {
+        title: "Regenerate Metadata",
+        description: "Updating document title and description"
+      },
+      embed: {
+        title: "Regenerate Embeddings",
+        description: "Updating search index"
+      }
+    };
+    const {
+      title,
+      description
+    } = jobTitles[from];
+    const notificationId = addPendingJobNotification(title, description);
+    try {
+      const url = from === "ingest" ? `/resources/${resourceId}/reprocess` : `/resources/${resourceId}/reprocess?from=${from}`;
+      const response = await apiClient.fetch(url, {
+        method: "POST"
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.jobId) {
+          updatePendingJobWithId(notificationId, data.jobId);
+        } else {
+          removeNotification(notificationId);
+          addToast("success", data.message || "Resource queued for reprocessing.");
+        }
+      } else {
+        removeNotification(notificationId);
+        const error = await response.json();
+        addToast("error", error.error || "Failed to reprocess resource");
+      }
+    } catch (error) {
+      console.error("Reprocess error:", error);
+      removeNotification(notificationId);
+      addToast("error", "Failed to reprocess resource");
+    }
+  };
+  const handleDelete = async () => {
+    if (!confirm(`Are you sure you want to delete "${resource.name}"? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      const response = await apiClient.fetch(`/resources/${resourceId}`, {
+        method: "DELETE"
+      });
+      if (response.ok) {
+        addToast("success", "Resource deleted successfully");
+        navigate(`/admin/games/${gameId}`);
+      } else {
+        const error = await response.json();
+        addToast("error", error.error || "Failed to delete resource");
+      }
+    } catch (error) {
+      console.error("Delete error:", error);
+      addToast("error", "Failed to delete resource");
+    }
+  };
+  const stats = [typeof resource.fragmentCount === "number" ? `${resource.fragmentCount.toLocaleString()} chunks` : null, typeof resource.pageCount === "number" ? `${resource.pageCount} pages` : null, resource.imageCount > 0 ? `${resource.imageCount} images` : null, resource.wordCount > 0 ? `${(resource.wordCount / 1e3).toFixed(1)}k words` : null].filter(Boolean).join(" • ");
+  return /* @__PURE__ */ jsxs(AdminLayout, {
+    children: [/* @__PURE__ */ jsx(PageHeader, {
+      breadcrumbs: [{
+        label: "Admin",
+        href: "/admin"
+      }, {
+        label: "Games",
+        href: "/admin"
+      }, {
+        label: game.name,
+        href: `/admin/games/${gameId}`
+      }, {
+        label: resource.name
+      }],
+      title: resource.name,
+      stats
+    }), /* @__PURE__ */ jsxs(Tabs, {
+      children: [/* @__PURE__ */ jsxs(TabsList, {
+        className: "mb-8 -mx-4 px-4",
+        children: [/* @__PURE__ */ jsx(TabsTrigger, {
+          active: activeTab === "details",
+          onClick: () => navigate(`/admin/games/${gameId}/resources/${resourceId}`),
+          children: "Details"
+        }), /* @__PURE__ */ jsx(TabsTrigger, {
+          active: activeTab === "attachments",
+          onClick: () => navigate(`/admin/games/${gameId}/resources/${resourceId}/attachments`),
+          children: "Attachments"
+        })]
+      }), /* @__PURE__ */ jsxs("div", {
+        className: "grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-8",
+        children: [/* @__PURE__ */ jsx("div", {
+          children: /* @__PURE__ */ jsx(TabsContent, {
+            className: "mt-0",
+            children: /* @__PURE__ */ jsx(Outlet, {
+              context: {
+                resource,
+                attachments: attachments2
+              }
+            })
+          })
+        }), /* @__PURE__ */ jsxs("div", {
+          className: "lg:sticky lg:top-8 lg:self-start space-y-8",
+          children: [/* @__PURE__ */ jsxs("div", {
+            children: [/* @__PURE__ */ jsx("h3", {
+              className: "text-sm font-semibold mb-3",
+              children: "Reprocessing"
+            }), /* @__PURE__ */ jsxs("div", {
+              className: "space-y-2",
+              children: [/* @__PURE__ */ jsx("button", {
+                onClick: () => handleReprocess("ingest"),
+                className: "w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
+                children: /* @__PURE__ */ jsxs("div", {
+                  className: "flex items-start gap-3",
+                  children: [/* @__PURE__ */ jsx(RefreshCw, {
+                    className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
+                  }), /* @__PURE__ */ jsxs("div", {
+                    className: "flex-1 min-w-0",
+                    children: [/* @__PURE__ */ jsx("div", {
+                      className: "font-medium text-sm mb-1",
+                      children: "Full Reprocess"
+                    }), /* @__PURE__ */ jsx("div", {
+                      className: "text-xs text-muted-foreground leading-relaxed",
+                      children: "Complete pipeline from scratch"
+                    })]
+                  })]
+                })
+              }), /* @__PURE__ */ jsx("button", {
+                onClick: () => handleReprocess("vision"),
+                className: "w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
+                children: /* @__PURE__ */ jsxs("div", {
+                  className: "flex items-start gap-3",
+                  children: [/* @__PURE__ */ jsx(RefreshCw, {
+                    className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
+                  }), /* @__PURE__ */ jsxs("div", {
+                    className: "flex-1 min-w-0",
+                    children: [/* @__PURE__ */ jsx("div", {
+                      className: "font-medium text-sm mb-1",
+                      children: "Improve Image Descriptions"
+                    }), /* @__PURE__ */ jsx("div", {
+                      className: "text-xs text-muted-foreground leading-relaxed",
+                      children: "Re-analyze image content"
+                    })]
+                  })]
+                })
+              }), /* @__PURE__ */ jsx("button", {
+                onClick: () => handleReprocess("cleanup"),
+                className: "w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
+                children: /* @__PURE__ */ jsxs("div", {
+                  className: "flex items-start gap-3",
+                  children: [/* @__PURE__ */ jsx(RefreshCw, {
+                    className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
+                  }), /* @__PURE__ */ jsxs("div", {
+                    className: "flex-1 min-w-0",
+                    children: [/* @__PURE__ */ jsx("div", {
+                      className: "font-medium text-sm mb-1",
+                      children: "Clean Up Markdown"
+                    }), /* @__PURE__ */ jsx("div", {
+                      className: "text-xs text-muted-foreground leading-relaxed",
+                      children: "Fix formatting issues"
+                    })]
+                  })]
+                })
+              }), /* @__PURE__ */ jsx("button", {
+                onClick: () => handleReprocess("metadata"),
+                className: "w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
+                children: /* @__PURE__ */ jsxs("div", {
+                  className: "flex items-start gap-3",
+                  children: [/* @__PURE__ */ jsx(RefreshCw, {
+                    className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
+                  }), /* @__PURE__ */ jsxs("div", {
+                    className: "flex-1 min-w-0",
+                    children: [/* @__PURE__ */ jsx("div", {
+                      className: "font-medium text-sm mb-1",
+                      children: "Regenerate Metadata"
+                    }), /* @__PURE__ */ jsx("div", {
+                      className: "text-xs text-muted-foreground leading-relaxed",
+                      children: "Update document title and description"
+                    })]
+                  })]
+                })
+              }), /* @__PURE__ */ jsx("button", {
+                onClick: () => handleReprocess("embed"),
+                className: "w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
+                children: /* @__PURE__ */ jsxs("div", {
+                  className: "flex items-start gap-3",
+                  children: [/* @__PURE__ */ jsx(RefreshCw, {
+                    className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
+                  }), /* @__PURE__ */ jsxs("div", {
+                    className: "flex-1 min-w-0",
+                    children: [/* @__PURE__ */ jsx("div", {
+                      className: "font-medium text-sm mb-1",
+                      children: "Regenerate Embeddings"
+                    }), /* @__PURE__ */ jsx("div", {
+                      className: "text-xs text-muted-foreground leading-relaxed",
+                      children: "Update search index"
+                    })]
+                  })]
+                })
+              })]
+            })]
+          }), /* @__PURE__ */ jsxs("div", {
+            children: [/* @__PURE__ */ jsx("h3", {
+              className: "text-sm font-semibold mb-3",
+              children: "Download"
+            }), /* @__PURE__ */ jsx("a", {
+              href: resource.url,
+              target: "_blank",
+              rel: "noopener noreferrer",
+              className: "block w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
+              children: /* @__PURE__ */ jsxs("div", {
+                className: "flex items-start gap-3",
+                children: [/* @__PURE__ */ jsx(Download, {
+                  className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
+                }), /* @__PURE__ */ jsxs("div", {
+                  className: "flex-1 min-w-0",
+                  children: [/* @__PURE__ */ jsx("div", {
+                    className: "font-medium text-sm mb-1",
+                    children: "Download Resource"
+                  }), /* @__PURE__ */ jsx("div", {
+                    className: "text-xs text-muted-foreground leading-relaxed",
+                    children: "Get the original source file"
+                  })]
+                })]
+              })
+            })]
+          }), /* @__PURE__ */ jsxs("div", {
+            children: [/* @__PURE__ */ jsx("h3", {
+              className: "text-sm font-semibold mb-3",
+              children: "Danger Zone"
+            }), /* @__PURE__ */ jsx("button", {
+              onClick: handleDelete,
+              className: "w-full text-left p-3 rounded-lg border border-red-500/50 bg-card hover:bg-red-500/10 hover:border-red-500 transition-colors group",
+              children: /* @__PURE__ */ jsxs("div", {
+                className: "flex items-start gap-3",
+                children: [/* @__PURE__ */ jsx(Trash2, {
+                  className: "h-4 w-4 mt-0.5 text-red-500"
+                }), /* @__PURE__ */ jsxs("div", {
+                  className: "flex-1 min-w-0",
+                  children: [/* @__PURE__ */ jsx("div", {
+                    className: "font-medium text-sm mb-1 text-red-500",
+                    children: "Delete Resource"
+                  }), /* @__PURE__ */ jsx("div", {
+                    className: "text-xs text-muted-foreground leading-relaxed",
+                    children: "Permanently removes all data"
+                  })]
+                })]
+              })
+            })]
+          })]
+        })]
+      })]
+    })]
+  });
+});
+const route13 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+  __proto__: null,
+  default: admin_games_$gameId_resources_$resourceId,
+  extendedResourceSchema: extendedResourceSchema$1,
+  loader: loader$1,
+  meta: meta$1
+}, Symbol.toStringTag, { value: "Module" }));
+const extendedResourceSchema = resourceSchema.extend({
+  originalFilename: z.string().optional(),
+  description: z.string().nullable().optional(),
+  author: z.string().nullable().optional(),
+  attributionUrl: z.string().nullable().optional(),
+  content: z.string().optional()
+});
+const admin_games_$gameId_resources_$resourceId_details = UNSAFE_withComponentProps(function ResourceDetailsTab() {
+  const {
+    resourceId
+  } = useParams();
+  const {
+    resource: initialResource
+  } = useOutletContext();
   const [resource, setResource] = useState(initialResource);
   const [name, setName] = useState(initialResource.name || "");
   const [content, setContent] = useState(initialResource.content || "");
@@ -3270,13 +3689,10 @@ const admin_games_$gameId_resources_$resourceId = UNSAFE_withComponentProps(func
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState("idle");
   const {
-    addToast,
-    addPendingJobNotification,
-    updatePendingJobWithId
+    addToast
   } = useFlashNotifications();
   const {
-    notifications,
-    removeNotification
+    notifications
   } = useNotifications();
   const completedJobsRef = useRef(/* @__PURE__ */ new Set());
   useEffect(() => {
@@ -3349,380 +3765,218 @@ const admin_games_$gameId_resources_$resourceId = UNSAFE_withComponentProps(func
       setSaving(false);
     }
   };
-  const handleReprocess = async (from = "cleanup") => {
-    const jobTitles = {
-      ingest: {
-        title: "Full Reprocess",
-        description: "Complete pipeline from scratch"
-      },
-      vision: {
-        title: "Improve Image Descriptions",
-        description: "Re-analyzing image content"
-      },
-      cleanup: {
-        title: "Clean Up Markdown",
-        description: "Fixing formatting issues"
-      },
-      metadata: {
-        title: "Regenerate Metadata",
-        description: "Updating document title and description"
-      },
-      embed: {
-        title: "Regenerate Embeddings",
-        description: "Updating search index"
-      }
-    };
-    const {
-      title,
-      description: description2
-    } = jobTitles[from];
-    const notificationId = addPendingJobNotification(title, description2);
-    try {
-      const url = from === "ingest" ? `/resources/${resourceId}/reprocess` : `/resources/${resourceId}/reprocess?from=${from}`;
-      const response = await apiClient.fetch(url, {
-        method: "POST"
-      });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.jobId) {
-          updatePendingJobWithId(notificationId, data.jobId);
-        } else {
-          removeNotification(notificationId);
-          addToast("success", data.message || "Resource queued for reprocessing.");
-        }
-      } else {
-        removeNotification(notificationId);
-        const error = await response.json();
-        addToast("error", error.error || "Failed to reprocess resource");
-      }
-    } catch (error) {
-      console.error("Reprocess error:", error);
-      removeNotification(notificationId);
-      addToast("error", "Failed to reprocess resource");
-    }
-  };
-  const handleDelete = async () => {
-    if (!confirm(`Are you sure you want to delete "${resource.name}"? This action cannot be undone.`)) {
-      return;
-    }
-    try {
-      const response = await apiClient.fetch(`/resources/${resourceId}`, {
-        method: "DELETE"
-      });
-      if (response.ok) {
-        addToast("success", "Resource deleted successfully");
-        window.location.href = `/admin/games/${gameId}`;
-      } else {
-        const error = await response.json();
-        addToast("error", error.error || "Failed to delete resource");
-      }
-    } catch (error) {
-      console.error("Delete error:", error);
-      addToast("error", "Failed to delete resource");
-    }
-  };
-  if (!resource) {
-    return /* @__PURE__ */ jsx(AdminLayout, {
-      children: /* @__PURE__ */ jsxs("div", {
-        className: "text-center py-12",
-        children: [/* @__PURE__ */ jsx("p", {
-          className: "text-xl mb-4",
-          children: "Resource not found"
-        }), /* @__PURE__ */ jsx(Button, {
-          asChild: true,
-          children: /* @__PURE__ */ jsx(Link, {
-            to: `/admin/games/${gameId}`,
-            children: "Back to Game"
-          })
-        })]
-      })
-    });
-  }
-  const stats = [typeof resource.fragmentCount === "number" ? `${resource.fragmentCount.toLocaleString()} chunks` : null, typeof resource.pageCount === "number" ? `${resource.pageCount} pages` : null, resource.imageCount > 0 ? `${resource.imageCount} images` : null, resource.wordCount > 0 ? `${(resource.wordCount / 1e3).toFixed(1)}k words` : null].filter(Boolean).join(" • ");
-  return /* @__PURE__ */ jsxs(AdminLayout, {
-    children: [/* @__PURE__ */ jsx(PageHeader, {
-      breadcrumbs: [{
-        label: "Admin",
-        href: "/admin"
-      }, {
-        label: "Games",
-        href: "/admin"
-      }, {
-        label: game.name,
-        href: `/admin/games/${gameId}`
-      }, {
-        label: resource.name
-      }],
-      title: resource.name,
-      stats
-    }), /* @__PURE__ */ jsxs("div", {
-      className: "grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-8",
-      children: [/* @__PURE__ */ jsxs("div", {
-        className: "space-y-12",
-        children: [/* @__PURE__ */ jsxs(Card, {
-          className: "max-w-2xl",
-          children: [/* @__PURE__ */ jsx(CardHeader, {
-            children: /* @__PURE__ */ jsx(CardTitle, {
-              children: "Resource Details"
-            })
-          }), /* @__PURE__ */ jsx(CardContent, {
-            children: /* @__PURE__ */ jsxs("form", {
-              onSubmit: handleSave,
-              className: "space-y-6",
-              children: [/* @__PURE__ */ jsxs("div", {
-                className: "space-y-2",
-                children: [/* @__PURE__ */ jsx(Label, {
-                  htmlFor: "name",
-                  children: "Document Title"
-                }), /* @__PURE__ */ jsx(Input, {
-                  id: "name",
-                  type: "text",
-                  value: name,
-                  onChange: (e) => setName(e.target.value),
-                  placeholder: "Game Manual.pdf",
-                  required: true
-                })]
-              }), /* @__PURE__ */ jsxs("div", {
-                className: "space-y-2",
-                children: [/* @__PURE__ */ jsx(Label, {
-                  htmlFor: "originalFilename",
-                  children: "Original Filename"
-                }), /* @__PURE__ */ jsx(Input, {
-                  id: "originalFilename",
-                  type: "text",
-                  value: resource.originalFilename,
-                  readOnly: true,
-                  className: "font-mono"
-                })]
-              }), /* @__PURE__ */ jsxs("div", {
-                className: "space-y-2",
-                children: [/* @__PURE__ */ jsx(Label, {
-                  htmlFor: "description",
-                  children: "Description"
-                }), /* @__PURE__ */ jsx("textarea", {
-                  id: "description",
-                  value: description,
-                  onChange: (e) => setDescription(e.target.value),
-                  rows: 4,
-                  placeholder: "Short description of this resource",
-                  className: "w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono"
-                })]
-              }), /* @__PURE__ */ jsxs("div", {
-                className: "space-y-2",
-                children: [/* @__PURE__ */ jsx(Label, {
-                  htmlFor: "author",
-                  children: "Author / Creator"
-                }), /* @__PURE__ */ jsx(Input, {
-                  id: "author",
-                  type: "text",
-                  value: author,
-                  onChange: (e) => setAuthor(e.target.value),
-                  placeholder: "e.g. Fantasy Flight Games"
-                })]
-              }), /* @__PURE__ */ jsxs("div", {
-                className: "space-y-2",
-                children: [/* @__PURE__ */ jsx(Label, {
-                  htmlFor: "attributionUrl",
-                  children: "Attribution URL"
-                }), /* @__PURE__ */ jsx(Input, {
-                  id: "attributionUrl",
-                  type: "url",
-                  value: attributionUrl,
-                  onChange: (e) => setAttributionUrl(e.target.value),
-                  placeholder: "https://publisher.com/rulebook"
-                })]
-              }), /* @__PURE__ */ jsxs("div", {
-                className: "space-y-2",
-                children: [/* @__PURE__ */ jsx(Label, {
-                  htmlFor: "content",
-                  children: "Markdown Content"
-                }), /* @__PURE__ */ jsx("textarea", {
-                  id: "content",
-                  value: content,
-                  readOnly: true,
-                  rows: 16,
-                  placeholder: "Markdown Content",
-                  className: "w-full rounded-md border border-input bg-muted px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground font-mono cursor-not-allowed"
-                }), /* @__PURE__ */ jsx("p", {
-                  className: "text-xs text-muted-foreground",
-                  children: 'Content is managed by the processing pipeline. Use the "Advanced Reprocessing" panel to regenerate content.'
-                })]
-              }), /* @__PURE__ */ jsx(SaveButton, {
-                type: "submit",
-                status: saveStatus,
-                isLoading: saving,
-                onStatusTimeout: () => setSaveStatus("idle")
-              })]
-            })
-          })]
-        }), /* @__PURE__ */ jsxs("div", {
-          children: [/* @__PURE__ */ jsx("h2", {
-            className: "text-2xl font-bold mb-6",
-            children: "Media Attachments"
-          }), /* @__PURE__ */ jsx(AttachmentList, {
-            attachments: attachments2,
-            gameId,
-            resourceId
-          })]
-        })]
-      }), /* @__PURE__ */ jsxs("div", {
-        className: "space-y-8",
-        children: [/* @__PURE__ */ jsxs("div", {
-          children: [/* @__PURE__ */ jsx("h3", {
-            className: "text-sm font-semibold mb-3",
-            children: "Reprocessing"
+  return /* @__PURE__ */ jsx("div", {
+    children: /* @__PURE__ */ jsx(Card, {
+      className: "max-w-2xl",
+      children: /* @__PURE__ */ jsx(CardContent, {
+        className: "pt-6",
+        children: /* @__PURE__ */ jsxs("form", {
+          onSubmit: handleSave,
+          className: "space-y-6",
+          children: [/* @__PURE__ */ jsxs("div", {
+            className: "space-y-2",
+            children: [/* @__PURE__ */ jsx(Label, {
+              htmlFor: "name",
+              children: "Document Title"
+            }), /* @__PURE__ */ jsx(Input, {
+              id: "name",
+              type: "text",
+              value: name,
+              onChange: (e) => setName(e.target.value),
+              placeholder: "Game Manual",
+              required: true
+            })]
           }), /* @__PURE__ */ jsxs("div", {
             className: "space-y-2",
-            children: [/* @__PURE__ */ jsx("button", {
-              onClick: () => handleReprocess("ingest"),
-              className: "w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
-              children: /* @__PURE__ */ jsxs("div", {
-                className: "flex items-start gap-3",
-                children: [/* @__PURE__ */ jsx(RefreshCw, {
-                  className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
-                }), /* @__PURE__ */ jsxs("div", {
-                  className: "flex-1 min-w-0",
-                  children: [/* @__PURE__ */ jsx("div", {
-                    className: "font-medium text-sm mb-1",
-                    children: "Full Reprocess"
-                  }), /* @__PURE__ */ jsx("div", {
-                    className: "text-xs text-muted-foreground leading-relaxed",
-                    children: "Complete pipeline from scratch"
-                  })]
-                })]
-              })
-            }), /* @__PURE__ */ jsx("button", {
-              onClick: () => handleReprocess("vision"),
-              className: "w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
-              children: /* @__PURE__ */ jsxs("div", {
-                className: "flex items-start gap-3",
-                children: [/* @__PURE__ */ jsx(RefreshCw, {
-                  className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
-                }), /* @__PURE__ */ jsxs("div", {
-                  className: "flex-1 min-w-0",
-                  children: [/* @__PURE__ */ jsx("div", {
-                    className: "font-medium text-sm mb-1",
-                    children: "Improve Image Descriptions"
-                  }), /* @__PURE__ */ jsx("div", {
-                    className: "text-xs text-muted-foreground leading-relaxed",
-                    children: "Re-analyze image content"
-                  })]
-                })]
-              })
-            }), /* @__PURE__ */ jsx("button", {
-              onClick: () => handleReprocess("cleanup"),
-              className: "w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
-              children: /* @__PURE__ */ jsxs("div", {
-                className: "flex items-start gap-3",
-                children: [/* @__PURE__ */ jsx(RefreshCw, {
-                  className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
-                }), /* @__PURE__ */ jsxs("div", {
-                  className: "flex-1 min-w-0",
-                  children: [/* @__PURE__ */ jsx("div", {
-                    className: "font-medium text-sm mb-1",
-                    children: "Clean Up Markdown"
-                  }), /* @__PURE__ */ jsx("div", {
-                    className: "text-xs text-muted-foreground leading-relaxed",
-                    children: "Fix formatting issues"
-                  })]
-                })]
-              })
-            }), /* @__PURE__ */ jsx("button", {
-              onClick: () => handleReprocess("metadata"),
-              className: "w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
-              children: /* @__PURE__ */ jsxs("div", {
-                className: "flex items-start gap-3",
-                children: [/* @__PURE__ */ jsx(RefreshCw, {
-                  className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
-                }), /* @__PURE__ */ jsxs("div", {
-                  className: "flex-1 min-w-0",
-                  children: [/* @__PURE__ */ jsx("div", {
-                    className: "font-medium text-sm mb-1",
-                    children: "Regenerate Metadata"
-                  }), /* @__PURE__ */ jsx("div", {
-                    className: "text-xs text-muted-foreground leading-relaxed",
-                    children: "Update document title and description"
-                  })]
-                })]
-              })
-            }), /* @__PURE__ */ jsx("button", {
-              onClick: () => handleReprocess("embed"),
-              className: "w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
-              children: /* @__PURE__ */ jsxs("div", {
-                className: "flex items-start gap-3",
-                children: [/* @__PURE__ */ jsx(RefreshCw, {
-                  className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
-                }), /* @__PURE__ */ jsxs("div", {
-                  className: "flex-1 min-w-0",
-                  children: [/* @__PURE__ */ jsx("div", {
-                    className: "font-medium text-sm mb-1",
-                    children: "Regenerate Embeddings"
-                  }), /* @__PURE__ */ jsx("div", {
-                    className: "text-xs text-muted-foreground leading-relaxed",
-                    children: "Update search index"
-                  })]
-                })]
-              })
+            children: [/* @__PURE__ */ jsx(Label, {
+              htmlFor: "description",
+              children: "Description"
+            }), /* @__PURE__ */ jsx("textarea", {
+              id: "description",
+              value: description,
+              onChange: (e) => setDescription(e.target.value),
+              rows: 4,
+              placeholder: "Short description of this resource",
+              className: "w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono"
             })]
-          })]
-        }), /* @__PURE__ */ jsxs("div", {
-          children: [/* @__PURE__ */ jsx("h3", {
-            className: "text-sm font-semibold mb-3",
-            children: "Download"
-          }), /* @__PURE__ */ jsx("a", {
-            href: resource.url,
-            target: "_blank",
-            rel: "noopener noreferrer",
-            className: "block w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group",
-            children: /* @__PURE__ */ jsxs("div", {
-              className: "flex items-start gap-3",
-              children: [/* @__PURE__ */ jsx(Download, {
-                className: "h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground"
-              }), /* @__PURE__ */ jsxs("div", {
-                className: "flex-1 min-w-0",
-                children: [/* @__PURE__ */ jsx("div", {
-                  className: "font-medium text-sm mb-1",
-                  children: "Download PDF"
-                }), /* @__PURE__ */ jsx("div", {
-                  className: "text-xs text-muted-foreground leading-relaxed",
-                  children: "Get the original source file"
-                })]
+          }), /* @__PURE__ */ jsxs("div", {
+            className: "space-y-2",
+            children: [/* @__PURE__ */ jsx(Label, {
+              htmlFor: "author",
+              children: "Author / Creator"
+            }), /* @__PURE__ */ jsx(Input, {
+              id: "author",
+              type: "text",
+              value: author,
+              onChange: (e) => setAuthor(e.target.value),
+              placeholder: "e.g. Fantasy Flight Games"
+            })]
+          }), /* @__PURE__ */ jsxs("div", {
+            className: "space-y-2",
+            children: [/* @__PURE__ */ jsx(Label, {
+              htmlFor: "attributionUrl",
+              children: "Attribution URL"
+            }), /* @__PURE__ */ jsx(Input, {
+              id: "attributionUrl",
+              type: "url",
+              value: attributionUrl,
+              onChange: (e) => setAttributionUrl(e.target.value),
+              placeholder: "https://publisher.com/rulebook"
+            })]
+          }), /* @__PURE__ */ jsxs("div", {
+            className: "space-y-2",
+            children: [/* @__PURE__ */ jsx(Label, {
+              htmlFor: "originalFilename",
+              children: "Original Filename"
+            }), /* @__PURE__ */ jsx(Input, {
+              id: "originalFilename",
+              type: "text",
+              value: resource.originalFilename || "",
+              readOnly: true,
+              className: "font-mono bg-muted cursor-not-allowed"
+            }), /* @__PURE__ */ jsx("p", {
+              className: "text-xs text-muted-foreground",
+              children: "This field is read-only and cannot be edited."
+            })]
+          }), /* @__PURE__ */ jsxs("div", {
+            className: "grid grid-cols-2 gap-4",
+            children: [/* @__PURE__ */ jsxs("div", {
+              className: "space-y-2",
+              children: [/* @__PURE__ */ jsx(Label, {
+                htmlFor: "createdAt",
+                children: "Created"
+              }), /* @__PURE__ */ jsx(Input, {
+                id: "createdAt",
+                type: "text",
+                value: resource.createdAt ? new Date(resource.createdAt).toLocaleString() : "N/A",
+                readOnly: true,
+                className: "bg-muted cursor-not-allowed"
               })]
-            })
-          })]
-        }), /* @__PURE__ */ jsxs("div", {
-          children: [/* @__PURE__ */ jsx("h3", {
-            className: "text-sm font-semibold mb-3",
-            children: "Danger Zone"
-          }), /* @__PURE__ */ jsx("button", {
-            onClick: handleDelete,
-            className: "w-full text-left p-3 rounded-lg border border-red-500/50 bg-card hover:bg-red-500/10 hover:border-red-500 transition-colors group",
-            children: /* @__PURE__ */ jsxs("div", {
-              className: "flex items-start gap-3",
-              children: [/* @__PURE__ */ jsx(Trash2, {
-                className: "h-4 w-4 mt-0.5 text-red-500"
-              }), /* @__PURE__ */ jsxs("div", {
-                className: "flex-1 min-w-0",
-                children: [/* @__PURE__ */ jsx("div", {
-                  className: "font-medium text-sm mb-1 text-red-500",
-                  children: "Delete Resource"
-                }), /* @__PURE__ */ jsx("div", {
-                  className: "text-xs text-muted-foreground leading-relaxed",
-                  children: "Permanently removes all data"
-                })]
+            }), /* @__PURE__ */ jsxs("div", {
+              className: "space-y-2",
+              children: [/* @__PURE__ */ jsx(Label, {
+                htmlFor: "updatedAt",
+                children: "Last Updated"
+              }), /* @__PURE__ */ jsx(Input, {
+                id: "updatedAt",
+                type: "text",
+                value: resource.updatedAt ? new Date(resource.updatedAt).toLocaleString() : "N/A",
+                readOnly: true,
+                className: "bg-muted cursor-not-allowed"
               })]
-            })
+            })]
+          }), /* @__PURE__ */ jsxs("div", {
+            className: "space-y-2",
+            children: [/* @__PURE__ */ jsx(Label, {
+              htmlFor: "content",
+              children: "Markdown Content"
+            }), /* @__PURE__ */ jsx("textarea", {
+              id: "content",
+              value: content,
+              readOnly: true,
+              rows: 16,
+              placeholder: "Markdown Content",
+              className: "w-full rounded-md border border-input bg-muted px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground font-mono cursor-not-allowed"
+            }), /* @__PURE__ */ jsx("p", {
+              className: "text-xs text-muted-foreground",
+              children: 'Content is managed by the processing pipeline. Use the "Advanced Reprocessing" panel to regenerate content.'
+            })]
+          }), /* @__PURE__ */ jsx(SaveButton, {
+            type: "submit",
+            status: saveStatus,
+            isLoading: saving,
+            onStatusTimeout: () => setSaveStatus("idle")
           })]
-        })]
-      })]
-    })]
+        })
+      })
+    })
   });
 });
-const route12 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route14 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  default: admin_games_$gameId_resources_$resourceId,
-  loader: loader$1,
-  meta: meta$1
+  default: admin_games_$gameId_resources_$resourceId_details
+}, Symbol.toStringTag, { value: "Module" }));
+function AttachmentList({ attachments: attachments2, gameId, resourceId }) {
+  if (attachments2.length === 0) {
+    return /* @__PURE__ */ jsx("div", { className: "text-sm text-muted-foreground", children: "No media attachments found for this resource." });
+  }
+  return /* @__PURE__ */ jsx("div", { className: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4", children: attachments2.map((attachment) => {
+    return /* @__PURE__ */ jsxs(
+      "div",
+      {
+        className: "border rounded-lg overflow-hidden hover:border-primary transition-colors group relative",
+        children: [
+          /* @__PURE__ */ jsx(
+            "a",
+            {
+              href: attachment.url,
+              target: "_blank",
+              rel: "noopener noreferrer",
+              className: "block",
+              children: attachment.type === "image" && attachment.mimeType?.startsWith("image/") ? /* @__PURE__ */ jsx("div", { className: "relative aspect-square bg-muted flex items-center justify-center", children: /* @__PURE__ */ jsx(
+                "img",
+                {
+                  src: attachment.url,
+                  alt: attachment.caption || attachment.originalFilename || "Attachment",
+                  className: "w-full h-full object-contain"
+                }
+              ) }) : /* @__PURE__ */ jsx("div", { className: "relative aspect-square bg-muted flex items-center justify-center", children: /* @__PURE__ */ jsx(FileIcon, { className: "h-12 w-12 text-muted-foreground" }) })
+            }
+          ),
+          /* @__PURE__ */ jsx(
+            Link,
+            {
+              to: `/admin/games/${gameId}/resources/${resourceId}/attachments/${attachment.id}`,
+              className: "absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-background/90 hover:bg-background border rounded-md p-1.5",
+              title: "Edit attachment",
+              children: /* @__PURE__ */ jsx(Pencil, { className: "h-4 w-4" })
+            }
+          ),
+          /* @__PURE__ */ jsxs("div", { className: "p-2 space-y-1", children: [
+            /* @__PURE__ */ jsx("div", { className: "flex items-center justify-between gap-1", children: attachment.pageNumber && /* @__PURE__ */ jsxs("p", { className: "text-xs text-muted-foreground", children: [
+              "Page ",
+              attachment.pageNumber
+            ] }) }),
+            attachment.caption && /* @__PURE__ */ jsx("p", { className: "text-xs line-clamp-2", title: attachment.caption, children: attachment.caption }),
+            attachment.originalFilename && /* @__PURE__ */ jsx(
+              "p",
+              {
+                className: "text-xs text-muted-foreground font-mono truncate",
+                title: attachment.originalFilename,
+                children: attachment.originalFilename
+              }
+            ),
+            attachment.width && attachment.height && /* @__PURE__ */ jsxs("p", { className: "text-xs text-muted-foreground", children: [
+              attachment.width,
+              " × ",
+              attachment.height
+            ] })
+          ] })
+        ]
+      },
+      attachment.id
+    );
+  }) });
+}
+const admin_games_$gameId_resources_$resourceId_attachmentsList = UNSAFE_withComponentProps(function ResourceAttachmentsTab() {
+  const {
+    gameId,
+    resourceId
+  } = useParams();
+  const {
+    attachments: attachments2
+  } = useOutletContext();
+  return /* @__PURE__ */ jsx("div", {
+    children: /* @__PURE__ */ jsx(AttachmentList, {
+      attachments: attachments2,
+      gameId,
+      resourceId
+    })
+  });
+});
+const route15 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+  __proto__: null,
+  default: admin_games_$gameId_resources_$resourceId_attachmentsList
 }, Symbol.toStringTag, { value: "Module" }));
 const meta = ({
   data
@@ -3995,13 +4249,13 @@ const admin_games_$gameId_resources_$resourceId_attachments_$attachmentId = UNSA
     })]
   });
 });
-const route13 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const route16 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: admin_games_$gameId_resources_$resourceId_attachments_$attachmentId,
   loader,
   meta
 }, Symbol.toStringTag, { value: "Module" }));
-const serverManifest = { "entry": { "module": "/assets/entry.client-BdAkpNmB.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js"], "css": [] }, "routes": { "root": { "id": "root", "parentId": void 0, "path": "", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": true, "module": "/assets/root-NKscd1_W.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/clsx-B-dksMZM.js", "/assets/load-context-D2Z0WZnA.js"], "css": ["/assets/root-B0Bq4Hyv.css"], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/home": { "id": "routes/home", "parentId": "root", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/home-CM1mTOLX.js", "imports": ["/assets/meta-CNUq8pDr.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/games": { "id": "routes/games", "parentId": "root", "path": "games", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/games-BoP3ZPyd.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-CdM4gSDL.js", "/assets/Heading-BI2qZzop.js", "/assets/card-wVL4LoAa.js", "/assets/input-zx54fJn0.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-DTQqYS18.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/utils-CyyZbp74.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/games.$gameId": { "id": "routes/games.$gameId", "parentId": "root", "path": "games/:gameId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": true, "module": "/assets/games._gameId-J-jDyykd.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-CdM4gSDL.js", "/assets/card-wVL4LoAa.js", "/assets/button-CEVJ8gNb.js", "/assets/schemas-q1bgCdS2.js", "/assets/input-zx54fJn0.js", "/assets/spinner-BGxtjiPJ.js", "/assets/load-context-D2Z0WZnA.js", "/assets/Footer-DTQqYS18.js", "/assets/utils-CyyZbp74.js", "/assets/meta-CNUq8pDr.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/login": { "id": "routes/login", "parentId": "root", "path": "login", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/login-BUEacuHB.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-CdM4gSDL.js", "/assets/button-CEVJ8gNb.js", "/assets/input-zx54fJn0.js", "/assets/label-Byw-aLkP.js", "/assets/card-wVL4LoAa.js", "/assets/Heading-BI2qZzop.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-DTQqYS18.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/utils-CyyZbp74.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/login.verify": { "id": "routes/login.verify", "parentId": "root", "path": "login/verify", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/login.verify-b6p4b1MQ.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-CdM4gSDL.js", "/assets/spinner-BGxtjiPJ.js", "/assets/card-wVL4LoAa.js", "/assets/button-CEVJ8gNb.js", "/assets/Heading-BI2qZzop.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/schemas-q1bgCdS2.js", "/assets/Footer-DTQqYS18.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/utils-CyyZbp74.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin": { "id": "routes/admin", "parentId": "root", "path": "admin", "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin-1UIDCASO.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-B5wU8QjJ.js", "/assets/button-CEVJ8gNb.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/table-CNKxbFI8.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-DTQqYS18.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/utils-CyyZbp74.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.add-game": { "id": "routes/admin.add-game", "parentId": "root", "path": "admin/add-game", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.add-game-DimS584H.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-B5wU8QjJ.js", "/assets/button-CEVJ8gNb.js", "/assets/input-zx54fJn0.js", "/assets/spinner-BGxtjiPJ.js", "/assets/card-wVL4LoAa.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/schemas-DjVLYPCh.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-DTQqYS18.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/utils-CyyZbp74.js", "/assets/clsx-B-dksMZM.js", "/assets/schemas-q1bgCdS2.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId": { "id": "routes/admin.games.$gameId", "parentId": "root", "path": "admin/games/:gameId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId-D6G4oeZw.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-B5wU8QjJ.js", "/assets/utils-CyyZbp74.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/schemas-DjVLYPCh.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/refresh-cw-DDuh3l6L.js", "/assets/trash-2-cpGvWXp4.js", "/assets/Footer-DTQqYS18.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/clsx-B-dksMZM.js", "/assets/schemas-q1bgCdS2.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.details": { "id": "routes/admin.games.$gameId.details", "parentId": "routes/admin.games.$gameId", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.details-BSD3QAjY.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/button-CEVJ8gNb.js", "/assets/input-zx54fJn0.js", "/assets/label-Byw-aLkP.js", "/assets/card-wVL4LoAa.js", "/assets/save-button-xmYfvY0u.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/table-CNKxbFI8.js", "/assets/schemas-DjVLYPCh.js", "/assets/load-context-D2Z0WZnA.js", "/assets/refresh-cw-DDuh3l6L.js", "/assets/download--uOzgjC5.js", "/assets/trash-2-cpGvWXp4.js", "/assets/schemas-q1bgCdS2.js", "/assets/utils-CyyZbp74.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.attachments": { "id": "routes/admin.games.$gameId.attachments", "parentId": "routes/admin.games.$gameId", "path": "attachments", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.attachments-B0lafAMX.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.edit": { "id": "routes/admin.games.$gameId.edit", "parentId": "root", "path": "admin/games/:gameId/edit", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.edit-BUU3FnCH.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources.$resourceId": { "id": "routes/admin.games.$gameId.resources.$resourceId", "parentId": "root", "path": "admin/games/:gameId/resources/:resourceId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources._resourceId-EdrdiNS2.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-B5wU8QjJ.js", "/assets/button-CEVJ8gNb.js", "/assets/input-zx54fJn0.js", "/assets/label-Byw-aLkP.js", "/assets/save-button-xmYfvY0u.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/card-wVL4LoAa.js", "/assets/utils-CyyZbp74.js", "/assets/schemas-DjVLYPCh.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/refresh-cw-DDuh3l6L.js", "/assets/download--uOzgjC5.js", "/assets/trash-2-cpGvWXp4.js", "/assets/schemas-q1bgCdS2.js", "/assets/Footer-DTQqYS18.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources.$resourceId.attachments.$attachmentId": { "id": "routes/admin.games.$gameId.resources.$resourceId.attachments.$attachmentId", "parentId": "root", "path": "admin/games/:gameId/resources/:resourceId/attachments/:attachmentId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources._resourceId.attachments._attachmentId-CtxWVL6G.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-B5wU8QjJ.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/button-CEVJ8gNb.js", "/assets/input-zx54fJn0.js", "/assets/label-Byw-aLkP.js", "/assets/spinner-BGxtjiPJ.js", "/assets/save-button-xmYfvY0u.js", "/assets/card-wVL4LoAa.js", "/assets/schemas-DjVLYPCh.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/refresh-cw-DDuh3l6L.js", "/assets/schemas-q1bgCdS2.js", "/assets/Footer-DTQqYS18.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/utils-CyyZbp74.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 } }, "url": "/assets/manifest-f82c03c5.js", "version": "f82c03c5", "sri": void 0 };
+const serverManifest = { "entry": { "module": "/assets/entry.client-BdAkpNmB.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js"], "css": [] }, "routes": { "root": { "id": "root", "parentId": void 0, "path": "", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": true, "module": "/assets/root-BAmaEZUk.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/clsx-B-dksMZM.js", "/assets/load-context-D2Z0WZnA.js"], "css": ["/assets/root-WLrPUKtD.css"], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/home": { "id": "routes/home", "parentId": "root", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/home-CM1mTOLX.js", "imports": ["/assets/meta-CNUq8pDr.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/games": { "id": "routes/games", "parentId": "root", "path": "games", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/games-CsD9r32z.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-9RCZNNId.js", "/assets/Heading-C0GfT8od.js", "/assets/card-CJfnq3IM.js", "/assets/input-BmiXuwB2.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/games.$gameId": { "id": "routes/games.$gameId", "parentId": "root", "path": "games/:gameId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": true, "module": "/assets/games._gameId-D6W3J9AX.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-9RCZNNId.js", "/assets/card-CJfnq3IM.js", "/assets/button-ouPXXec2.js", "/assets/schemas-Xcc7DRF5.js", "/assets/input-BmiXuwB2.js", "/assets/spinner-CF7tze4L.js", "/assets/load-context-D2Z0WZnA.js", "/assets/Footer-D-fFsJ66.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/meta-CNUq8pDr.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/auth-context-kPJ7oDZw.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/login": { "id": "routes/login", "parentId": "root", "path": "login", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/login-CF_SxP10.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-9RCZNNId.js", "/assets/button-ouPXXec2.js", "/assets/input-BmiXuwB2.js", "/assets/label-DzmZ1EYu.js", "/assets/card-CJfnq3IM.js", "/assets/Heading-C0GfT8od.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/login.verify": { "id": "routes/login.verify", "parentId": "root", "path": "login/verify", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/login.verify-C_7BLI6Z.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-9RCZNNId.js", "/assets/spinner-CF7tze4L.js", "/assets/card-CJfnq3IM.js", "/assets/button-ouPXXec2.js", "/assets/Heading-C0GfT8od.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/schemas-Xcc7DRF5.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin": { "id": "routes/admin", "parentId": "root", "path": "admin", "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin-djU5Vv2i.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/button-ouPXXec2.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/table-B87ZRoRV.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.add-game": { "id": "routes/admin.add-game", "parentId": "root", "path": "admin/add-game", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.add-game-DTj4h0Qz.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/button-ouPXXec2.js", "/assets/input-BmiXuwB2.js", "/assets/spinner-CF7tze4L.js", "/assets/card-CJfnq3IM.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/schemas-5vN7JF7p.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/schemas-Xcc7DRF5.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId": { "id": "routes/admin.games.$gameId", "parentId": "root", "path": "admin/games/:gameId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId-CQNVaKF5.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/tabs-BhvMaZ4L.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/schemas-5vN7JF7p.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/refresh-cw-B0fLozax.js", "/assets/trash-2-B4HTxjkd.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/schemas-Xcc7DRF5.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.details": { "id": "routes/admin.games.$gameId.details", "parentId": "routes/admin.games.$gameId", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.details-BTskJdIU.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/button-ouPXXec2.js", "/assets/input-BmiXuwB2.js", "/assets/label-DzmZ1EYu.js", "/assets/card-CJfnq3IM.js", "/assets/save-button-Df5I4AXy.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/schemas-5vN7JF7p.js", "/assets/load-context-D2Z0WZnA.js", "/assets/schemas-Xcc7DRF5.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/createLucideIcon-5-DrwdCU.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources-list": { "id": "routes/admin.games.$gameId.resources-list", "parentId": "routes/admin.games.$gameId", "path": "resources", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources-list-CnkozQQU.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/button-ouPXXec2.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/table-B87ZRoRV.js", "/assets/schemas-5vN7JF7p.js", "/assets/load-context-D2Z0WZnA.js", "/assets/refresh-cw-B0fLozax.js", "/assets/download-DdZudP_p.js", "/assets/trash-2-B4HTxjkd.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/schemas-Xcc7DRF5.js", "/assets/createLucideIcon-5-DrwdCU.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.attachments": { "id": "routes/admin.games.$gameId.attachments", "parentId": "routes/admin.games.$gameId", "path": "attachments", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.attachments-B0lafAMX.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.edit": { "id": "routes/admin.games.$gameId.edit", "parentId": "root", "path": "admin/games/:gameId/edit", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.edit-BUU3FnCH.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources.$resourceId": { "id": "routes/admin.games.$gameId.resources.$resourceId", "parentId": "root", "path": "admin/games/:gameId/resources/:resourceId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources._resourceId-D6RFArFY.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/tabs-BhvMaZ4L.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/schemas-5vN7JF7p.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/refresh-cw-B0fLozax.js", "/assets/download-DdZudP_p.js", "/assets/trash-2-B4HTxjkd.js", "/assets/schemas-Xcc7DRF5.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources.$resourceId.details": { "id": "routes/admin.games.$gameId.resources.$resourceId.details", "parentId": "routes/admin.games.$gameId.resources.$resourceId", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources._resourceId.details-BLuS7cJW.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/input-BmiXuwB2.js", "/assets/label-DzmZ1EYu.js", "/assets/save-button-Df5I4AXy.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/card-CJfnq3IM.js", "/assets/load-context-D2Z0WZnA.js", "/assets/schemas-5vN7JF7p.js", "/assets/schemas-Xcc7DRF5.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/createLucideIcon-5-DrwdCU.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources.$resourceId.attachments-list": { "id": "routes/admin.games.$gameId.resources.$resourceId.attachments-list", "parentId": "routes/admin.games.$gameId.resources.$resourceId", "path": "attachments", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources._resourceId.attachments-list-DKUx_5lJ.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/createLucideIcon-5-DrwdCU.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources.$resourceId.attachments.$attachmentId": { "id": "routes/admin.games.$gameId.resources.$resourceId.attachments.$attachmentId", "parentId": "root", "path": "admin/games/:gameId/resources/:resourceId/attachments/:attachmentId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources._resourceId.attachments._attachmentId-CH9NEs89.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/button-ouPXXec2.js", "/assets/input-BmiXuwB2.js", "/assets/label-DzmZ1EYu.js", "/assets/spinner-CF7tze4L.js", "/assets/save-button-Df5I4AXy.js", "/assets/card-CJfnq3IM.js", "/assets/schemas-5vN7JF7p.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/refresh-cw-B0fLozax.js", "/assets/schemas-Xcc7DRF5.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 } }, "url": "/assets/manifest-49881ad5.js", "version": "49881ad5", "sri": void 0 };
 const assetsBuildDirectory = "build/client";
 const basename = "/";
 const future = { "v8_middleware": false, "unstable_optimizeDeps": false, "unstable_splitRouteModules": false, "unstable_subResourceIntegrity": false, "unstable_viteEnvironmentApi": false };
@@ -4092,13 +4346,21 @@ const routes = {
     caseSensitive: void 0,
     module: route9
   },
+  "routes/admin.games.$gameId.resources-list": {
+    id: "routes/admin.games.$gameId.resources-list",
+    parentId: "routes/admin.games.$gameId",
+    path: "resources",
+    index: void 0,
+    caseSensitive: void 0,
+    module: route10
+  },
   "routes/admin.games.$gameId.attachments": {
     id: "routes/admin.games.$gameId.attachments",
     parentId: "routes/admin.games.$gameId",
     path: "attachments",
     index: void 0,
     caseSensitive: void 0,
-    module: route10
+    module: route11
   },
   "routes/admin.games.$gameId.edit": {
     id: "routes/admin.games.$gameId.edit",
@@ -4106,7 +4368,7 @@ const routes = {
     path: "admin/games/:gameId/edit",
     index: void 0,
     caseSensitive: void 0,
-    module: route11
+    module: route12
   },
   "routes/admin.games.$gameId.resources.$resourceId": {
     id: "routes/admin.games.$gameId.resources.$resourceId",
@@ -4114,7 +4376,23 @@ const routes = {
     path: "admin/games/:gameId/resources/:resourceId",
     index: void 0,
     caseSensitive: void 0,
-    module: route12
+    module: route13
+  },
+  "routes/admin.games.$gameId.resources.$resourceId.details": {
+    id: "routes/admin.games.$gameId.resources.$resourceId.details",
+    parentId: "routes/admin.games.$gameId.resources.$resourceId",
+    path: void 0,
+    index: true,
+    caseSensitive: void 0,
+    module: route14
+  },
+  "routes/admin.games.$gameId.resources.$resourceId.attachments-list": {
+    id: "routes/admin.games.$gameId.resources.$resourceId.attachments-list",
+    parentId: "routes/admin.games.$gameId.resources.$resourceId",
+    path: "attachments",
+    index: void 0,
+    caseSensitive: void 0,
+    module: route15
   },
   "routes/admin.games.$gameId.resources.$resourceId.attachments.$attachmentId": {
     id: "routes/admin.games.$gameId.resources.$resourceId.attachments.$attachmentId",
@@ -4122,7 +4400,7 @@ const routes = {
     path: "admin/games/:gameId/resources/:resourceId/attachments/:attachmentId",
     index: void 0,
     caseSensitive: void 0,
-    module: route13
+    module: route16
   }
 };
 export {

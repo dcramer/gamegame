@@ -245,34 +245,40 @@ export async function searchBGGGames(
 export async function getBGGGameDetails(
   bggId: string,
   db: D1Database,
-  kv: KVNamespace | null
+  kv: KVNamespace | null,
+  options: { bypassCache?: boolean } = {}
 ): Promise<BGGGameDetails> {
   console.log(`Fetching BGG game details for ID: ${bggId}`);
 
-  // Check database cache first
   const orm = drizzle(db);
-  const cachedGame = await orm
-    .select()
-    .from(bggGames)
-    .where(eq(bggGames.id, bggId))
-    .limit(1);
 
-  if (cachedGame.length > 0) {
-    console.log("BGG game found in database cache");
-    const game = cachedGame[0];
-    return {
-      id: game.id,
-      name: game.name,
-      description: game.description || "",
-      yearPublished: game.yearPublished,
-      minPlayers: game.minPlayers,
-      maxPlayers: game.maxPlayers,
-      playingTime: game.playingTime,
-      imageUrl: game.imageUrl,
-      thumbnailUrl: game.thumbnailUrl,
-      publishers: game.publishers ? JSON.parse(game.publishers) : [],
-      designers: game.designers ? JSON.parse(game.designers) : [],
-    };
+  // Check database cache first (unless bypassing)
+  if (!options.bypassCache) {
+    const cachedGame = await orm
+      .select()
+      .from(bggGames)
+      .where(eq(bggGames.id, bggId))
+      .limit(1);
+
+    if (cachedGame.length > 0) {
+      console.log("BGG game found in database cache");
+      const game = cachedGame[0];
+      return {
+        id: game.id,
+        name: game.name,
+        description: game.description || "",
+        yearPublished: game.yearPublished,
+        minPlayers: game.minPlayers,
+        maxPlayers: game.maxPlayers,
+        playingTime: game.playingTime,
+        imageUrl: game.imageUrl,
+        thumbnailUrl: game.thumbnailUrl,
+        publishers: game.publishers ? JSON.parse(game.publishers) : [],
+        designers: game.designers ? JSON.parse(game.designers) : [],
+      };
+    }
+  } else {
+    console.log("Bypassing cache, fetching fresh data from BGG API");
   }
 
   console.log("BGG game not in cache, fetching from API");

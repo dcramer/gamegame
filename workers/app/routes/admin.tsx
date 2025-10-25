@@ -118,7 +118,7 @@ export default function AdminGames() {
                       </Link>
                     </TableCell>
                     <TableCell className="font-medium align-middle">
-                      <Link to={`/admin/games/${game.id}`} className="hover:underline">
+                      <Link to={`/admin/games/${game.id}`} className="hover:underline text-lg">
                         {game.name}
                       </Link>
                       {game.bggUrl && (

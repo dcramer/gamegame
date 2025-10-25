@@ -12,6 +12,7 @@ import { createJob } from '@/lib/jobs/status';
 import { RESOURCE_SOURCE_FILENAME, buildResourceSourceUrl, buildResourceSourceKey, r2KeyToUrl } from '@/lib/services/r2-storage';
 import { deleteEmbeddings } from '@/lib/ai/vectorize';
 import { streamChatResponse } from './chat-handler';
+import { getBGGGameDetails, downloadImage } from '@/lib/services/bgg';
 import {
   extractFileExtension,
   isSupportedExtension,
@@ -41,6 +42,7 @@ gamesRouter.get('/', async (c) => {
       year: games.year,
       slug: games.slug,
       imageUrl: games.imageUrl,
+      bggId: games.bggId,
       bggUrl: games.bggUrl,
       resourceCount: sql<number>`COUNT(DISTINCT ${resources.id})`,
       createdAt: games.createdAt,
@@ -67,6 +69,7 @@ gamesRouter.get('/:gameIdOrSlug', async (c) => {
       year: games.year,
       slug: games.slug,
       imageUrl: games.imageUrl,
+      bggId: games.bggId,
       bggUrl: games.bggUrl,
       resourceCount: db.$count(resources, eq(resources.gameId, games.id)),
       createdAt: games.createdAt,
@@ -325,6 +328,91 @@ gamesRouter.delete('/:gameId', requireAdmin, async (c) => {
   };
 
   return c.json(validateResponse(response, deleteGameResponseSchema), statusCode);
+});
+
+// Sync game from BGG (admin only)
+gamesRouter.post('/:gameId/sync-from-bgg', requireAdmin, async (c) => {
+  const { gameId } = c.req.param();
+  const db = getDb(c.env.DB);
+
+  // Get the game to ensure it exists and has a BGG ID
+  const [game] = await db
+    .select()
+    .from(games)
+    .where(eq(games.id, gameId))
+    .limit(1);
+
+  if (!game) {
+    return c.json({ error: 'Game not found' }, 404);
+  }
+
+  if (!game.bggId) {
+    return c.json({ error: 'Game does not have a BGG ID' }, 400);
+  }
+
+  try {
+    // Fetch latest data from BGG, bypassing cache to ensure fresh data
+    const details = await getBGGGameDetails(
+      game.bggId,
+      c.env.DB,
+      c.env.RATE_LIMIT_KV,
+      { bypassCache: true }
+    );
+
+    // Prepare update data
+    const updateData: Partial<typeof games.$inferInsert> = {
+      name: details.name,
+      year: details.yearPublished,
+      updatedAt: new Date(),
+    };
+
+    // Download and upload image if available
+    if (details.imageUrl) {
+      try {
+        const imageBuffer = await downloadImage(details.imageUrl);
+
+        // Upload to R2
+        const key = `games/game-${game.bggId}.jpg`;
+        await c.env.FILES.put(key, imageBuffer, {
+          httpMetadata: {
+            contentType: 'image/jpeg',
+          },
+        });
+
+        updateData.imageUrl = `/uploads/${key}`;
+      } catch (imageError) {
+        console.error('BGG image download failed:', imageError);
+        // Continue without updating image
+      }
+    }
+
+    // Regenerate slug if name or year changed
+    if (updateData.name !== game.name || updateData.year !== game.year) {
+      updateData.slug = generateSlug(
+        updateData.name || game.name,
+        updateData.year !== undefined ? updateData.year : game.year
+      );
+    }
+
+    // Update the game
+    const [updatedGame] = await db
+      .update(games)
+      .set(updateData)
+      .where(eq(games.id, gameId))
+      .returning();
+
+    // Convert Date objects to timestamps for JSON serialization
+    const response = {
+      ...updatedGame,
+      createdAt: updatedGame.createdAt ? updatedGame.createdAt.getTime() : undefined,
+      updatedAt: updatedGame.updatedAt ? updatedGame.updatedAt.getTime() : undefined,
+    };
+
+    return c.json(validateResponse(response, gameSchema));
+  } catch (error) {
+    console.error('Failed to sync game from BGG:', error);
+    return c.json({ error: 'Failed to sync game from BoardGameGeek' }, 500);
+  }
 });
 
 // List resources for a game (by slug or ID)

@@ -102,3 +102,4 @@ pnpm-debug.log*
 *.temp
 .cache/
 
+.react-router/

@@ -23,6 +23,7 @@ export const gameSchema = z.object({
   slug: z.string(),
   year: z.number().nullable().optional(),
   imageUrl: z.string().nullable(),
+  bggId: z.string().nullable(),
   bggUrl: z.string().nullable(),
   resourceCount: z.number().optional(),
   createdAt: timestampSchema.optional(),
@@ -188,12 +189,30 @@ export function validateResponse<T>(data: unknown, schema: z.ZodSchema<T>): T {
 // Chat message schema - validates basic structure before passing to AI SDK
 // We validate minimally here and let convertToCoreMessages do the heavy lifting
 // This protects against obviously malformed data without duplicating AI SDK logic
+//
+// AI SDK v5 supports multimodal messages with:
+// - content: string (simple text)
+// - content: Array<{type: 'text', text: string} | {type: 'image', image: string}> (multimodal)
+// - parts: Array<...> (internal format from useChat)
+//
+// We accept all formats and let convertToCoreMessages normalize them
 export const chatMessageSchema = z.object({
   id: z.string().optional(), // Optional for user messages
   role: z.string(), // Accept any string, AI SDK will validate
-  content: z.string(),
+  // Content can be string, array of parts, or undefined (if using 'parts' field)
+  content: z.union([
+    z.string(),
+    z.array(z.any()),
+  ]).optional(),
+  // AI SDK v5 may use 'parts' internally (from useChat hook)
+  parts: z.array(z.any()).optional(),
   // Allow any other fields the AI SDK might expect
-}).passthrough();
+}).passthrough()
+  // Ensure at least one of content or parts exists
+  .refine(
+    (msg) => msg.content !== undefined || msg.parts !== undefined,
+    { message: "Message must have either 'content' or 'parts' field" }
+  );
 
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 

@@ -107,6 +107,31 @@ export default function AdminGameLayout() {
     }
   };
 
+  const handleSyncFromBGG = async () => {
+    if (!game.bggId) {
+      addToast('error', 'This game does not have a BGG ID');
+      return;
+    }
+
+    try {
+      const response = await apiClient.fetch(`/games/${gameId}/sync-from-bgg`, {
+        method: 'POST',
+      });
+
+      if (response.ok) {
+        addToast('success', `Synced ${game.name} from BoardGameGeek`);
+        // Reload the page to show updated data
+        window.location.reload();
+      } else {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' })) as { error?: string };
+        addToast('error', `Failed to sync from BGG: ${errorData.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Sync from BGG error:', error);
+      addToast('error', 'Failed to sync from BoardGameGeek. Please try again.');
+    }
+  };
+
   const handleDeleteGame = async () => {
     const confirmMessage = `Are you sure you want to delete "${game.name}"?\n\nThis will permanently delete:\n- The game\n- All resources\n- All fragments and embeddings\n- All associated files\n\nThis action cannot be undone.`;
 
@@ -197,6 +222,26 @@ export default function AdminGameLayout() {
                       <div className="font-medium text-sm mb-1">Reprocess All Resources</div>
                       <div className="text-xs text-muted-foreground leading-relaxed">
                         Re-extract all PDFs, re-analyze images, and re-embed content for all {resources.length} {resources.length === 1 ? 'resource' : 'resources'}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            )}
+
+            {game.bggId && (
+              <div>
+                <h3 className="text-sm font-semibold mb-3">BoardGameGeek</h3>
+                <button
+                  onClick={handleSyncFromBGG}
+                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group"
+                >
+                  <div className="flex items-start gap-3">
+                    <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm mb-1">Sync from BGG</div>
+                      <div className="text-xs text-muted-foreground leading-relaxed">
+                        Update game name, year, and image from BoardGameGeek
                       </div>
                     </div>
                   </div>

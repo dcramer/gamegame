@@ -254,6 +254,29 @@ export default function GameDetailsTab() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
+                <Label htmlFor="bggId">BGG ID</Label>
+                <Input
+                  id="bggId"
+                  type="text"
+                  value={game.bggId || 'N/A'}
+                  readOnly
+                  className="bg-muted cursor-not-allowed"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="year">Year</Label>
+                <Input
+                  id="year"
+                  type="text"
+                  value={game.year || 'N/A'}
+                  readOnly
+                  className="bg-muted cursor-not-allowed"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
                 <Label htmlFor="createdAt">Created</Label>
                 <Input
                   id="createdAt"

@@ -58,32 +58,33 @@ export default function Games() {
         </p>
       </section>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-6">
         <Input placeholder="Search" onChange={handleSearch} />
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
           {matchingGames.map((game) => (
             <Card
               key={game.id}
-              className="relative rounded-none lg:rounded hover:ring-ring hover:ring-offset-2 ring-offset-background hover:ring-2"
+              className="relative rounded-lg overflow-hidden border-2 border-border hover:border-primary hover:scale-105 transition-all duration-200 hover:shadow-2xl hover:shadow-primary/20 group"
             >
-              <CardContent className="flex flex-col items-center">
-                <div className="w-full aspect-[3/2] overflow-hidden relative bg-muted flex items-center justify-center">
-                  {game.imageUrl && !imageErrors.has(game.id) ? (
+              <div className="w-full aspect-[3/2] overflow-hidden relative bg-muted flex items-center justify-center">
+                {game.imageUrl && !imageErrors.has(game.id) ? (
+                  <>
                     <img
                       src={game.imageUrl}
                       alt={game.name}
-                      className="w-full h-full object-cover object-top"
+                      className="w-full h-full object-cover object-top group-hover:scale-110 transition-transform duration-200"
                       onError={() => {
                         setImageErrors(prev => new Set(prev).add(game.id));
                       }}
                     />
-                  ) : (
-                    <div className="text-4xl text-muted-foreground">🎲</div>
-                  )}
-                </div>
-              </CardContent>
-              <CardHeader>
-                <CardTitle className="text-center text-2xl">
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+                  </>
+                ) : (
+                  <div className="text-4xl text-muted-foreground">🎲</div>
+                )}
+              </div>
+              <CardHeader className="py-4">
+                <CardTitle className="text-center text-xl leading-tight">
                   {game.name}
                 </CardTitle>
               </CardHeader>
