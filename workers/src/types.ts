@@ -23,11 +23,15 @@ export interface Env {
   MISTRAL_API_KEY: string;
   JWT_SECRET: string;
   RESEND_API_KEY?: string; // Optional: for sending emails via Resend
+  SENTRY_DSN?: string; // Optional: Sentry DSN for error tracking and performance monitoring
 
   // Environment
   ENVIRONMENT?: string;
   R2_PUBLIC_URL?: string; // Public URL for R2 bucket (e.g., https://pub-xxx.r2.dev or custom domain)
-  CHAT_MODEL?: string; // OpenAI model to use for chat (default: gpt-4o)
+  CHAT_MODEL?: string; // OpenAI model to use for chat (default: gpt-5)
+
+  // Debug flags (set to 'true' to enable)
+  CHAT_DEBUG_VERBOSE?: string; // Log detailed tool call traces to stdout
 }
 
 export type ProcessingTaskType = 'INGEST' | 'VISION' | 'CLEANUP' | 'METADATA' | 'EMBED' | 'FINALIZE';
@@ -62,3 +66,58 @@ export type VectorMetadata = Record<string, string | number | boolean | string[]
   questionIndex?: number;      // Which question (0-4) in the syntheticQuestions array
   questionText?: string;       // The actual question text (for debugging)
 };
+
+// ============================================================================
+// Performance Tracking Types
+// ============================================================================
+
+export interface ToolMetrics {
+  /** Tool name (e.g., "search_resources", "getAttachment") */
+  name: string;
+  /** How long the tool took to execute (ms) */
+  durationMs: number;
+  /** When the tool was called (Unix timestamp ms) */
+  timestamp: number;
+  /** Arguments passed to the tool (be careful with PII) */
+  args?: any;
+  /** Error message if tool failed */
+  error?: string;
+}
+
+export interface StepMetrics {
+  /** Step number (1-indexed) */
+  stepNumber: number;
+  /** Time from request start to this step's completion (ms) */
+  durationMs: number;
+  /** Time spent on just this step (ms) */
+  stepDurationMs: number;
+  /** Why the step finished */
+  finishReason: string;
+  /** Token usage for this step only */
+  tokenUsage: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    reasoningTokens?: number;
+  };
+  /** Tools executed in this step */
+  toolCalls: ToolMetrics[];
+}
+
+export interface PerformanceMetadata {
+  /** Total time from request start to completion (ms) */
+  totalDurationMs: number;
+  /** Per-step breakdown of execution */
+  steps: StepMetrics[];
+  /** Aggregated token usage across all steps */
+  totalTokens: {
+    prompt: number;
+    completion: number;
+    total: number;
+    reasoning?: number;
+  };
+  /** Total number of tool calls across all steps */
+  toolCallCount: number;
+  /** Average duration of tool calls (ms) */
+  avgToolDurationMs: number;
+}

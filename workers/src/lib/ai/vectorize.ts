@@ -128,7 +128,7 @@ export async function searchVectorize(
   });
 
   return results.matches.map((match) => ({
-    fragmentId: match.metadata?.fragmentId || match.id,
+    fragmentId: (match.metadata?.fragmentId as string) || match.id,
     score: match.score,
     metadata: match.metadata,
   }));

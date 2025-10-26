@@ -11,6 +11,7 @@ export default [
   ...prefix("admin", [
     index("routes/admin.tsx"),
     route("add-game", "routes/admin.add-game.tsx"),
+    route("jobs", "routes/admin.jobs.tsx"),
     route("games/:gameId", "routes/admin.games.$gameId.tsx", [
       index("routes/admin.games.$gameId.details.tsx"),
       route("resources", "routes/admin.games.$gameId.resources-list.tsx"),

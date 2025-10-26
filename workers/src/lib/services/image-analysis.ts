@@ -86,7 +86,7 @@ export async function analyzeImageQuality(
           },
         ],
         response_format: { type: 'json_object' },
-        max_tokens: opts.maxTokens,
+        max_completion_tokens: opts.maxTokens,
         temperature: opts.temperature,
       }),
     });

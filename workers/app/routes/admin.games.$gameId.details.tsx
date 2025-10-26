@@ -1,6 +1,5 @@
-import { useState, useCallback } from 'react';
-import { useParams, useNavigate, useOutletContext, Link } from 'react-router';
-import { Download, RefreshCw, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { useParams, useOutletContext } from 'react-router';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -8,17 +7,8 @@ import { Card, CardContent } from '../components/ui/card';
 import { SaveButton } from '../components/ui/save-button';
 import { useFlashNotifications } from '../hooks/useFlashNotifications';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../components/ui/table';
-import {
   gameSchema,
   type Game,
-  uploadResponseSchema,
 } from '../lib/schemas';
 import { z } from 'zod';
 import { apiClient } from '../../load-context';
@@ -36,11 +26,9 @@ export async function loader({ context }: { context: { api: any } }) {
 
 export default function GameDetailsTab() {
   const { gameId } = useParams<{ gameId: string }>();
-  const navigate = useNavigate();
-  const { game: initialGame, resources: initialResources } = useOutletContext<any>();
+  const { game: initialGame } = useOutletContext<any>();
 
   const [game, setGame] = useState<Game>(initialGame);
-  const [resources, setResources] = useState<any[]>(initialResources);
 
   // Game form state
   const [gameName, setGameName] = useState(initialGame.name || '');
@@ -50,11 +38,8 @@ export default function GameDetailsTab() {
   const [updatingGame, setUpdatingGame] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
-  // Resource upload state
-  const [isDragging, setIsDragging] = useState(false);
-
   // Flash notifications for feedback
-  const { addJobNotification, addToast } = useFlashNotifications();
+  const { addToast } = useFlashNotifications();
 
   const handleUpdateGame = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,107 +111,6 @@ export default function GameDetailsTab() {
     const url = URL.createObjectURL(file);
     setGameImageUrl(url);
     setGameImageFile(file);
-  };
-
-  const handleResourceFiles = async (files: File[]) => {
-    if (!gameId) return;
-
-    for (const file of files) {
-      try {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('name', file.name);
-
-        const uploadResponse = await apiClient.fetch(`/games/${gameId}/resources`, {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (uploadResponse.ok) {
-          const data = uploadResponseSchema.parse(await uploadResponse.json());
-          addJobNotification(data.jobId, 'Upload Resource', `Processing ${file.name}`);
-        } else {
-          addToast('error', `Failed to upload ${file.name}`);
-        }
-      } catch (error) {
-        console.error('Upload error:', error);
-        addToast('error', `Failed to upload ${file.name}`);
-      }
-    }
-  };
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-
-    const files = Array.from(e.dataTransfer.files).filter((f) => f.type === 'application/pdf');
-    if (files.length > 0) {
-      handleResourceFiles(files);
-    }
-  }, [gameId]);
-
-  const triggerFileInput = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.pdf';
-    input.multiple = true;
-    input.onchange = (e) => {
-      const files = Array.from((e.target as HTMLInputElement).files || []);
-      handleResourceFiles(files);
-    };
-    input.click();
-  };
-
-  const handleReprocess = async (resourceId: string, resourceName: string) => {
-    try {
-      const response = await apiClient.fetch(`/resources/${resourceId}/reprocess`, {
-        method: 'POST',
-      });
-
-      if (response.ok) {
-        const data = uploadResponseSchema.parse(await response.json());
-        addJobNotification(data.jobId, 'Full Reprocess', `Reprocessing ${resourceName}`);
-      } else {
-        addToast('error', 'Failed to reprocess resource');
-      }
-    } catch (error) {
-      console.error('Reprocess error:', error);
-      addToast('error', 'Failed to reprocess resource');
-    }
-  };
-
-  const handleDelete = async (resourceId: string, resourceName: string) => {
-    if (!confirm(`Delete resource "${resourceName}"?`)) return;
-
-    try {
-      const response = await apiClient.fetch(`/resources/${resourceId}`, {
-        method: 'DELETE',
-      });
-
-      if (response.ok) {
-        setResources(resources.filter((r) => r.id !== resourceId));
-        addToast('success', `Deleted ${resourceName}`);
-      } else {
-        addToast('error', 'Failed to delete resource');
-      }
-    } catch (error) {
-      console.error('Delete error:', error);
-      addToast('error', 'Failed to delete resource');
-    }
   };
 
   return (
@@ -329,7 +213,7 @@ export default function GameDetailsTab() {
               </div>
 
               <div
-                className="relative max-h-96 max-w-96 cursor-pointer"
+                className="relative max-h-96 max-w-96 cursor-pointer border rounded-lg overflow-hidden hover:border-primary/50 transition-colors"
                 onClick={() => {
                   if (!gameImageUrl) {
                     const input = document.createElement('input');
@@ -355,21 +239,19 @@ export default function GameDetailsTab() {
                   }
                 }}
               >
-                <Card>
-                  <CardContent className="flex flex-col items-center">
-                    {gameImageUrl ? (
-                      <div className="w-full aspect-[3/2] overflow-hidden relative">
-                        <img
-                          src={gameImageUrl}
-                          alt="Box Art"
-                          className="w-full h-full object-cover object-top"
-                        />
-                      </div>
-                    ) : (
-                      <div className="p-6">Drag an image to upload</div>
-                    )}
-                  </CardContent>
-                </Card>
+                {gameImageUrl ? (
+                  <div className="w-full aspect-[3/2] overflow-hidden relative">
+                    <img
+                      src={gameImageUrl}
+                      alt="Box Art"
+                      className="w-full h-full object-cover object-top"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center p-12 bg-muted text-muted-foreground">
+                    Drag an image to upload
+                  </div>
+                )}
               </div>
             </div>
 

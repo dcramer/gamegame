@@ -3,6 +3,7 @@ import { RefreshCw, Trash2 } from 'lucide-react';
 import AdminLayout from '../components/AdminLayout';
 import { PageHeader } from '../components/PageHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { ActionButton } from '../components/ui/action-button';
 import { useFlashNotifications } from '../hooks/useFlashNotifications';
 import {
   gameSchema,
@@ -136,9 +137,7 @@ export default function AdminGameLayout() {
   };
 
   const handleDeleteGame = async () => {
-    const confirmMessage = `Are you sure you want to delete "${game.name}"?\n\nThis will permanently delete:\n- The game\n- All resources\n- All fragments and embeddings\n- All associated files\n\nThis action cannot be undone.`;
-
-    if (!confirm(confirmMessage)) return;
+    if (!confirm(`Delete "${game.name}"?\n\nThis will permanently delete:\n- The game\n- All resources\n- All fragments and embeddings\n- All associated files\n\nThis action cannot be undone.`)) return;
 
     try {
       const response = await apiClient.fetch(`/games/${gameId}`, {
@@ -215,59 +214,36 @@ export default function AdminGameLayout() {
             {resources.length > 0 && (
               <div>
                 <h3 className="text-sm font-semibold mb-3">Reprocessing</h3>
-                <button
+                <ActionButton
+                  icon={RefreshCw}
+                  title="Reprocess All Resources"
+                  description={`Re-extract all PDFs, re-analyze images, and re-embed content for all ${resources.length} ${resources.length === 1 ? 'resource' : 'resources'}`}
                   onClick={handleReprocessAll}
-                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group"
-                >
-                  <div className="flex items-start gap-3">
-                    <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm mb-1">Reprocess All Resources</div>
-                      <div className="text-xs text-muted-foreground leading-relaxed">
-                        Re-extract all PDFs, re-analyze images, and re-embed content for all {resources.length} {resources.length === 1 ? 'resource' : 'resources'}
-                      </div>
-                    </div>
-                  </div>
-                </button>
+                />
               </div>
             )}
 
             {game.bggId && (
               <div>
                 <h3 className="text-sm font-semibold mb-3">BoardGameGeek</h3>
-                <button
+                <ActionButton
+                  icon={RefreshCw}
+                  title="Sync from BGG"
+                  description="Update game name, year, and image from BoardGameGeek"
                   onClick={handleSyncFromBGG}
-                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group"
-                >
-                  <div className="flex items-start gap-3">
-                    <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm mb-1">Sync from BGG</div>
-                      <div className="text-xs text-muted-foreground leading-relaxed">
-                        Update game name, year, and image from BoardGameGeek
-                      </div>
-                    </div>
-                  </div>
-                </button>
+                />
               </div>
             )}
 
             <div>
               <h3 className="text-sm font-semibold mb-3">Danger Zone</h3>
-              <button
+              <ActionButton
+                icon={Trash2}
+                title="Delete Game"
+                description="Permanently delete this game and all associated resources"
                 onClick={handleDeleteGame}
-                className="w-full text-left p-3 rounded-lg border border-red-500/50 bg-card hover:bg-red-500/10 hover:border-red-500 transition-colors group"
-              >
-                <div className="flex items-start gap-3">
-                  <Trash2 className="h-4 w-4 mt-0.5 text-red-500" />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm mb-1 text-red-500">Delete Game</div>
-                    <div className="text-xs text-muted-foreground leading-relaxed">
-                      Permanently delete this game and all associated resources
-                    </div>
-                  </div>
-                </div>
-              </button>
+                variant="danger"
+              />
             </div>
           </div>
         </div>

@@ -27,12 +27,25 @@ export async function loader({ context }: Route.LoaderArgs) {
       const user = userSchema.parse(await res.json());
 
       // If user is admin, fetch active jobs
-      let activeJobs: Array<{ id: string; name: string; currentJobId: string; status: string }> = [];
+      let activeJobs: Array<{
+        jobId: string;
+        resourceId: string;
+        resourceName?: string;
+        gameName?: string;
+        status: string;
+      }> = [];
       if (user.isAdmin) {
         try {
           const jobsRes = await context.api.fetch('/resources/jobs');
           if (jobsRes.ok) {
-            activeJobs = await jobsRes.json();
+            const data = await jobsRes.json() as { jobs?: Array<{
+              jobId: string;
+              resourceId: string;
+              resourceName?: string;
+              gameName?: string;
+              status: string;
+            }> };
+            activeJobs = data.jobs || [];
           }
         } catch (error) {
           console.error('Failed to fetch active jobs:', error);
@@ -86,7 +99,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
 /**
  * Component to restore active job notifications on app load
  */
-function JobRestorer({ activeJobs }: { activeJobs: Array<{ id: string; name: string; currentJobId: string; status: string }> }) {
+function JobRestorer({
+  activeJobs,
+}: {
+  activeJobs: Array<{
+    jobId: string;
+    resourceId: string;
+    resourceName?: string;
+    gameName?: string;
+    status: string;
+  }>;
+}) {
   const { addJobNotification } = useFlashNotifications();
   const { notifications } = useNotifications();
   const hasInitialized = useRef(false);
@@ -105,24 +128,30 @@ function JobRestorer({ activeJobs }: { activeJobs: Array<{ id: string; name: str
         .map((n) => n.jobId)
     );
 
-    for (const resource of activeJobs) {
-      if (resource.currentJobId) {
-        // Skip if notification already exists for this job
-        if (existingJobIds.has(resource.currentJobId)) {
-          console.log('[Job Restore - Root] Skipping duplicate notification for:', {
-            jobId: resource.currentJobId,
-            resourceName: resource.name,
-          });
-          continue;
-        }
-
-        console.log('[Job Restore - Root] Adding notification for:', {
-          jobId: resource.currentJobId,
-          resourceName: resource.name,
-          status: resource.status,
-        });
-        addJobNotification(resource.currentJobId, `Processing ${resource.name}`);
+    for (const job of activeJobs) {
+      // Skip completed or failed jobs
+      if (job.status === 'completed' || job.status === 'failed') {
+        continue;
       }
+
+      // Skip if notification already exists for this job
+      if (existingJobIds.has(job.jobId)) {
+        console.log('[Job Restore - Root] Skipping duplicate notification for:', {
+          jobId: job.jobId,
+          resourceName: job.resourceName,
+        });
+        continue;
+      }
+
+      console.log('[Job Restore - Root] Adding notification for:', {
+        jobId: job.jobId,
+        resourceName: job.resourceName,
+        status: job.status,
+      });
+      addJobNotification(
+        job.jobId,
+        `Processing ${job.resourceName || 'resource'}`
+      );
     }
     // Only run once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -38,23 +38,30 @@ bggRouter.get(
       const bggIds = results.map((r) => r.id).filter(Boolean);
       const db = getDb(c.env.DB);
 
-      let importedBggIds = new Set<string>();
+      const importedGamesMap = new Map<string, { id: string; imageUrl: string | null }>();
       if (bggIds.length > 0) {
         const existingGames = await db
-          .select({ bggId: games.bggId })
+          .select({ id: games.id, bggId: games.bggId, imageUrl: games.imageUrl })
           .from(games)
           .where(inArray(games.bggId, bggIds));
 
-        importedBggIds = new Set(
-          existingGames.map((g) => g.bggId).filter((id): id is string => id !== null)
-        );
+        for (const g of existingGames) {
+          if (g.bggId) {
+            importedGamesMap.set(g.bggId, { id: g.id, imageUrl: g.imageUrl });
+          }
+        }
       }
 
-      // Add isImported flag to results
-      const resultsWithStatus = results.map((game) => ({
-        ...game,
-        isImported: importedBggIds.has(game.id),
-      }));
+      // Add isImported flag, gameId, and gameImageUrl to results
+      const resultsWithStatus = results.map((game) => {
+        const importedGame = importedGamesMap.get(game.id);
+        return {
+          ...game,
+          isImported: !!importedGame,
+          gameId: importedGame?.id || null,
+          gameImageUrl: importedGame?.imageUrl || null,
+        };
+      });
 
       return c.json(resultsWithStatus);
     } catch (error) {
@@ -159,7 +166,15 @@ bggRouter.post(
         })
         .returning();
 
-      return c.json(game, 201);
+      // Convert Date objects to timestamps for JSON serialization
+      // D1 stores timestamps as integers, and the schema expects numbers
+      const gameResponse = {
+        ...game,
+        createdAt: game.createdAt ? new Date(game.createdAt).getTime() : Date.now(),
+        updatedAt: game.updatedAt ? new Date(game.updatedAt).getTime() : Date.now(),
+      };
+
+      return c.json(gameResponse, 201);
     } catch (error) {
       // Clean up uploaded image if game creation failed
       if (uploadedImageUrl) {

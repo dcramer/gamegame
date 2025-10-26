@@ -13,3 +13,7 @@ JWT_SECRET=your-secret-here
 
 # Generate JWT_SECRET with:
 # openssl rand -base64 32
+
+# Optional: Debug logging for chat requests (logs to server stdout)
+# CHAT_DEBUG_VERBOSE=true   # Show detailed tool call traces (names, args, results)
+# Note: For performance metrics, use `pnpm cli ask <game> "<question>" --timing` instead

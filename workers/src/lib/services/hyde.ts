@@ -64,7 +64,7 @@ export async function generateQuestionsForFragment(
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' },
         temperature: opts.temperature,
-        max_tokens: 500,
+        max_completion_tokens: 500,
       }),
     });
 

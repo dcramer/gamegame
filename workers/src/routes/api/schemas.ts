@@ -42,6 +42,8 @@ export const bggSearchResultSchema = z.object({
   type: z.enum(['boardgame', 'boardgameexpansion']),
   thumbnailUrl: z.string().nullable().optional(),
   isImported: z.boolean().optional(),
+  gameId: z.string().nullable().optional(),
+  gameImageUrl: z.string().nullable().optional(),
 });
 
 export type BGGSearchResult = z.infer<typeof bggSearchResultSchema>;
@@ -131,15 +133,33 @@ export const jobStatusSchema = z.object({
   jobId: z.string(),
   resourceId: z.string(),
   gameId: z.string(),
-  status: z.enum(['queued', 'processing', 'completed', 'failed']),
+  status: z.enum(['pending', 'processing', 'completed', 'failed']),
   progress: z.number(),
   currentStep: z.string().optional(),
   error: z.string().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  completedAt: z.number().optional(),
 });
 
 export type JobStatus = z.infer<typeof jobStatusSchema>;
+
+// Job with details schema (extends job status with resource/game names)
+export const jobWithDetailsSchema = jobStatusSchema.extend({
+  resourceName: z.string().optional(),
+  gameName: z.string().optional(),
+});
+
+export type JobWithDetails = z.infer<typeof jobWithDetailsSchema>;
+
+// Jobs list response schema
+export const jobsListResponseSchema = z.object({
+  jobs: z.array(jobWithDetailsSchema),
+  cursor: z.string().optional(),
+  hasMore: z.boolean(),
+});
+
+export type JobsListResponse = z.infer<typeof jobsListResponseSchema>;
 
 // Upload response schema
 export const uploadResponseSchema = z.object({

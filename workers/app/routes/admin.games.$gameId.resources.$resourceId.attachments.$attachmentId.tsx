@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useParams, useLoaderData } from 'react-router';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 import AdminLayout from '../components/AdminLayout';
 import { useFlashNotifications } from '../hooks/useFlashNotifications';
 import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Spinner } from '../components/ui/spinner';
@@ -186,9 +187,21 @@ export default function AdminEditAttachment() {
           </p>
         )}
         {attachment.isGoodQuality !== null && (
-          <p className="text-sm text-muted-foreground mt-1">
-            Quality: {attachment.isGoodQuality ? '✓ Good' : '✗ Bad'}
-          </p>
+          <div className="mt-2">
+            <Badge variant={attachment.isGoodQuality ? 'success' : 'error'}>
+              {attachment.isGoodQuality ? (
+                <>
+                  <CheckCircle className="w-3 h-3 mr-1 inline" />
+                  Good Quality
+                </>
+              ) : (
+                <>
+                  <XCircle className="w-3 h-3 mr-1 inline" />
+                  Low Quality
+                </>
+              )}
+            </Badge>
+          </div>
         )}
       </div>
 

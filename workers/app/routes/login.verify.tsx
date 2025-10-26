@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router';
+import { CheckCircle, XCircle } from 'lucide-react';
 import Layout from '../components/Layout';
 import { Spinner } from '../components/ui/spinner';
 import { Card, CardContent } from '../components/ui/card';
@@ -77,31 +78,43 @@ export default function LoginVerify() {
     <Layout>
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="w-full max-w-md">
+          <div className="text-center mb-8">
+            <Heading className="text-3xl mb-2">Sign In</Heading>
+            <p className="text-muted-foreground">
+              Verifying your magic link
+            </p>
+          </div>
+
           <Card>
-            <CardContent>
+            <CardContent className="pt-6">
               {status === 'verifying' && (
                 <div className="text-center py-8">
                   <Spinner size="lg" className="mx-auto mb-4" />
-                  <Heading className="text-xl mb-2">Verifying...</Heading>
-                  <p className="text-muted-foreground">Please wait while we log you in</p>
+                  <p className="text-lg font-medium mb-2">Verifying...</p>
+                  <p className="text-sm text-muted-foreground">Please wait while we log you in</p>
                 </div>
               )}
 
               {status === 'success' && (
                 <div className="text-center py-8">
-                  <div className="text-green-600 text-5xl mb-4">✓</div>
-                  <Heading className="text-xl mb-2">Success!</Heading>
-                  <p className="text-muted-foreground mb-4">You're now logged in</p>
-                  <p className="text-sm text-muted-foreground">Redirecting...</p>
+                  <CheckCircle className="w-16 h-16 text-green-600 dark:text-green-400 mx-auto mb-4" />
+                  <p className="text-lg font-medium mb-2">Success!</p>
+                  <p className="text-sm text-muted-foreground mb-4">You're now logged in</p>
+                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Spinner size="sm" />
+                    <span>Redirecting...</span>
+                  </div>
                 </div>
               )}
 
               {status === 'error' && (
                 <div className="text-center py-8">
-                  <div className="text-red-600 text-5xl mb-4">✗</div>
-                  <Heading className="text-xl mb-2">Verification Failed</Heading>
-                  <p className="text-muted-foreground mb-6">{error}</p>
-                  <Button onClick={() => navigate('/login')}>Back to Login</Button>
+                  <XCircle className="w-16 h-16 text-red-600 dark:text-red-400 mx-auto mb-4" />
+                  <p className="text-lg font-medium mb-2">Verification Failed</p>
+                  <p className="text-sm text-muted-foreground mb-6">{error}</p>
+                  <Button onClick={() => navigate('/login')} className="w-full">
+                    Back to Login
+                  </Button>
                 </div>
               )}
             </CardContent>

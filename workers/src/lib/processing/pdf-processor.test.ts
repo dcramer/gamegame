@@ -62,7 +62,7 @@ vi.mock('../jobs/status', () => ({
 }));
 
 vi.mock('../services/r2-storage', () => ({
-  uploadPDFImages: vi.fn(async (bucket, resourceId, images) => {
+  uploadPDFImages: vi.fn(async (_bucket, resourceId, images) => {
     return images.map((img: any) => ({
       id: img.id,
       r2Key: `resources/${resourceId}/attachments/${img.id}.png`,
@@ -70,7 +70,7 @@ vi.mock('../services/r2-storage', () => ({
       caption: img.caption,
     }));
   }),
-  extractR2KeyFromUrl: vi.fn((url: string) => null),
+  extractR2KeyFromUrl: vi.fn((_url: string) => null),
   r2KeyToUrl: vi.fn((key: string) => `https://example.com/${key}`),
   bulkDeleteFromR2: vi.fn(async () => {}),
 }));
@@ -209,9 +209,12 @@ describe('PDF Processor Integration', () => {
       FILES: mockR2Bucket as any,
       VECTORIZE: mockVectorizeIndex as any,
       JOB_STATUS_KV: mockKV as any,
+      RATE_LIMIT_KV: {} as any,
       OPENAI_API_KEY: 'test-openai-key',
       MISTRAL_API_KEY: 'test-mistral-key',
+      JWT_SECRET: 'test-jwt-secret',
       RESOURCE_QUEUE: {} as any,
+      ASSETS: { fetch } as any,
     };
 
     // Setup mock task
@@ -226,9 +229,8 @@ describe('PDF Processor Integration', () => {
 
     // Mock database responses
     mockDb.all.mockResolvedValue([]);
-    mockDb.limit.mockImplementation(function (this: any) {
-      // For the metadata query
-      return Promise.resolve([
+    mockDb.limit.mockReturnValue(
+      Promise.resolve([
         {
           metadata: JSON.stringify({
             structuredKey: 'resources/test-resource/structured.json',
@@ -247,8 +249,8 @@ describe('PDF Processor Integration', () => {
           resourceType: 'rulebook',
           edition: '1.0',
         },
-      ]);
-    });
+      ]) as any
+    );
 
     // Mock HyDE fetch responses
     let hydeCallCount = 0;

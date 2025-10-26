@@ -1,6 +1,6 @@
 import type { Env, QueueMessage, ProcessingTaskType } from '@/types';
 import type { MessageBatch, ExportedHandler } from '@cloudflare/workers-types';
-import { updateJob } from '../lib/jobs/status';
+import { updateJob, getJob } from '../lib/jobs/status';
 import { handleProcessingTask } from '../lib/processing/pdf-processor';
 import { getDb, resources } from '../lib/db';
 import { eq } from 'drizzle-orm';
@@ -48,6 +48,29 @@ const handler: ExportedHandler<Env> = {
       });
 
       try {
+        // Check if job has been cancelled before processing
+        const currentJob = await getJob(env.JOB_STATUS_KV, task.jobId);
+        if (!currentJob) {
+          queueLog('job_not_found', {
+            type: task.type,
+            resourceId: task.resourceId,
+            jobId: task.jobId,
+          });
+          message.ack();
+          continue;
+        }
+
+        if (currentJob.status === 'failed') {
+          queueLog('job_cancelled', {
+            type: task.type,
+            resourceId: task.resourceId,
+            jobId: task.jobId,
+            error: currentJob.error,
+          });
+          message.ack();
+          continue;
+        }
+
         const startUpdate = STAGE_START_STATUS[task.type];
         if (startUpdate) {
           await updateJob(env.JOB_STATUS_KV, task.jobId, {

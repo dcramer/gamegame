@@ -533,8 +533,8 @@ export function Chat({
               onError={() => setImageError(true)}
             />
           ) : (
-            <div className="w-full h-full bg-muted flex items-center justify-center text-muted-foreground">
-              🎲
+            <div className="w-full h-full bg-muted flex items-center justify-center">
+              <Dices className="w-12 h-12 text-muted-foreground" />
             </div>
           )}
         </div>

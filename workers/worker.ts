@@ -7,6 +7,7 @@ import { prettyJSON } from 'hono/pretty-json';
 import type { Env } from './src/types';
 import type { R2Bucket } from '@cloudflare/workers-types';
 import { auth } from './src/middleware/auth';
+import * as Sentry from '@sentry/cloudflare';
 
 // Import API routes
 import gamesRouter from './src/routes/api/games';
@@ -224,4 +225,27 @@ const worker: ExportedHandler<Env> = {
   scheduled: cleanupJobsHandler.scheduled,
 };
 
-export default worker;
+// Wrap worker with Sentry for error tracking and performance monitoring
+export default Sentry.withSentry(
+  (env: Env) => {
+    // Only initialize Sentry if DSN is configured
+    if (!env.SENTRY_DSN) {
+      return {};
+    }
+
+    return {
+      dsn: env.SENTRY_DSN,
+      environment: env.ENVIRONMENT || 'development',
+      tracesSampleRate: 1.0, // Capture 100% of transactions for performance monitoring
+      integrations: [
+        // Automatically instrument Vercel AI SDK (ai package)
+        // This captures spans for AI model calls, tool executions, and streaming
+        Sentry.vercelAIIntegration({
+          recordInputs: true,   // Record prompts/inputs
+          recordOutputs: true,  // Record completions/outputs
+        }),
+      ],
+    };
+  },
+  worker
+);

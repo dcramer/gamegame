@@ -42,27 +42,28 @@ export default function Login() {
             </p>
           </div>
 
-          {sent ? (
-            <Card>
-              <CardContent className="pt-6 text-center">
-                <div className="mb-4">
-                  <p className="text-lg font-medium mb-2">Check your email!</p>
-                  <p className="text-sm text-muted-foreground">
-                    We've sent a magic link to <strong>{form.values.email}</strong>
-                  </p>
+          <Card>
+            <CardContent className="pt-6">
+              {sent ? (
+                <div className="text-center space-y-4">
+                  <div>
+                    <p className="text-lg font-medium mb-2">Check your email!</p>
+                    <p className="text-sm text-muted-foreground">
+                      We've sent a magic link to{' '}
+                      <span className="font-medium text-foreground">{form.values.email}</span>
+                    </p>
+                  </div>
+                  <div className="pt-2">
+                    <Link
+                      to="/games"
+                      className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      ← Back to games
+                    </Link>
+                  </div>
                 </div>
-                <Link
-                  to="/games"
-                  className="inline-block text-blue-600 hover:underline text-sm"
-                >
-                  ← Back to games
-                </Link>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="pt-6">
-                <form onSubmit={(e) => handleSubmit(e, form.values)} className="space-y-4">
+              ) : (
+                <form onSubmit={(e) => handleSubmit(e, form.values)} className="space-y-6">
                   {error && <AlertMessage variant="error" message={error} />}
 
                   <div className="space-y-2">
@@ -74,7 +75,11 @@ export default function Login() {
                       onChange={(e) => form.setField('email', e.target.value)}
                       required
                       placeholder="you@example.com"
+                      autoFocus
                     />
+                    <p className="text-xs text-muted-foreground">
+                      We'll send you a magic link to sign in
+                    </p>
                   </div>
 
                   <Button
@@ -88,15 +93,15 @@ export default function Login() {
                   <div className="text-center">
                     <Link
                       to="/games"
-                      className="text-sm text-muted-foreground hover:underline"
+                      className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                     >
                       ← Back to games
                     </Link>
                   </div>
                 </form>
-              </CardContent>
-            </Card>
-          )}
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </Layout>

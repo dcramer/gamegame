@@ -2,7 +2,7 @@ import type { Env, QueueMessage } from '@/types';
 import { nanoid } from 'nanoid';
 import { getDb, resources, fragments, attachments } from '../db';
 import { eq } from 'drizzle-orm';
-import { extractTextFromDocument, extractTextFromPdf, rebuildMarkdownFromPages, replaceImageReferences } from '../pdf';
+import { extractTextFromDocument, rebuildMarkdownFromPages, replaceImageReferences } from '../pdf';
 import { getExtensionFromKey } from '../services/r2-storage';
 import { getMimeTypeForExtension } from '../file-types';
 import { chunkStructuredPDF, calculateResourceStats } from '../services/chunking';
@@ -186,12 +186,6 @@ async function fetchDocumentBuffer(task: QueueMessage, env: Env): Promise<{ buff
   const mimeType = response.headers.get('content-type') || 'application/pdf';
 
   return { buffer, mimeType };
-}
-
-/** @deprecated Use fetchDocumentBuffer instead */
-async function fetchPdfBuffer(task: QueueMessage, env: Env): Promise<Buffer> {
-  const { buffer } = await fetchDocumentBuffer(task, env);
-  return buffer;
 }
 
 async function deleteExistingAttachments(env: Env, resourceId: string) {

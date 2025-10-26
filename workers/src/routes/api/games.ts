@@ -9,7 +9,7 @@ import { requireAdmin } from '@/middleware/auth';
 import { ratelimit } from '@/middleware/ratelimit';
 import { generateSlug } from '@/lib/utils/slug';
 import { createJob } from '@/lib/jobs/status';
-import { RESOURCE_SOURCE_FILENAME, buildResourceSourceUrl, buildResourceSourceKey, r2KeyToUrl } from '@/lib/services/r2-storage';
+import { buildResourceSourceUrl, buildResourceSourceKey, r2KeyToUrl } from '@/lib/services/r2-storage';
 import { deleteEmbeddings } from '@/lib/ai/vectorize';
 import { streamChatResponse } from './chat-handler';
 import { getBGGGameDetails, downloadImage } from '@/lib/services/bgg';
@@ -17,7 +17,6 @@ import {
   extractFileExtension,
   isSupportedExtension,
   validateFileContent,
-  getFileTypeName,
   getMimeTypeForExtension,
 } from '@/lib/file-types';
 import {

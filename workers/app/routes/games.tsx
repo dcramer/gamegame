@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { Link, useLoaderData } from 'react-router';
+import { Dices } from 'lucide-react';
 import type { Route } from './+types/games';
 import Layout from '../components/Layout';
 import Heading from '../components/Heading';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardHeader, CardTitle } from '../components/ui/card';
+import { EmptyState } from '../components/EmptyState';
 import { Input } from '../components/ui/input';
 import { getDb, games } from '../../src/lib/db';
 import { createMeta, createGamesTitle } from '../lib/meta';
@@ -80,7 +82,7 @@ export default function Games() {
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
                   </>
                 ) : (
-                  <div className="text-4xl text-muted-foreground">🎲</div>
+                  <Dices className="w-16 h-16 text-muted-foreground" />
                 )}
               </div>
               <CardHeader className="py-4">
@@ -97,14 +99,15 @@ export default function Games() {
         </div>
 
         {matchingGames.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-xl">
-              {games.length === 0
-                ? "No games yet. Check with your administrator to add games."
-                : "No games found matching your search."
-              }
-            </p>
-          </div>
+          <EmptyState
+            title={games.length === 0 ? "No games yet" : "No games found"}
+            description={
+              games.length === 0
+                ? "Check with your administrator to add games."
+                : "No games found matching your search. Try a different search term."
+            }
+            icon={<Dices className="w-12 h-12" />}
+          />
         )}
       </div>
     </Layout>

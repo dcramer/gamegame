@@ -1,5 +1,6 @@
-import { FileIcon, Pencil } from 'lucide-react';
+import { Pencil, Dices } from 'lucide-react';
 import { Link } from 'react-router';
+import { EmptyState } from './EmptyState';
 import { type Attachment } from '../lib/schemas';
 
 interface AttachmentListProps {
@@ -11,9 +12,11 @@ interface AttachmentListProps {
 export default function AttachmentList({ attachments, gameId, resourceId }: AttachmentListProps) {
   if (attachments.length === 0) {
     return (
-      <div className="text-sm text-muted-foreground">
-        No media attachments found for this resource.
-      </div>
+      <EmptyState
+        title="No attachments"
+        description="No media attachments found for this resource."
+        icon={<Dices className="w-12 h-12" />}
+      />
     );
   }
 
@@ -41,7 +44,7 @@ export default function AttachmentList({ attachments, gameId, resourceId }: Atta
                 </div>
               ) : (
                 <div className="relative aspect-square bg-muted flex items-center justify-center">
-                  <FileIcon className="h-12 w-12 text-muted-foreground" />
+                  <Dices className="h-12 w-12 text-muted-foreground" />
                 </div>
               )}
             </a>

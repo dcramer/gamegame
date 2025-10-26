@@ -49,6 +49,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         const existingNotification = prev.find(
           (n): n is JobNotification =>
             n.type === 'job' &&
+            'jobId' in n &&
             n.jobId === jobNotif.jobId &&
             jobNotif.jobId !== '' // Don't dedupe pending notifications without jobId yet
         );

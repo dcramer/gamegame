@@ -2,6 +2,13 @@ import { useState, useCallback } from 'react';
 import { useParams, useNavigate, useOutletContext, Link } from 'react-router';
 import { Download, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { EmptyState } from '../components/EmptyState';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '../components/ui/tooltip';
 import { useFlashNotifications } from '../hooks/useFlashNotifications';
 import {
   Table,
@@ -138,7 +145,7 @@ export default function GameResourcesTab() {
   };
 
   const handleDelete = async (resourceId: string, resourceName: string) => {
-    if (!confirm(`Delete resource "${resourceName}"?`)) return;
+    if (!confirm(`Delete resource "${resourceName}"?\n\nThis will permanently delete:\n- The resource file\n- All fragments and embeddings\n- All associated attachments\n\nThis action cannot be undone.`)) return;
 
     try {
       const response = await apiClient.fetch(`/resources/${resourceId}`, {
@@ -165,19 +172,16 @@ export default function GameResourcesTab() {
     >
       {resources.length === 0 ? (
         <div
-          className={`flex flex-1 flex-col gap-6 items-center justify-center rounded-lg border ${
-            isDragging ? 'border-primary bg-primary/10' : 'border-dashed'
-          } shadow-sm p-6 bg-muted min-h-64 cursor-pointer hover:bg-muted/80 transition-colors`}
+          className={`cursor-pointer transition-all ${
+            isDragging ? 'scale-[1.02]' : ''
+          }`}
           onClick={triggerFileInput}
         >
-          <div className="flex flex-col items-center gap-1 text-center">
-            <h3 className="text-2xl font-bold tracking-tight">
-              There are no resources
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              Drag a document, image, or text file here, or click to browse files.
-            </p>
-          </div>
+          <EmptyState
+            title="There are no resources"
+            description="Drag a document, image, or text file here, or click to browse files."
+            className={isDragging ? 'border-primary bg-primary/10' : ''}
+          />
         </div>
       ) : (
         <div className="flex flex-col gap-4">
@@ -185,99 +189,113 @@ export default function GameResourcesTab() {
             <Button onClick={triggerFileInput}>Add Resource</Button>
           </div>
 
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Resource</TableHead>
-                <TableHead className="w-[180px] text-center">Last Processed</TableHead>
-                <TableHead className="w-[60px] text-center">Version</TableHead>
-                <TableHead className="w-[120px] text-center">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {resources.map((resource) => {
-                const stats = [
-                  resource.pageCount && `${resource.pageCount} pages`,
-                  resource.imageCount > 0 && `${resource.imageCount} images`,
-                  resource.wordCount > 0 &&
-                    `${(resource.wordCount / 1000).toFixed(1)}k words`,
-                ]
-                  .filter(Boolean)
-                  .join(', ');
+          <TooltipProvider>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Resource</TableHead>
+                  <TableHead className="w-[180px] text-center">Last Processed</TableHead>
+                  <TableHead className="w-[60px] text-center">Version</TableHead>
+                  <TableHead className="w-[120px] text-center">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {resources.map((resource) => {
+                  const stats = [
+                    resource.pageCount && `${resource.pageCount} pages`,
+                    resource.imageCount > 0 && `${resource.imageCount} images`,
+                    resource.wordCount > 0 &&
+                      `${(resource.wordCount / 1000).toFixed(1)}k words`,
+                  ]
+                    .filter(Boolean)
+                    .join(', ');
 
-                return (
-                  <TableRow
-                    key={resource.id}
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => {
-                      navigate(`/admin/games/${gameId}/resources/${resource.id}`);
-                    }}
-                  >
-                    <TableCell>
-                      <Link
-                        to={`/admin/games/${gameId}/resources/${resource.id}`}
-                        className="font-semibold hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {resource.name}
-                      </Link>
-                      {stats && (
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {stats}
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground text-center align-middle">
-                      {resource.processedAt
-                        ? new Date(resource.processedAt).toLocaleString()
-                        : '-'}
-                    </TableCell>
-                    <TableCell className="text-center align-middle">{resource.version}</TableCell>
-                    <TableCell className="text-center align-middle">
-                      <div className="flex items-center justify-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 w-8 p-0"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleReprocess(resource.id, resource.name);
-                          }}
-                          title="Reprocess"
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 w-8 p-0"
-                          asChild
-                          title="Download"
+                  return (
+                    <TableRow
+                      key={resource.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => {
+                        navigate(`/admin/games/${gameId}/resources/${resource.id}`);
+                      }}
+                    >
+                      <TableCell className="align-middle">
+                        <Link
+                          to={`/admin/games/${gameId}/resources/${resource.id}`}
+                          className="font-semibold hover:underline"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <a href={resource.url} target="_blank" rel="noopener noreferrer">
-                            <Download className="h-4 w-4" />
-                          </a>
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 w-8 p-0"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(resource.id, resource.name);
-                          }}
-                          title="Delete"
-                        >
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                          {resource.name}
+                        </Link>
+                        {stats && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {stats}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground text-center align-middle">
+                        {resource.processedAt
+                          ? new Date(resource.processedAt).toLocaleString()
+                          : '-'}
+                      </TableCell>
+                      <TableCell className="text-center align-middle">{resource.version}</TableCell>
+                      <TableCell className="text-center align-middle">
+                        <div className="flex items-center justify-center gap-2">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleReprocess(resource.id, resource.name);
+                                }}
+                              >
+                                <RefreshCw className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Reprocess resource</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0"
+                                asChild
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <a href={resource.url} target="_blank" rel="noopener noreferrer">
+                                  <Download className="h-4 w-4" />
+                                </a>
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Download resource</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(resource.id, resource.name);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4 text-red-500" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete resource</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TooltipProvider>
         </div>
       )}
     </div>

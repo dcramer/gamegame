@@ -5,6 +5,7 @@ import type { D1Database, VectorizeIndex } from "@cloudflare/workers-types";
 import { getDb, resources, attachments } from "../db";
 import { normalizeResourceSourceUrl } from "../services/r2-storage";
 import { eq } from "drizzle-orm";
+import type { ToolMetrics } from "@/types";
 
 const GITHUB_URL = "https://github.com/dcramer/gamegame";
 
@@ -34,11 +35,97 @@ function withTimeout<T>(
   ]);
 }
 
+/**
+ * Wraps a tool's execute function with performance tracking
+ * Records execution time, arguments, and errors
+ */
+function withPerformanceTracking<TArgs, TResult>(
+  toolName: string,
+  execute: (args: TArgs) => Promise<TResult>,
+  onComplete?: (metrics: ToolMetrics) => void
+): (args: TArgs) => Promise<TResult> {
+  if (!onComplete) {
+    return execute; // No tracking if no callback provided
+  }
+
+  return async (args: TArgs): Promise<TResult> => {
+    const startTime = performance.now();
+    const timestamp = Date.now();
+
+    try {
+      const result = await execute(args);
+      const durationMs = performance.now() - startTime;
+
+      onComplete({
+        name: toolName,
+        durationMs,
+        timestamp,
+        args,
+      });
+
+      return result;
+    } catch (error) {
+      const durationMs = performance.now() - startTime;
+
+      onComplete({
+        name: toolName,
+        durationMs,
+        timestamp,
+        args,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
+      throw error;
+    }
+  };
+}
+
 export const AnswerSchema = z.object({
-  answer: z.string(),
+  answer: z.string().describe("The answer using markdown formatting"),
   questionType: z
     .enum(["gameplay", "knowledge", "external", "gamegame"])
-    .optional(),
+    .optional()
+    .describe("The type of question being answered"),
+  citations: z
+    .array(
+      z.object({
+        resourceId: z.string(),
+        resourceName: z.string(),
+        pageNumber: z.number().optional(),
+        pageRange: z.array(z.number()).optional(),
+        section: z.string().optional(),
+        relevance: z.enum(["primary", "supporting", "related"]),
+        quote: z.string().optional(),
+      })
+    )
+    .default([])
+    .describe("List of sources used, ordered by relevance"),
+  confidence: z
+    .enum(["high", "medium", "low"])
+    .default("high")
+    .describe("Confidence level in the answer"),
+  ambiguities: z
+    .array(z.string())
+    .optional()
+    .describe("List of ambiguous points or rule conflicts"),
+  followUps: z
+    .array(
+      z.object({
+        question: z.string(),
+        category: z.enum(["related", "deeper", "clarifying"]),
+      })
+    )
+    .default([])
+    .describe("Suggested follow-up questions"),
+  playerCountSpecific: z
+    .number()
+    .optional()
+    .describe("Player count if answer is player-count specific"),
+  expansionSpecific: z
+    .array(z.string())
+    .optional()
+    .describe("Expansions if answer requires specific expansions"),
+  // Legacy field for backward compatibility
   resources: z
     .array(
       z.object({
@@ -46,8 +133,7 @@ export const AnswerSchema = z.object({
         id: z.string(),
       })
     )
-    .default([]),
-  followUps: z.array(z.string()).default([]),
+    .optional(),
 });
 
 export function getTools(
@@ -56,15 +142,10 @@ export function getTools(
   vectorIndex: VectorizeIndex,
   openaiApiKey: string,
   baseUrl: string,
-  environment?: string
+  environment?: string,
+  onToolComplete?: (metrics: ToolMetrics) => void
 ) {
   return {
-    finish: tool({
-      description: "Call this tool when you have gathered all necessary information and are ready to provide your final JSON response. This signals that you are done using tools.",
-      inputSchema: z.object({}),
-      execute: async () => "done",
-    }),
-
     search_resources: tool({
       description:
         "Search rulebook text for rules, setup instructions, gameplay mechanics, clarifications, and game information. Returns text chunks with page numbers and sections. Use this for most questions about rules and gameplay.",
@@ -75,17 +156,21 @@ export function getTools(
           .default("all")
           .describe("Optional: limit to specific resource type"),
       }),
-      execute: async ({ query, resourceType }) =>
-        withTimeout(
-          findRelevantContent(db, vectorIndex, gameId, query, openaiApiKey, {
-            fragmentType: "text",
-            resourceType: resourceType === "all" ? undefined : resourceType,
-            environment,
-            enableReranking: false, // Temporarily disabled - gpt-5-mini API errors
-          }),
-          TOOL_TIMEOUT_MS,
-          "search_resources"
-        ),
+      execute: withPerformanceTracking(
+        "search_resources",
+        async ({ query, resourceType }) =>
+          withTimeout(
+            findRelevantContent(db, vectorIndex, gameId, query, openaiApiKey, {
+              fragmentType: "text",
+              resourceType: resourceType === "all" ? undefined : resourceType,
+              environment,
+              enableReranking: false, // Temporarily disabled - gpt-5-mini API errors
+            }),
+            TOOL_TIMEOUT_MS,
+            "search_resources"
+          ),
+        onToolComplete
+      ),
     }),
 
     search_media: tool({
@@ -98,46 +183,54 @@ export function getTools(
             'What image/diagram to find (e.g., "setup diagram", "game board", "player board")'
           ),
       }),
-      execute: async ({ query }) =>
-        withTimeout(
-          findRelevantContent(db, vectorIndex, gameId, query, openaiApiKey, {
-            fragmentType: "image",
-            limit: 5, // Fewer images
-            environment,
-            enableReranking: false, // Temporarily disabled - gpt-5-mini API errors
-          }),
-          TOOL_TIMEOUT_MS,
-          "search_media"
-        ),
+      execute: withPerformanceTracking(
+        "search_media",
+        async ({ query }) =>
+          withTimeout(
+            findRelevantContent(db, vectorIndex, gameId, query, openaiApiKey, {
+              fragmentType: "image",
+              limit: 5, // Fewer images
+              environment,
+              enableReranking: false, // Temporarily disabled - gpt-5-mini API errors
+            }),
+            TOOL_TIMEOUT_MS,
+            "search_media"
+          ),
+        onToolComplete
+      ),
     }),
 
     listResources: tool({
       description: "List the resources available to you with their statistics",
       inputSchema: z.object({}),
-      execute: async () =>
-        withTimeout(
-          (async () => {
-            const orm = getDb(db);
-            const resourceList = await orm
-              .select()
-              .from(resources)
-              .where(eq(resources.gameId, gameId))
-              .all();
+      execute: withPerformanceTracking(
+        "listResources",
+        async () =>
+          withTimeout(
+            (async () => {
+              const orm = getDb(db);
+              const resourceList = await orm
+                .select()
+                .from(resources)
+                .where(eq(resources.gameId, gameId))
+                .all();
 
-            return resourceList.map((r) => ({
-              id: r.id,
-              name: r.name,
-              url: normalizeResourceSourceUrl(r.id, r.url) ?? r.url,
-              originalFilename: r.originalFilename ?? null,
-              description: r.description ?? null,
-              pageCount: r.pageCount ?? null,
-              imageCount: r.imageCount ?? 0,
-              wordCount: r.wordCount ?? 0,
-            }));
-          })(),
-          TOOL_TIMEOUT_MS,
-          "listResources"
-        ),
+              return resourceList.map((r) => ({
+                id: r.id,
+                name: r.name,
+                url: normalizeResourceSourceUrl(r.id, r.url) ?? r.url,
+                originalFilename: r.originalFilename ?? null,
+                description: r.description ?? null,
+                pageCount: r.pageCount ?? null,
+                imageCount: r.imageCount ?? 0,
+                wordCount: r.wordCount ?? 0,
+              }));
+            })(),
+            TOOL_TIMEOUT_MS,
+            "listResources"
+          ),
+        onToolComplete
+      ),
     }),
 
     getAttachment: tool({
@@ -148,45 +241,49 @@ export function getTools(
           .string()
           .describe("The attachment ID from attachment:// URL"),
       }),
-      execute: async ({ attachmentId }) =>
-        withTimeout(
-          (async () => {
-            try {
-              const orm = getDb(db);
-              const [attachment] = await orm
-                .select()
-                .from(attachments)
-                .where(eq(attachments.id, attachmentId))
-                .limit(1);
+      execute: withPerformanceTracking(
+        "getAttachment",
+        async ({ attachmentId }) =>
+          withTimeout(
+            (async () => {
+              try {
+                const orm = getDb(db);
+                const [attachment] = await orm
+                  .select()
+                  .from(attachments)
+                  .where(eq(attachments.id, attachmentId))
+                  .limit(1);
 
-              if (!attachment) {
+                if (!attachment) {
+                  return {
+                    success: false,
+                    error: `Attachment not found: ${attachmentId}`,
+                  };
+                }
+
+                const { r2KeyToUrl } = await import("../services/r2-storage");
+
+                return {
+                  success: true,
+                  id: attachment.id,
+                  type: attachment.type,
+                  url: `${baseUrl}${r2KeyToUrl(attachment.r2Key)}`,
+                  mimeType: attachment.mimeType ?? "image/png",
+                  caption: attachment.caption,
+                  pageNumber: attachment.pageNumber,
+                };
+              } catch (error) {
                 return {
                   success: false,
-                  error: `Attachment not found: ${attachmentId}`,
+                  error: `Attachment not found or unavailable: ${attachmentId}`,
                 };
               }
-
-              const { r2KeyToUrl } = await import("../services/r2-storage");
-
-              return {
-                success: true,
-                id: attachment.id,
-                type: attachment.type,
-                url: `${baseUrl}${r2KeyToUrl(attachment.r2Key)}`,
-                mimeType: attachment.mimeType ?? "image/png",
-                caption: attachment.caption,
-                pageNumber: attachment.pageNumber,
-              };
-            } catch (error) {
-              return {
-                success: false,
-                error: `Attachment not found or unavailable: ${attachmentId}`,
-              };
-            }
-          })(),
-          TOOL_TIMEOUT_MS,
-          "getAttachment"
-        ),
+            })(),
+            TOOL_TIMEOUT_MS,
+            "getAttachment"
+          ),
+        onToolComplete
+      ),
     }),
   };
 }
@@ -209,7 +306,7 @@ Focus on the gameplay rules. Be very specific around understanding of rules that
 
 ## Response Format
 
-CRITICAL: After using any tools to gather information, you MUST call the 'finish' tool and then generate your final JSON response.
+CRITICAL: After using tools to gather information, you MUST generate your final response as valid JSON.
 
 Your final response must ALWAYS be valid JSON in exactly this format:
 
@@ -237,8 +334,6 @@ Your final response must ALWAYS be valid JSON in exactly this format:
   "playerCountSpecific": 3,  // optional - only if answer is player-count specific
   "expansionSpecific": ["Expansion Name"]  // optional - only if answer requires specific expansions
 }
-
-IMPORTANT: Do not stop after calling tools. You must use the tool results to generate the JSON response above.
 
 **Citations Field**:
 - List all sources you used to answer the question, ordered by relevance

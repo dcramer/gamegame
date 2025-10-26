@@ -152,7 +152,7 @@ describe('analyzeImageQuality', () => {
     const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
 
     expect(callBody.model).toBe('gpt-4o');
-    expect(callBody.max_tokens).toBe(500);
+    expect(callBody.max_completion_tokens).toBe(500);
     expect(callBody.temperature).toBe(0);
     expect(callBody.response_format).toEqual({ type: 'json_object' });
   });
@@ -187,7 +187,7 @@ describe('analyzeImageQuality', () => {
     const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
 
     expect(callBody.model).toBe('gpt-4o-mini');
-    expect(callBody.max_tokens).toBe(300);
+    expect(callBody.max_completion_tokens).toBe(300);
     expect(callBody.temperature).toBe(0.5);
   });
 

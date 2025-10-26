@@ -110,6 +110,7 @@ describe('Hybrid Search Tests (No External APIs)', () => {
           fragmentId: data.id,
           gameId: data.gameId,
           resourceId: data.resourceId,
+          type: 'content',
           ...(data.pageNumber != null && { pageNumber: data.pageNumber }),
           ...(data.section != null && { section: data.section }),
         },

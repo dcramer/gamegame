@@ -5,7 +5,7 @@ import type { Env } from '@/types';
 import { getDb, resources, fragments, attachments, games } from '@/lib/db';
 import { eq, sql, asc } from 'drizzle-orm';
 import { requireAdmin } from '@/middleware/auth';
-import { createJob, deleteJob, getJob } from '@/lib/jobs/status';
+import { createJob, deleteJob, getJob, listJobs, cancelJob } from '@/lib/jobs/status';
 import { extractR2KeyFromUrl, normalizeResourceSourceUrl, r2KeyToUrl } from '@/lib/services/r2-storage';
 import { deleteEmbeddings } from '@/lib/ai/vectorize';
 import {
@@ -20,26 +20,59 @@ import {
 const resourcesRouter = new Hono<{ Bindings: Env }>();
 
 /**
- * Get all active jobs (admin only)
- * Returns all resources with status 'processing' or 'queued'
+ * Get all jobs from KV (admin only)
+ * Returns all jobs sorted by creation time (newest first)
  */
 resourcesRouter.get('/jobs', requireAdmin, async (c) => {
-  const db = getDb(c.env.DB);
+  const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!) : 100;
+  const cursor = c.req.query('cursor');
 
-  const activeResources = await db
+  const result = await listJobs(c.env.JOB_STATUS_KV, { limit, cursor });
+
+  // Batch fetch resource and game names in a single query
+  const db = getDb(c.env.DB);
+  const resourceIds = [...new Set(result.jobs.map((job) => job.resourceId))];
+
+  // Handle empty jobs list
+  if (resourceIds.length === 0) {
+    return c.json({
+      jobs: [],
+      cursor: result.cursor,
+      hasMore: result.hasMore,
+    });
+  }
+
+  const resourceDetails = await db
     .select({
-      id: resources.id,
-      name: resources.name,
-      gameId: resources.gameId,
-      status: resources.status,
-      currentJobId: resources.currentJobId,
-      processingStage: resources.processingStage,
+      resourceId: resources.id,
+      resourceName: resources.name,
+      gameName: games.name,
     })
     .from(resources)
-    .where(sql`${resources.status} IN ('processing', 'queued') AND ${resources.currentJobId} IS NOT NULL`)
+    .innerJoin(games, eq(resources.gameId, games.id))
+    .where(sql`${resources.id} IN (${sql.join(resourceIds.map(id => sql`${id}`), sql`, `)})`)
     .all();
 
-  return c.json(activeResources);
+  // Create lookup map for O(1) access
+  const resourceMap = new Map(
+    resourceDetails.map((r) => [r.resourceId, { name: r.resourceName, gameName: r.gameName }])
+  );
+
+  // Enrich jobs with details
+  const jobsWithDetails = result.jobs.map((job) => {
+    const details = resourceMap.get(job.resourceId);
+    return {
+      ...job,
+      resourceName: details?.name,
+      gameName: details?.gameName,
+    };
+  });
+
+  return c.json({
+    jobs: jobsWithDetails,
+    cursor: result.cursor,
+    hasMore: result.hasMore,
+  });
 });
 
 /**
@@ -58,6 +91,180 @@ resourcesRouter.get('/jobs/:jobId', requireAdmin, async (c) => {
   }
 
   return c.json(validateResponse(job, jobStatusSchema));
+});
+
+/**
+ * Cancel a job (admin only)
+ * Marks the job as failed so the queue consumer will skip it
+ * Also updates the resource status in D1
+ */
+resourcesRouter.post('/jobs/:jobId/cancel', requireAdmin, async (c) => {
+  const { jobId } = c.req.param();
+
+  try {
+    // Get job to find resource ID
+    const job = await getJob(c.env.JOB_STATUS_KV, jobId);
+    if (!job) {
+      return c.json({ error: 'Job not found' }, 404);
+    }
+
+    // Cancel the job in KV (this will throw if job is completed or already failed)
+    await cancelJob(c.env.JOB_STATUS_KV, jobId);
+
+    // Verify the job was actually cancelled (prevent race condition)
+    const cancelledJob = await getJob(c.env.JOB_STATUS_KV, jobId);
+    if (!cancelledJob || cancelledJob.status !== 'failed') {
+      return c.json({ error: 'Job could not be cancelled - it may have completed' }, 409);
+    }
+
+    // Update resource status in D1 only if job is still cancelled
+    const db = getDb(c.env.DB);
+    const result = await db
+      .update(resources)
+      .set({
+        status: 'failed',
+        processingStage: 'cancelled',
+        processingMetadata: null,
+        currentJobId: null,
+        updatedAt: new Date(),
+      })
+      .where(sql`${resources.id} = ${job.resourceId} AND ${resources.currentJobId} = ${jobId}`)
+      .returning();
+
+    // If no rows updated, the resource was already updated by another process
+    if (result.length === 0) {
+      return c.json({
+        success: true,
+        message: 'Job cancelled, but resource was already updated by another process'
+      });
+    }
+
+    return c.json({ success: true, message: 'Job cancelled successfully' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: message }, 400);
+  }
+});
+
+/**
+ * Retry a failed job (admin only)
+ * Creates a new job and re-enqueues the resource for processing from where it failed
+ */
+resourcesRouter.post('/jobs/:jobId/retry', requireAdmin, async (c) => {
+  const { jobId } = c.req.param();
+
+  try {
+    // Get job to find resource ID and verify it's failed
+    const job = await getJob(c.env.JOB_STATUS_KV, jobId);
+    if (!job) {
+      return c.json({ error: 'Job not found' }, 404);
+    }
+
+    if (job.status !== 'failed') {
+      return c.json({ error: 'Only failed jobs can be retried' }, 400);
+    }
+
+    const db = getDb(c.env.DB);
+
+    // Get resource details including processing stage
+    const [resource] = await db
+      .select({
+        id: resources.id,
+        gameId: resources.gameId,
+        name: resources.name,
+        url: resources.url,
+        processingStage: resources.processingStage,
+        processingMetadata: resources.processingMetadata,
+        status: resources.status,
+      })
+      .from(resources)
+      .where(eq(resources.id, job.resourceId))
+      .limit(1);
+
+    if (!resource) {
+      return c.json({ error: 'Resource not found' }, 404);
+    }
+
+    // Get game name for vision analysis context
+    const [game] = await db
+      .select({ name: games.name })
+      .from(games)
+      .where(eq(games.id, resource.gameId))
+      .limit(1);
+
+    // Determine which stage to retry from (default to ingest if unknown)
+    const stage = resource.processingStage || 'ingest';
+    const taskTypeMap: Record<string, 'INGEST' | 'VISION' | 'CLEANUP' | 'METADATA' | 'EMBED' | 'FINALIZE'> = {
+      ingest: 'INGEST',
+      vision: 'VISION',
+      cleanup: 'CLEANUP',
+      metadata: 'METADATA',
+      embed: 'EMBED',
+      finalize: 'FINALIZE',
+    };
+    const taskType = taskTypeMap[stage] || 'INGEST';
+
+    // Create new job
+    const newJobId = await createJob(c.env.JOB_STATUS_KV, resource.id, resource.gameId);
+
+    // Normalize URL for R2 access
+    const normalizedUrl = normalizeResourceSourceUrl(resource.id, resource.url) ?? resource.url;
+    const sourceKey = normalizedUrl ? extractR2KeyFromUrl(normalizedUrl) : null;
+
+    // Update resource to processing state with new job
+    await db
+      .update(resources)
+      .set({
+        status: 'processing',
+        currentJobId: newJobId,
+        processingStage: stage,
+        url: normalizedUrl,
+        updatedAt: new Date(),
+      })
+      .where(eq(resources.id, resource.id));
+
+    // Send to queue
+    // Note: INGEST task always requires url and sourceKey
+    try {
+      await c.env.RESOURCE_QUEUE.send({
+        jobId: newJobId,
+        resourceId: resource.id,
+        gameId: resource.gameId,
+        name: resource.name,
+        type: taskType,
+        url: taskType === 'INGEST' ? normalizedUrl : undefined,
+        gameName: game?.name,
+        sourceKey: taskType === 'INGEST' ? (sourceKey || undefined) : undefined,
+      });
+    } catch (error) {
+      // If queue send fails, revert the resource status
+      await db
+        .update(resources)
+        .set({
+          status: 'failed',
+          currentJobId: jobId, // Restore old job ID
+          updatedAt: new Date(),
+        })
+        .where(eq(resources.id, resource.id));
+
+      // Delete the new job we just created
+      await deleteJob(c.env.JOB_STATUS_KV, newJobId);
+
+      throw error;
+    }
+
+    // Delete old failed job
+    await deleteJob(c.env.JOB_STATUS_KV, jobId);
+
+    return c.json({
+      success: true,
+      jobId: newJobId,
+      message: `Job retrying from ${stage} stage`,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: message }, 400);
+  }
 });
 
 // Note: Resource listing by game moved to /api/games/:gameIdOrSlug/resources

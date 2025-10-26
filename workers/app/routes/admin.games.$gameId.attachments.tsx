@@ -1,5 +1,6 @@
 import { useLoaderData, Link, useParams } from 'react-router';
 import { z } from 'zod';
+import { EmptyState } from '../components/EmptyState';
 
 const attachmentSchema = z.object({
   id: z.string(),
@@ -56,14 +57,10 @@ export default function GameAttachmentsTab() {
 
   if (attachments.length === 0) {
     return (
-      <div className="flex flex-1 flex-col gap-6 items-center justify-center rounded-lg border border-dashed shadow-sm p-6 bg-muted min-h-64">
-        <div className="flex flex-col items-center gap-1 text-center">
-          <h3 className="text-2xl font-bold tracking-tight">No attachments yet</h3>
-          <p className="text-sm text-muted-foreground">
-            Attachments are extracted from PDF resources when they are processed.
-          </p>
-        </div>
-      </div>
+      <EmptyState
+        title="No attachments yet"
+        description="Attachments are extracted from PDF resources when they are processed."
+      />
     );
   }
 

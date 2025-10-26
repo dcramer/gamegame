@@ -3,6 +3,7 @@ import { Download, RefreshCw, Trash2 } from 'lucide-react';
 import AdminLayout from '../components/AdminLayout';
 import { PageHeader } from '../components/PageHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { ActionButton } from '../components/ui/action-button';
 import { useFlashNotifications } from '../hooks/useFlashNotifications';
 import { resourceSchema, attachmentsListSchema } from '../lib/schemas';
 import { z } from 'zod';
@@ -125,7 +126,7 @@ export default function AdminResourceLayout() {
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Are you sure you want to delete "${resource.name}"? This action cannot be undone.`)) {
+    if (!confirm(`Delete resource "${resource.name}"?\n\nThis will permanently delete:\n- The resource file\n- All fragments and embeddings\n- All associated attachments\n\nThis action cannot be undone.`)) {
       return;
     }
 
@@ -199,80 +200,36 @@ export default function AdminResourceLayout() {
             <div>
               <h3 className="text-sm font-semibold mb-3">Reprocessing</h3>
               <div className="space-y-2">
-                <button
+                <ActionButton
+                  icon={RefreshCw}
+                  title="Full Reprocess"
+                  description="Complete pipeline from scratch"
                   onClick={() => handleReprocess('ingest')}
-                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group"
-                >
-                  <div className="flex items-start gap-3">
-                    <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm mb-1">Full Reprocess</div>
-                      <div className="text-xs text-muted-foreground leading-relaxed">
-                        Complete pipeline from scratch
-                      </div>
-                    </div>
-                  </div>
-                </button>
-
-                <button
+                />
+                <ActionButton
+                  icon={RefreshCw}
+                  title="Improve Image Descriptions"
+                  description="Re-analyze image content"
                   onClick={() => handleReprocess('vision')}
-                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group"
-                >
-                  <div className="flex items-start gap-3">
-                    <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm mb-1">Improve Image Descriptions</div>
-                      <div className="text-xs text-muted-foreground leading-relaxed">
-                        Re-analyze image content
-                      </div>
-                    </div>
-                  </div>
-                </button>
-
-                <button
+                />
+                <ActionButton
+                  icon={RefreshCw}
+                  title="Clean Up Markdown"
+                  description="Fix formatting issues"
                   onClick={() => handleReprocess('cleanup')}
-                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group"
-                >
-                  <div className="flex items-start gap-3">
-                    <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm mb-1">Clean Up Markdown</div>
-                      <div className="text-xs text-muted-foreground leading-relaxed">
-                        Fix formatting issues
-                      </div>
-                    </div>
-                  </div>
-                </button>
-
-                <button
+                />
+                <ActionButton
+                  icon={RefreshCw}
+                  title="Regenerate Metadata"
+                  description="Update document title and description"
                   onClick={() => handleReprocess('metadata')}
-                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group"
-                >
-                  <div className="flex items-start gap-3">
-                    <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm mb-1">Regenerate Metadata</div>
-                      <div className="text-xs text-muted-foreground leading-relaxed">
-                        Update document title and description
-                      </div>
-                    </div>
-                  </div>
-                </button>
-
-                <button
+                />
+                <ActionButton
+                  icon={RefreshCw}
+                  title="Regenerate Embeddings"
+                  description="Update search index"
                   onClick={() => handleReprocess('embed')}
-                  className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent hover:border-accent-foreground/20 transition-colors group"
-                >
-                  <div className="flex items-start gap-3">
-                    <RefreshCw className="h-4 w-4 mt-0.5 text-muted-foreground group-hover:text-foreground" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm mb-1">Regenerate Embeddings</div>
-                      <div className="text-xs text-muted-foreground leading-relaxed">
-                        Update search index
-                      </div>
-                    </div>
-                  </div>
-                </button>
+                />
               </div>
             </div>
 
@@ -298,20 +255,13 @@ export default function AdminResourceLayout() {
 
             <div>
               <h3 className="text-sm font-semibold mb-3">Danger Zone</h3>
-              <button
+              <ActionButton
+                icon={Trash2}
+                title="Delete Resource"
+                description="Permanently removes all data"
                 onClick={handleDelete}
-                className="w-full text-left p-3 rounded-lg border border-red-500/50 bg-card hover:bg-red-500/10 hover:border-red-500 transition-colors group"
-              >
-                <div className="flex items-start gap-3">
-                  <Trash2 className="h-4 w-4 mt-0.5 text-red-500" />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm mb-1 text-red-500">Delete Resource</div>
-                    <div className="text-xs text-muted-foreground leading-relaxed">
-                      Permanently removes all data
-                    </div>
-                  </div>
-                </div>
-              </button>
+                variant="danger"
+              />
             </div>
           </div>
         </div>

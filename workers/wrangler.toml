@@ -1,7 +1,7 @@
 name = "gamegame"
 main = "worker.ts"
 compatibility_date = "2025-01-15"
-compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env", "global_fetch_strictly_public"]
+compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env", "global_fetch_strictly_public", "nodejs_als"]
 account_id = "3f121ae4e5f2c3be251559c828d3805d"
 
 # Workers AI compatibility
@@ -63,6 +63,7 @@ R2_PUBLIC_URL = "https://pub-da70527d01154effbf07cf2470284247.r2.dev"
 # OPENAI_API_KEY
 # MISTRAL_API_KEY
 # JWT_SECRET
+# SENTRY_DSN (optional - for error tracking and performance monitoring)
 # RESEND_API_KEY (optional - for email sending via Resend)
 
 # Preview configuration (remote dev / staging)

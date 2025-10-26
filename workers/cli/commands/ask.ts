@@ -1,48 +1,55 @@
-import { getApiUrl, getLocalD1 } from '../utils';
-import { getDb, games } from '../../src/lib/db';
-import { eq } from 'drizzle-orm';
+import { getApiUrl } from '../utils';
 
 export async function askCommand() {
   const args = process.argv.slice(3);
-  const gameInput = args[0];
-  const prompt = args.slice(1).join(' ');
+
+  // Parse flags
+  const showTiming = args.includes('--timing');
+  const showVerbose = args.includes('--verbose');
+
+  // Remove all flags from args
+  const filteredArgs = args.filter(arg => !arg.startsWith('--'));
+
+  const gameInput = filteredArgs[0];
+  const prompt = filteredArgs.slice(1).join(' ');
 
   if (!gameInput || !prompt) {
-    console.error('Usage: pnpm cli ask <game> <prompt>');
+    console.error('Usage: pnpm cli ask <game> <prompt> [options]');
     console.error('');
     console.error('<game> can be either a game ID or slug');
     console.error('');
+    console.error('Options:');
+    console.error('  --timing     Show performance metrics (duration, tokens, tool calls)');
+    console.error('  --verbose    Show detailed execution trace (use with --timing)');
+    console.error('');
     console.error('Examples:');
     console.error('  pnpm cli ask arcs "How do I setup the game?"');
-    console.error('  pnpm cli ask 0nglgzyy60ax3fpfu4oz3 "How many players?"');
+    console.error('  pnpm cli ask arcs "How many players?"');
+    console.error('  pnpm cli ask arcs "How many players?" --timing');
+    console.error('  pnpm cli ask arcs "How many players?" --timing --verbose');
+    console.error('');
     process.exit(1);
   }
 
-  // Determine if input is a slug (contains hyphens or lowercase letters) or an ID
-  let gameId = gameInput;
+  // Use the API to resolve game ID (supports both slug and ID)
+  const gameIdOrSlug = gameInput;
 
-  // If it looks like a slug (contains hyphens), look up the ID
-  if (gameInput.includes('-') || /^[a-z]/.test(gameInput)) {
-    const d1 = await getLocalD1();
-    const db = getDb(d1);
+  // Try to fetch game to verify it exists and get its name
+  const gameCheckUrl = `${getApiUrl(false)}/api/games/${gameIdOrSlug}`;
+  let gameName: string | undefined;
 
-    const [game] = await db
-      .select({ id: games.id, name: games.name })
-      .from(games)
-      .where(eq(games.slug, gameInput))
-      .limit(1);
-
-    if (!game) {
-      console.error(`Game not found with slug: ${gameInput}`);
-      console.error('Run "pnpm cli games" to see available games');
-      process.exit(1);
+  try {
+    const gameResponse = await fetch(gameCheckUrl);
+    if (gameResponse.ok) {
+      const game = await gameResponse.json();
+      gameName = game.name;
+      console.log(`Found game: ${gameName}`);
     }
-
-    gameId = game.id;
-    console.log(`Found game: ${game.name} (${gameId})`);
+  } catch (err) {
+    // Ignore errors - the chat endpoint will handle invalid games
   }
 
-  const url = `${getApiUrl(false)}/api/games/${gameId}/chat`;
+  const url = `${getApiUrl(false)}/api/games/${gameIdOrSlug}/chat`;
 
   console.log(`Prompt: ${prompt}`);
   console.log('---\n');
@@ -86,16 +93,66 @@ export async function askCommand() {
       );
     }
 
-    // Get response text
+    // Get response text (SSE stream)
     const fullResponse = await response.text();
+
+    // Parse SSE stream
+    let messageMetadata: any = null;
+    let answerText = '';
+
+    const lines = fullResponse.split('\n');
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const data = line.slice(6); // Remove 'data: ' prefix
+
+        if (data === '[DONE]') {
+          break;
+        }
+
+        try {
+          const event = JSON.parse(data);
+
+          // Collect text deltas to build the answer
+          if (event.type === 'text-delta' && event.textDelta) {
+            answerText += event.textDelta;
+          }
+
+          // Capture metadata from finish event
+          if (event.type === 'finish' && event.messageMetadata) {
+            messageMetadata = event.messageMetadata;
+          }
+
+          // For backward compatibility, also check message-metadata events
+          if (event.type === 'message-metadata' && event.messageMetadata) {
+            messageMetadata = event.messageMetadata;
+          }
+        } catch (err) {
+          // Ignore parse errors for individual events
+        }
+      }
+    }
+
     console.log('');
 
-    // Parse and display structured output
+    // Display the collected answer text
     try {
-      const structuredOutput = JSON.parse(fullResponse);
+      if (!answerText || answerText.trim() === '') {
+        throw new Error('No answer text found in response');
+      }
 
-      // Display answer
-      console.log(structuredOutput.answer);
+      // Try to parse as JSON (expected format)
+      let structuredOutput: any;
+      try {
+        structuredOutput = JSON.parse(answerText.trim());
+      } catch (err) {
+        // If not JSON, display as plain text
+        console.log(answerText.trim());
+        console.log('');
+        return;
+      }
+
+      // Display answer from JSON
+      console.log(structuredOutput.answer || answerText.trim());
       console.log('');
 
       // Display confidence if low or medium
@@ -143,9 +200,53 @@ export async function askCommand() {
         });
         console.log('');
       }
+
+      // Display performance metrics if --timing flag is set
+      if (showTiming && messageMetadata?.performance) {
+        const perf = messageMetadata.performance;
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('⚡ PERFORMANCE METRICS');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log(`Total Duration: ${perf.totalDurationMs}ms`);
+        console.log(`Model: ${messageMetadata.model || 'unknown'}`);
+        console.log(`Steps: ${perf.steps.length}`);
+        console.log(`Tool Calls: ${perf.toolCallCount}`);
+        if (perf.toolCallCount > 0) {
+          console.log(`Avg Tool Duration: ${perf.avgToolDurationMs.toFixed(0)}ms`);
+        }
+        console.log('');
+        console.log('Token Usage:');
+        console.log(`  Prompt:     ${perf.totalTokens.prompt.toLocaleString()}`);
+        console.log(`  Completion: ${perf.totalTokens.completion.toLocaleString()}`);
+        if (perf.totalTokens.reasoning) {
+          console.log(`  Reasoning:  ${perf.totalTokens.reasoning.toLocaleString()}`);
+        }
+        console.log(`  Total:      ${perf.totalTokens.total.toLocaleString()}`);
+
+        if (showVerbose) {
+          console.log('');
+          console.log('Per-Step Breakdown:');
+          perf.steps.forEach((step: any) => {
+            console.log(
+              `  Step ${step.stepNumber}: ${step.stepDurationMs}ms, ` +
+              `${step.toolCalls.length} tools, ${step.tokenUsage.totalTokens} tokens`
+            );
+            step.toolCalls.forEach((tool: any) => {
+              const error = tool.error ? ` ❌ ${tool.error}` : '';
+              console.log(`    - ${tool.name}: ${tool.durationMs.toFixed(0)}ms${error}`);
+            });
+          });
+        }
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('');
+      }
     } catch (error) {
-      console.error('⚠️  Failed to parse response as JSON');
-      console.error(fullResponse || '(empty response)');
+      console.error('⚠️  Failed to parse response');
+      console.error(error instanceof Error ? error.message : String(error));
+      if (showVerbose) {
+        console.error('\nRaw response:');
+        console.error(fullResponse || '(empty response)');
+      }
       process.exit(1);
     }
 
