@@ -1,6 +1,7 @@
 import type { StructuredPDFContent, PDFImage } from '../types/pdf';
 import { generateText } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
+import { getModel } from '../config/models';
 
 type VisionLogContext = {
   resourceId?: string;
@@ -78,12 +79,15 @@ async function withRetry<T>(
 }
 
 /**
- * Analyze an image using GPT-5 Vision to generate a description and quality assessment
+ * Analyze an image using configured vision model (GPT-5 in prod, GPT-4o-mini in dev)
+ * to generate a description and quality assessment
  * @param base64Image Base64-encoded image data (with or without data URI prefix)
  * @param surroundingText Text content surrounding the image for context
+ * @param openaiApiKey OpenAI API key
  * @param context Optional context (game name, section hierarchy)
  * @param metadata Optional metadata for logging (e.g., page number, image index)
- * @param openaiApiKey OpenAI API key
+ * @param logContext Optional logging context
+ * @param environment Optional environment override (development/production)
  * @returns Description and quality assessment
  */
 export async function analyzeImageWithVision(
@@ -92,7 +96,8 @@ export async function analyzeImageWithVision(
   openaiApiKey: string,
   context?: { gameName?: string; sectionHierarchy?: string },
   metadata?: { pageNumber?: number; imageIndex?: number; imageId?: string },
-  logContext: VisionLogContext = {}
+  logContext: VisionLogContext = {},
+  environment?: string
 ): Promise<VisionAnalysisResult> {
   visionLog('analysis_start', {
     resourceId: logContext.resourceId,
@@ -138,10 +143,13 @@ Format as JSON:
 
   const openai = createOpenAI({ apiKey: openaiApiKey });
 
+  // Get vision model from config
+  const visionModel = getModel('vision', environment);
+
   const result = await withRetry(
     async (signal) => {
       const { text } = await generateText({
-        model: openai('gpt-5'), // GPT-5 reasoning model with vision support
+        model: openai(visionModel), // Configured vision model (GPT-5 in prod, GPT-4o-mini in dev)
         messages: [
           {
             role: 'user',
@@ -230,9 +238,10 @@ export async function batchAnalyzeImages(
     maxConcurrency?: number;
     logContext?: VisionLogContext;
     onProgress?: (processed: number, total: number) => Promise<void>;
+    environment?: string;
   } = {}
 ): Promise<VisionAnalysisResult[]> {
-  const { maxConcurrency = 5, logContext, onProgress } = options;
+  const { maxConcurrency = 5, logContext, onProgress, environment } = options;
   visionLog('batch_start', {
     resourceId: logContext?.resourceId,
     jobId: logContext?.jobId,
@@ -253,7 +262,8 @@ export async function batchAnalyzeImages(
           openaiApiKey,
           img.context,
           img.metadata,
-          logContext ?? {}
+          logContext ?? {},
+          environment
         )
       )
     );
@@ -294,9 +304,10 @@ export async function enrichPDFImagesWithVision(
     maxConcurrency?: number;
     logContext?: VisionLogContext;
     onProgress?: (processed: number, total: number) => Promise<void>;
+    environment?: string;
   } = {}
 ): Promise<void> {
-  const { logContext, maxConcurrency, onProgress } = options;
+  const { logContext, maxConcurrency, onProgress, environment } = options;
   visionLog('enrich_start', {
     resourceId: logContext?.resourceId,
     jobId: logContext?.jobId,
@@ -365,6 +376,7 @@ export async function enrichPDFImagesWithVision(
       maxConcurrency,
       logContext,
       onProgress,
+      environment,
     }
   );
 

@@ -21,6 +21,9 @@ const attachmentSchema = z.object({
 const attachmentsListSchema = z.array(attachmentSchema);
 
 export async function loader({ params, context }: any) {
+  const { requireAdmin } = await import('../lib/auth');
+  await requireAdmin(context.api);
+
   // Fetch all attachments for the game with resource info
   const response = await context.api.fetch(`/games/${params.gameId}/attachments`);
   if (!response.ok) {

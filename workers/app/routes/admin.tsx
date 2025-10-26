@@ -27,6 +27,9 @@ export const meta = () => {
 };
 
 export async function loader({ context }: Route.LoaderArgs) {
+  const { requireAdmin } = await import('../lib/auth');
+  await requireAdmin(context.api);
+
   const res = await context.api.fetch('/games');
   if (!res.ok) {
     throw new Error('Failed to load games');

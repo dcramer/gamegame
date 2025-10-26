@@ -44,6 +44,9 @@ const extendedAttachmentSchema = attachmentSchema.extend({
 type Attachment = z.infer<typeof extendedAttachmentSchema>;
 
 export async function loader({ params, context }: Route.LoaderArgs) {
+  const { requireAdmin } = await import('../lib/auth');
+  await requireAdmin(context.api);
+
   const [attachmentRes, resourceRes, gameRes] = await Promise.all([
     context.api.fetch(`/attachments/${params.attachmentId}`),
     context.api.fetch(`/resources/${params.resourceId}`),

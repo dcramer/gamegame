@@ -107,13 +107,29 @@ bggRouter.post(
         try {
           const imageBuffer = await downloadImage(details.imageUrl);
 
+          // Detect image type from buffer
+          let extension = 'jpg';
+          let contentType = 'image/jpeg';
+
+          // Check magic bytes to determine actual format
+          if (imageBuffer[0] === 0x89 && imageBuffer[1] === 0x50) {
+            extension = 'png';
+            contentType = 'image/png';
+          } else if (imageBuffer[0] === 0x47 && imageBuffer[1] === 0x49) {
+            extension = 'gif';
+            contentType = 'image/gif';
+          } else if (imageBuffer[0] === 0x52 && imageBuffer[1] === 0x49) {
+            extension = 'webp';
+            contentType = 'image/webp';
+          }
+
           // Upload to R2
           // Note: Unlike Next.js version, we don't convert to WebP since Sharp doesn't work
-          // Images are stored as-is from BGG
-          const key = `games/game-${bggId}.jpg`;
+          // Images are stored as-is from BGG with auto-detected format
+          const key = `games/game-${bggId}.${extension}`;
           await c.env.FILES.put(key, imageBuffer, {
             httpMetadata: {
-              contentType: 'image/jpeg',
+              contentType,
             },
           });
 
@@ -148,7 +164,8 @@ bggRouter.post(
       // Clean up uploaded image if game creation failed
       if (uploadedImageUrl) {
         try {
-          const key = `games/game-${bggId}.jpg`;
+          // Extract key from URL (/uploads/games/game-123.jpg -> games/game-123.jpg)
+          const key = uploadedImageUrl.replace('/uploads/', '');
           await c.env.FILES.delete(key);
         } catch (cleanupError) {
           console.error('Failed to cleanup image after error:', cleanupError);
@@ -157,9 +174,17 @@ bggRouter.post(
 
       console.error('Failed to create game from BGG:', error);
 
-      // Check if it's a duplicate name error
+      // Check if it's a duplicate error
       if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
-        return c.json({ error: 'A game with this name already exists' }, 409);
+        if (error.message.includes('slug')) {
+          return c.json({ error: 'A game with this name and year already exists' }, 409);
+        }
+        return c.json({ error: 'This game has already been imported' }, 409);
+      }
+
+      // Return more specific error message if available
+      if (error instanceof Error) {
+        return c.json({ error: error.message || 'Failed to create game from BoardGameGeek' }, 500);
       }
 
       return c.json({ error: 'Failed to create game from BoardGameGeek' }, 500);

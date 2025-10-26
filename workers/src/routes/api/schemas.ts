@@ -34,7 +34,21 @@ export type Game = z.infer<typeof gameSchema>;
 
 export const gamesListSchema = z.array(gameSchema);
 
-// BGG Game schemas
+// BGG Search Result schema (minimal data from search API)
+export const bggSearchResultSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  yearPublished: z.number().nullable(),
+  type: z.enum(['boardgame', 'boardgameexpansion']),
+  thumbnailUrl: z.string().nullable().optional(),
+  isImported: z.boolean().optional(),
+});
+
+export type BGGSearchResult = z.infer<typeof bggSearchResultSchema>;
+
+export const bggSearchResultsListSchema = z.array(bggSearchResultSchema);
+
+// BGG Game schema (full details from game details API)
 export const bggGameSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -42,16 +56,18 @@ export const bggGameSchema = z.object({
   minPlayers: z.number().nullable(),
   maxPlayers: z.number().nullable(),
   playingTime: z.number().nullable(),
-  minPlayTime: z.number().nullable(),
-  maxPlayTime: z.number().nullable(),
-  minAge: z.number().nullable(),
-  description: z.string().nullable(),
-  thumbnail: z.string().nullable(),
-  image: z.string().nullable(),
+  minPlayTime: z.number().nullable().optional(),
+  maxPlayTime: z.number().nullable().optional(),
+  minAge: z.number().nullable().optional(),
+  description: z.string().nullable().optional(),
+  thumbnail: z.string().nullable().optional(),
+  image: z.string().nullable().optional(),
+  thumbnailUrl: z.string().nullable().optional(),
+  imageUrl: z.string().nullable().optional(),
   publishers: z.array(z.string()),
   designers: z.array(z.string()),
-  categories: z.array(z.string()),
-  bggUrl: z.string(),
+  categories: z.array(z.string()).optional(),
+  bggUrl: z.string().optional(),
 });
 
 export type BGGGame = z.infer<typeof bggGameSchema>;
@@ -221,3 +237,55 @@ export const chatRequestSchema = z.object({
 });
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
+
+// Structured answer schema for AI responses (AI SDK streamObject)
+export const citationSchema = z.object({
+  resourceId: z.string().describe('ID of the resource cited'),
+  resourceName: z.string().describe('Name of the resource (e.g., "Core Rulebook")'),
+  pageNumber: z.number().optional().describe('Page number in the source'),
+  pageRange: z.array(z.number()).optional().describe('Page range [start, end] if multi-page'),
+  section: z.string().optional().describe('Section hierarchy (e.g., "Setup > Player Setup")'),
+  relevance: z.enum(['primary', 'supporting', 'related']).describe('How relevant this source is to the answer'),
+  quote: z.string().optional().describe('Direct quote from the source if applicable'),
+});
+
+export type Citation = z.infer<typeof citationSchema>;
+
+export const answerImageSchema = z.object({
+  attachmentId: z.string().describe('ID of the attachment'),
+  url: z.string().describe('URL to the image'),
+  description: z.string().describe('Description of what the image shows'),
+  relevance: z.enum(['essential', 'helpful', 'supplementary']).describe('How important this image is'),
+  placement: z.enum(['inline', 'end']).describe('Where to display the image in the answer'),
+});
+
+export type AnswerImage = z.infer<typeof answerImageSchema>;
+
+export const followUpQuestionSchema = z.object({
+  question: z.string().describe('The suggested follow-up question'),
+  category: z.enum(['related', 'deeper', 'clarifying']).describe('Type of follow-up'),
+});
+
+export type FollowUpQuestion = z.infer<typeof followUpQuestionSchema>;
+
+export const structuredAnswerSchema = z.object({
+  answer: z.string().describe('Markdown-formatted answer to the question'),
+
+  questionType: z.enum(['gameplay', 'knowledge', 'external', 'gamegame']).describe('Category of question being answered'),
+
+  citations: z.array(citationSchema).describe('Sources used, ordered by relevance'),
+
+  images: z.array(answerImageSchema).optional().describe('Images to include in response'),
+
+  confidence: z.enum(['high', 'medium', 'low']).describe('Confidence in answer accuracy'),
+
+  ambiguities: z.array(z.string()).optional().describe('Ambiguous points or rule conflicts found'),
+
+  followUps: z.array(followUpQuestionSchema).describe('Suggested follow-up questions'),
+
+  playerCountSpecific: z.number().optional().describe('If answer is specific to a player count'),
+
+  expansionSpecific: z.array(z.string()).optional().describe('If answer requires specific expansions'),
+});
+
+export type StructuredAnswer = z.infer<typeof structuredAnswerSchema>;

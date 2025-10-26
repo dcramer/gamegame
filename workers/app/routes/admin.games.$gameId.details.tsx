@@ -28,6 +28,12 @@ const imageUploadResponseSchema = z.object({
   url: z.string(),
 });
 
+export async function loader({ context }: { context: { api: any } }) {
+  const { requireAdmin } = await import('../lib/auth');
+  await requireAdmin(context.api);
+  return {};
+}
+
 export default function GameDetailsTab() {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();

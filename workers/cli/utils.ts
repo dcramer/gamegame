@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import type { D1Database, VectorizeIndex } from '@cloudflare/workers-types';
 
 export function loadDevVars(): Record<string, string> {
   try {
@@ -30,4 +31,24 @@ export function getApiUrl(isRemote: boolean): string {
     return 'https://gamegame.ai';
   }
   return 'http://localhost:4000';
+}
+
+/**
+ * Get local D1 database connection for CLI commands
+ * Uses the local .wrangler/state/v3/d1 database
+ */
+export async function getLocalD1(): Promise<D1Database> {
+  const { getPlatformProxy } = await import('wrangler');
+  const { env } = await getPlatformProxy();
+  return env.DB as D1Database;
+}
+
+/**
+ * Get Vectorize index connection for CLI commands
+ * Note: Local Vectorize is not supported, this connects to remote
+ */
+export async function getLocalVectorize(): Promise<VectorizeIndex> {
+  const { getPlatformProxy } = await import('wrangler');
+  const { env } = await getPlatformProxy();
+  return env.VECTORIZE as VectorizeIndex;
 }

@@ -24,6 +24,10 @@ export const games = sqliteTable('games', {
   bggIdIdx: index('idx_games_bgg_id').on(table.bggId),
 }));
 
+// Resource types enum
+export const RESOURCE_TYPES = ['rulebook', 'expansion', 'faq', 'errata', 'reference'] as const;
+export type ResourceType = typeof RESOURCE_TYPES[number];
+
 // Resources table
 export const resources = sqliteTable('resources', {
   id: text('id').primaryKey().$defaultFn(() => generateId()),
@@ -43,6 +47,12 @@ export const resources = sqliteTable('resources', {
   processingMetadata: text('processing_metadata'),
   description: text('description'),
 
+  // Resource classification
+  resourceType: text('resource_type').default('rulebook'),
+  language: text('language').default('en'),
+  edition: text('edition'),
+  isOfficial: integer('is_official', { mode: 'boolean' }).default(true),
+
   // Denormalized stats
   pageCount: integer('page_count'),
   imageCount: integer('image_count').default(0),
@@ -56,6 +66,10 @@ export const resources = sqliteTable('resources', {
   jobIdx: index('idx_resources_job_id').on(table.currentJobId),
 }));
 
+// Fragment types enum
+export const FRAGMENT_TYPES = ['text', 'image', 'table'] as const;
+export type FragmentType = typeof FRAGMENT_TYPES[number];
+
 // Fragments table (text chunks for RAG)
 export const fragments = sqliteTable('fragments', {
   id: text('id').primaryKey().$defaultFn(() => generateId()),
@@ -64,18 +78,39 @@ export const fragments = sqliteTable('fragments', {
   content: text('content').notNull(),
   version: integer('version').notNull().default(0),
 
+  // Fragment type discrimination
+  type: text('type').notNull().default('text'),
+  attachmentId: text('attachment_id').references(() => attachments.id, { onDelete: 'set null' }),
+
+  // Dual content storage (display vs search)
+  searchableContent: text('searchable_content'),
+
+  // HyDE: Synthetic questions (JSON array of strings)
+  syntheticQuestions: text('synthetic_questions'),
+
+  // Denormalized resource metadata for faster search context
+  resourceName: text('resource_name'),
+  resourceDescription: text('resource_description'),
+  resourceType: text('resource_type'),
+
   // Metadata (stored as separate columns since no JSONB in SQLite)
   pageNumber: integer('page_number'),
   pageRangeStart: integer('page_range_start'),
   pageRangeEnd: integer('page_range_end'),
   section: text('section'),
-  images: text('images'), // JSON string: [{id, url, bbox, caption}]
+  images: text('images'), // JSON string: [{id, url, bbox, caption, description}]
 }, (table) => ({
   gameIdx: index('idx_fragments_game_id').on(table.gameId),
   resourceIdx: index('idx_fragments_resource_id').on(table.resourceId),
   versionIdx: index('idx_fragments_version').on(table.version),
   pageIdx: index('idx_fragments_page_number').on(table.pageNumber),
+  typeIdx: index('idx_fragments_type').on(table.type),
+  attachmentIdx: index('idx_fragments_attachment_id').on(table.attachmentId),
 }));
+
+// Detected image types enum
+export const DETECTED_IMAGE_TYPES = ['diagram', 'table', 'photo', 'icon', 'decorative'] as const;
+export type DetectedImageType = typeof DETECTED_IMAGE_TYPES[number];
 
 // Attachments table (images extracted from PDFs)
 export const attachments = sqliteTable('attachments', {
@@ -93,6 +128,12 @@ export const attachments = sqliteTable('attachments', {
   height: integer('height'),
   description: text('description'), // AI-generated description of the image content
   isGoodQuality: integer('is_good_quality', { mode: 'boolean' }), // true (good), false (bad), or null
+
+  // Image analysis fields
+  isRelevant: integer('is_relevant', { mode: 'boolean' }), // true (useful), false (decorative), or null
+  detectedType: text('detected_type'), // 'diagram' | 'table' | 'photo' | 'icon' | 'decorative'
+  ocrText: text('ocr_text'), // Text extracted from image (for tables)
+
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 }, (table) => ({
   gameIdx: index('idx_attachments_game_id').on(table.gameId),

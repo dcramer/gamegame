@@ -3,7 +3,7 @@ import { Dices } from "lucide-react";
 import { Link } from "react-router";
 import { useAuth } from "../lib/auth-context";
 
-const GITHUB_URL = "https://github.com/getsentry/gamegame";
+const GITHUB_URL = "https://github.com/dcramer/gamegame";
 
 export default function Footer() {
   const { user } = useAuth();
@@ -21,10 +21,7 @@ export default function Footer() {
           GitHub
         </a>
         <span>&middot;</span>
-        <Link
-          to="/"
-          className="flex items-center gap-1 hover:underline"
-        >
+        <Link to="/" className="flex items-center gap-1 hover:underline">
           <Dices className="w-4 h-4" />
           GameGame
         </Link>

@@ -36,39 +36,43 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const addNotification = useCallback((notification: Omit<Notification, 'id'>) => {
-    // Deduplicate job notifications by jobId
-    if (notification.type === 'job') {
-      const jobNotif = notification as Omit<JobNotification, 'id'>;
-
-      // Check if a notification already exists for this job ID
-      const existingNotification = notifications.find(
-        (n): n is JobNotification =>
-          n.type === 'job' &&
-          n.jobId === jobNotif.jobId &&
-          jobNotif.jobId !== '' // Don't dedupe pending notifications without jobId yet
-      );
-
-      if (existingNotification) {
-        console.log('[NotificationContext] Skipping duplicate job notification:', jobNotif.jobId);
-        return existingNotification.id;
-      }
-    }
-
     const id = `notification-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const newNotification: Notification = { ...notification, id } as Notification;
+    let actualId = id;
 
-    setNotifications((prev) => [...prev, newNotification]);
+    setNotifications((prev) => {
+      // Deduplicate job notifications by jobId using latest state
+      if (notification.type === 'job') {
+        const jobNotif = notification as Omit<JobNotification, 'id'>;
+
+        // Check if a notification already exists for this job ID
+        const existingNotification = prev.find(
+          (n): n is JobNotification =>
+            n.type === 'job' &&
+            n.jobId === jobNotif.jobId &&
+            jobNotif.jobId !== '' // Don't dedupe pending notifications without jobId yet
+        );
+
+        if (existingNotification) {
+          console.log('[NotificationContext] Skipping duplicate job notification:', jobNotif.jobId);
+          actualId = existingNotification.id;
+          return prev; // Don't add duplicate
+        }
+      }
+
+      return [...prev, newNotification];
+    });
 
     // Auto-hide non-persistent notifications
     if (!notification.persist && notification.type !== 'job') {
       const hideMs = notification.autoHideMs ?? 5000;
       setTimeout(() => {
-        removeNotification(id);
+        removeNotification(actualId);
       }, hideMs);
     }
 
-    return id;
-  }, [notifications]);
+    return actualId;
+  }, []); // No dependencies - always uses latest state via functional update
 
   const updateNotification = useCallback((id: string, updates: Partial<Notification>) => {
     setNotifications((prev) =>

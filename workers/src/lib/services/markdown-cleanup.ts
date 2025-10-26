@@ -2,6 +2,37 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { generateText } from 'ai';
 
 /**
+ * Preprocess LaTeX formatting that commonly appears in OCR output
+ * Convert LaTeX symbols to their Unicode equivalents
+ */
+function preprocessLatex(markdown: string): string {
+  let cleaned = markdown;
+
+  // LaTeX superscript trademark: ${ }^{\text {m }}$ → ™
+  cleaned = cleaned.replace(/\$\{\s*\}\s*\^\{\\text\s*\{\s*m\s*\}\s*\}\$/g, '™');
+
+  // LaTeX superscript registered: ${ }^{\text {r }}$ → ®
+  cleaned = cleaned.replace(/\$\{\s*\}\s*\^\{\\text\s*\{\s*r\s*\}\s*\}\$/g, '®');
+
+  // LaTeX superscript copyright: ${ }^{\text {c }}$ → ©
+  cleaned = cleaned.replace(/\$\{\s*\}\s*\^\{\\text\s*\{\s*c\s*\}\s*\}\$/g, '©');
+
+  // Generic LaTeX superscript TM: $^{TM}$ or ^{TM} → ™
+  cleaned = cleaned.replace(/\$?\^\{TM\}\$?/g, '™');
+
+  // Generic LaTeX superscript R: $^{®}$ or ^{®} → ®
+  cleaned = cleaned.replace(/\$?\^\{®\}\$?/g, '®');
+
+  // LaTeX math mode empty: ${ }$ → (remove)
+  cleaned = cleaned.replace(/\$\{\s*\}\$/g, '');
+
+  // Multiple spaces to single space
+  cleaned = cleaned.replace(/  +/g, ' ');
+
+  return cleaned;
+}
+
+/**
  * Clean up markdown content using an LLM to remove unusable sections
  * while preserving the overall structure and useful content.
  *
@@ -27,6 +58,9 @@ export async function cleanupMarkdown(
   if (!markdown.trim()) {
     return markdown;
   }
+
+  // First preprocess LaTeX formatting
+  markdown = preprocessLatex(markdown);
 
   try {
     const openai = createOpenAI({ apiKey: openaiApiKey });

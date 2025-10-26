@@ -19,6 +19,12 @@ const extendedResourceSchema = resourceSchema.extend({
   content: z.string().optional(),
 });
 
+export async function loader({ context }: { context: { api: any } }) {
+  const { requireAdmin } = await import('../lib/auth');
+  await requireAdmin(context.api);
+  return {};
+}
+
 export default function ResourceDetailsTab() {
   const { resourceId } = useParams<{ resourceId: string }>();
   const { resource: initialResource } = useOutletContext<{ resource: Resource }>();

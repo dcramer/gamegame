@@ -16,6 +16,12 @@ import {
 } from '../lib/schemas';
 import { apiClient } from '../../load-context';
 
+export async function loader({ context }: { context: { api: any } }) {
+  const { requireAdmin } = await import('../lib/auth');
+  await requireAdmin(context.api);
+  return {};
+}
+
 export default function GameResourcesTab() {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();

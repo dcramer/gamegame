@@ -33,13 +33,28 @@ function NotificationItem({ notification }: { notification: Notification }) {
       return;
     }
 
+    // Track consecutive failures to avoid marking as failed too quickly
+    let consecutiveFailures = 0;
+    const MAX_FAILURES = 3; // Allow 3 failures before marking as failed
+
     // Poll every 2 seconds for active jobs
     const interval = setInterval(async () => {
       try {
         const response = await apiClient.fetch(`/resources/jobs/${jobNotification.jobId}`);
         if (!response.ok) {
-          throw new Error('Failed to fetch job status');
+          // 404 means job not found yet - might be queued
+          if (response.status === 404) {
+            consecutiveFailures++;
+            if (consecutiveFailures >= MAX_FAILURES) {
+              throw new Error('Job not found - may have been cancelled or expired');
+            }
+            return; // Retry on next poll
+          }
+          throw new Error(`Failed to fetch job status: ${response.statusText}`);
         }
+
+        // Reset failure counter on success
+        consecutiveFailures = 0;
 
         const data = (await response.json()) as {
           status: JobNotification['status'];
@@ -55,10 +70,15 @@ function NotificationItem({ notification }: { notification: Notification }) {
         } as Partial<JobNotification>);
       } catch (error) {
         console.error('Failed to poll job status:', error);
-        updateNotification(notification.id, {
-          status: 'failed',
-          error: 'Failed to fetch job status',
-        } as Partial<JobNotification>);
+        consecutiveFailures++;
+
+        // Only mark as failed after multiple consecutive failures
+        if (consecutiveFailures >= MAX_FAILURES) {
+          updateNotification(notification.id, {
+            status: 'failed',
+            error: error instanceof Error ? error.message : 'Failed to fetch job status',
+          } as Partial<JobNotification>);
+        }
       }
     }, 2000);
 

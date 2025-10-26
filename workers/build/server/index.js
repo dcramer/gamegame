@@ -72,6 +72,15 @@ const gameSchema = z.object({
   updatedAt: timestampSchema.optional()
 });
 const gamesListSchema = z.array(gameSchema);
+const bggSearchResultSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  yearPublished: z.number().nullable(),
+  type: z.enum(["boardgame", "boardgameexpansion"]),
+  thumbnailUrl: z.string().nullable().optional(),
+  isImported: z.boolean().optional()
+});
+const bggSearchResultsListSchema = z.array(bggSearchResultSchema);
 const bggGameSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -79,18 +88,20 @@ const bggGameSchema = z.object({
   minPlayers: z.number().nullable(),
   maxPlayers: z.number().nullable(),
   playingTime: z.number().nullable(),
-  minPlayTime: z.number().nullable(),
-  maxPlayTime: z.number().nullable(),
-  minAge: z.number().nullable(),
-  description: z.string().nullable(),
-  thumbnail: z.string().nullable(),
-  image: z.string().nullable(),
+  minPlayTime: z.number().nullable().optional(),
+  maxPlayTime: z.number().nullable().optional(),
+  minAge: z.number().nullable().optional(),
+  description: z.string().nullable().optional(),
+  thumbnail: z.string().nullable().optional(),
+  image: z.string().nullable().optional(),
+  thumbnailUrl: z.string().nullable().optional(),
+  imageUrl: z.string().nullable().optional(),
   publishers: z.array(z.string()),
   designers: z.array(z.string()),
-  categories: z.array(z.string()),
-  bggUrl: z.string()
+  categories: z.array(z.string()).optional(),
+  bggUrl: z.string().optional()
 });
-const bggGamesListSchema = z.array(bggGameSchema);
+z.array(bggGameSchema);
 const resourceSchema = z.object({
   id: z.string(),
   gameId: z.string().optional(),
@@ -194,32 +205,67 @@ const chatMessageSchema = z.object({
 z.object({
   messages: z.array(chatMessageSchema).min(1)
 });
+const citationSchema = z.object({
+  resourceId: z.string().describe("ID of the resource cited"),
+  resourceName: z.string().describe('Name of the resource (e.g., "Core Rulebook")'),
+  pageNumber: z.number().optional().describe("Page number in the source"),
+  pageRange: z.array(z.number()).optional().describe("Page range [start, end] if multi-page"),
+  section: z.string().optional().describe('Section hierarchy (e.g., "Setup > Player Setup")'),
+  relevance: z.enum(["primary", "supporting", "related"]).describe("How relevant this source is to the answer"),
+  quote: z.string().optional().describe("Direct quote from the source if applicable")
+});
+const answerImageSchema = z.object({
+  attachmentId: z.string().describe("ID of the attachment"),
+  url: z.string().describe("URL to the image"),
+  description: z.string().describe("Description of what the image shows"),
+  relevance: z.enum(["essential", "helpful", "supplementary"]).describe("How important this image is"),
+  placement: z.enum(["inline", "end"]).describe("Where to display the image in the answer")
+});
+const followUpQuestionSchema = z.object({
+  question: z.string().describe("The suggested follow-up question"),
+  category: z.enum(["related", "deeper", "clarifying"]).describe("Type of follow-up")
+});
+z.object({
+  answer: z.string().describe("Markdown-formatted answer to the question"),
+  questionType: z.enum(["gameplay", "knowledge", "external", "gamegame"]).describe("Category of question being answered"),
+  citations: z.array(citationSchema).describe("Sources used, ordered by relevance"),
+  images: z.array(answerImageSchema).optional().describe("Images to include in response"),
+  confidence: z.enum(["high", "medium", "low"]).describe("Confidence in answer accuracy"),
+  ambiguities: z.array(z.string()).optional().describe("Ambiguous points or rule conflicts found"),
+  followUps: z.array(followUpQuestionSchema).describe("Suggested follow-up questions"),
+  playerCountSpecific: z.number().optional().describe("If answer is specific to a player count"),
+  expansionSpecific: z.array(z.string()).optional().describe("If answer requires specific expansions")
+});
 const NotificationContext = createContext(void 0);
 function NotificationProvider({ children }) {
   const [notifications, setNotifications] = useState([]);
   const addNotification = useCallback((notification) => {
-    if (notification.type === "job") {
-      const jobNotif = notification;
-      const existingNotification = notifications.find(
-        (n) => n.type === "job" && n.jobId === jobNotif.jobId && jobNotif.jobId !== ""
-        // Don't dedupe pending notifications without jobId yet
-      );
-      if (existingNotification) {
-        console.log("[NotificationContext] Skipping duplicate job notification:", jobNotif.jobId);
-        return existingNotification.id;
-      }
-    }
     const id = `notification-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const newNotification = { ...notification, id };
-    setNotifications((prev) => [...prev, newNotification]);
+    let actualId = id;
+    setNotifications((prev) => {
+      if (notification.type === "job") {
+        const jobNotif = notification;
+        const existingNotification = prev.find(
+          (n) => n.type === "job" && n.jobId === jobNotif.jobId && jobNotif.jobId !== ""
+          // Don't dedupe pending notifications without jobId yet
+        );
+        if (existingNotification) {
+          console.log("[NotificationContext] Skipping duplicate job notification:", jobNotif.jobId);
+          actualId = existingNotification.id;
+          return prev;
+        }
+      }
+      return [...prev, newNotification];
+    });
     if (!notification.persist && notification.type !== "job") {
       const hideMs = notification.autoHideMs ?? 5e3;
       setTimeout(() => {
-        removeNotification(id);
+        removeNotification(actualId);
       }, hideMs);
     }
-    return id;
-  }, [notifications]);
+    return actualId;
+  }, []);
   const updateNotification = useCallback((id, updates) => {
     setNotifications(
       (prev) => prev.map(
@@ -298,12 +344,22 @@ function NotificationItem({ notification }) {
     if (!jobNotification.jobId || jobNotification.jobId === "") {
       return;
     }
+    let consecutiveFailures = 0;
+    const MAX_FAILURES = 3;
     const interval = setInterval(async () => {
       try {
         const response = await apiClient.fetch(`/resources/jobs/${jobNotification.jobId}`);
         if (!response.ok) {
-          throw new Error("Failed to fetch job status");
+          if (response.status === 404) {
+            consecutiveFailures++;
+            if (consecutiveFailures >= MAX_FAILURES) {
+              throw new Error("Job not found - may have been cancelled or expired");
+            }
+            return;
+          }
+          throw new Error(`Failed to fetch job status: ${response.statusText}`);
         }
+        consecutiveFailures = 0;
         const data = await response.json();
         updateNotification(notification.id, {
           status: data.status,
@@ -313,10 +369,13 @@ function NotificationItem({ notification }) {
         });
       } catch (error) {
         console.error("Failed to poll job status:", error);
-        updateNotification(notification.id, {
-          status: "failed",
-          error: "Failed to fetch job status"
-        });
+        consecutiveFailures++;
+        if (consecutiveFailures >= MAX_FAILURES) {
+          updateNotification(notification.id, {
+            status: "failed",
+            error: error instanceof Error ? error.message : "Failed to fetch job status"
+          });
+        }
       }
     }, 2e3);
     return () => clearInterval(interval);
@@ -437,7 +496,7 @@ function useFlashNotifications() {
     addToast
   };
 }
-async function loader$8({
+async function loader$e({
   context
 }) {
   try {
@@ -627,7 +686,7 @@ const route0 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProper
   Layout: Layout$1,
   default: root,
   links,
-  loader: loader$8
+  loader: loader$e
 }, Symbol.toStringTag, { value: "Module" }));
 const SITE_NAME = "GameGame";
 const SITE_TAGLINE = "AI-Powered Board Game Rules Assistant";
@@ -678,12 +737,12 @@ const meta$9 = () => {
     description: "Get instant answers to board game rules with AI-powered assistance. Search hundreds of games and rulebooks."
   });
 };
-function loader$7() {
+function loader$d() {
   return redirect("/games");
 }
 const route1 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  loader: loader$7,
+  loader: loader$d,
   meta: meta$9
 }, Symbol.toStringTag, { value: "Module" }));
 const GITHUB_URL = "https://github.com/getsentry/gamegame";
@@ -841,6 +900,7 @@ const games$1 = sqliteTable("games", {
   nameIdx: index("idx_games_name").on(table.name),
   bggIdIdx: index("idx_games_bgg_id").on(table.bggId)
 }));
+const RESOURCE_TYPES = ["rulebook", "expansion", "faq", "errata", "reference"];
 const resources = sqliteTable("resources", {
   id: text("id").primaryKey().$defaultFn(() => generateId()),
   gameId: text("game_id").notNull().references(() => games$1.id, { onDelete: "cascade" }),
@@ -858,6 +918,11 @@ const resources = sqliteTable("resources", {
   processingStage: text("processing_stage").default("ready"),
   processingMetadata: text("processing_metadata"),
   description: text("description"),
+  // Resource classification
+  resourceType: text("resource_type").default("rulebook"),
+  language: text("language").default("en"),
+  edition: text("edition"),
+  isOfficial: integer("is_official", { mode: "boolean" }).default(true),
   // Denormalized stats
   pageCount: integer("page_count"),
   imageCount: integer("image_count").default(0),
@@ -869,25 +934,40 @@ const resources = sqliteTable("resources", {
   statusIdx: index("idx_resources_status").on(table.status),
   jobIdx: index("idx_resources_job_id").on(table.currentJobId)
 }));
+const FRAGMENT_TYPES = ["text", "image", "table"];
 const fragments = sqliteTable("fragments", {
   id: text("id").primaryKey().$defaultFn(() => generateId()),
   gameId: text("game_id").notNull().references(() => games$1.id, { onDelete: "cascade" }),
   resourceId: text("resource_id").notNull().references(() => resources.id, { onDelete: "cascade" }),
   content: text("content").notNull(),
   version: integer("version").notNull().default(0),
+  // Fragment type discrimination
+  type: text("type").notNull().default("text"),
+  attachmentId: text("attachment_id").references(() => attachments.id, { onDelete: "set null" }),
+  // Dual content storage (display vs search)
+  searchableContent: text("searchable_content"),
+  // HyDE: Synthetic questions (JSON array of strings)
+  syntheticQuestions: text("synthetic_questions"),
+  // Denormalized resource metadata for faster search context
+  resourceName: text("resource_name"),
+  resourceDescription: text("resource_description"),
+  resourceType: text("resource_type"),
   // Metadata (stored as separate columns since no JSONB in SQLite)
   pageNumber: integer("page_number"),
   pageRangeStart: integer("page_range_start"),
   pageRangeEnd: integer("page_range_end"),
   section: text("section"),
   images: text("images")
-  // JSON string: [{id, url, bbox, caption}]
+  // JSON string: [{id, url, bbox, caption, description}]
 }, (table) => ({
   gameIdx: index("idx_fragments_game_id").on(table.gameId),
   resourceIdx: index("idx_fragments_resource_id").on(table.resourceId),
   versionIdx: index("idx_fragments_version").on(table.version),
-  pageIdx: index("idx_fragments_page_number").on(table.pageNumber)
+  pageIdx: index("idx_fragments_page_number").on(table.pageNumber),
+  typeIdx: index("idx_fragments_type").on(table.type),
+  attachmentIdx: index("idx_fragments_attachment_id").on(table.attachmentId)
 }));
+const DETECTED_IMAGE_TYPES = ["diagram", "table", "photo", "icon", "decorative"];
 const attachments = sqliteTable("attachments", {
   id: text("id").primaryKey().$defaultFn(() => generateId()),
   gameId: text("game_id").notNull().references(() => games$1.id, { onDelete: "cascade" }),
@@ -907,6 +987,13 @@ const attachments = sqliteTable("attachments", {
   // AI-generated description of the image content
   isGoodQuality: integer("is_good_quality", { mode: "boolean" }),
   // true (good), false (bad), or null
+  // Image analysis fields
+  isRelevant: integer("is_relevant", { mode: "boolean" }),
+  // true (useful), false (decorative), or null
+  detectedType: text("detected_type"),
+  // 'diagram' | 'table' | 'photo' | 'icon' | 'decorative'
+  ocrText: text("ocr_text"),
+  // Text extracted from image (for tables)
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => /* @__PURE__ */ new Date())
 }, (table) => ({
   gameIdx: index("idx_attachments_game_id").on(table.gameId),
@@ -947,7 +1034,10 @@ const bggGames = sqliteTable("bgg_games", {
 }));
 const schema = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
+  DETECTED_IMAGE_TYPES,
+  FRAGMENT_TYPES,
   RESOURCE_STATUSES,
+  RESOURCE_TYPES,
   attachments,
   bggGames,
   fragments,
@@ -964,7 +1054,7 @@ const meta$8 = () => {
     description: "Browse our collection of board games. Get instant answers to rules questions with AI-powered assistance."
   });
 };
-async function loader$6({
+async function loader$c({
   context
 }) {
   const {
@@ -1047,7 +1137,7 @@ const games = UNSAFE_withComponentProps(function Games() {
 const route2 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: games,
-  loader: loader$6,
+  loader: loader$c,
   meta: meta$8
 }, Symbol.toStringTag, { value: "Module" }));
 const Button = React.forwardRef(
@@ -1436,7 +1526,7 @@ const meta$7 = ({
     description: `Get instant answers about ${data.game.name} rules. Ask questions and get AI-powered responses based on the official rulebook.`
   });
 };
-async function loader$5({
+async function loader$b({
   params,
   context
 }) {
@@ -1496,7 +1586,7 @@ const route3 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProper
   __proto__: null,
   ErrorBoundary: ErrorBoundary2,
   default: games_$gameId,
-  loader: loader$5,
+  loader: loader$b,
   meta: meta$7
 }, Symbol.toStringTag, { value: "Module" }));
 const Label = React.forwardRef(
@@ -1979,9 +2069,13 @@ const meta$4 = () => {
     // Don't index admin pages
   });
 };
-async function loader$4({
+async function loader$a({
   context
 }) {
+  const {
+    requireAdmin
+  } = await import("./assets/auth-C4x3awEg.js");
+  await requireAdmin(context.api);
   const res = await context.api.fetch("/games");
   if (!res.ok) {
     throw new Error("Failed to load games");
@@ -2122,7 +2216,7 @@ const admin = UNSAFE_withComponentProps(function AdminGames() {
 const route6 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: admin,
-  loader: loader$4,
+  loader: loader$a,
   meta: meta$4
 }, Symbol.toStringTag, { value: "Module" }));
 const meta$3 = () => {
@@ -2132,6 +2226,15 @@ const meta$3 = () => {
     noIndex: true
   });
 };
+async function loader$9({
+  context
+}) {
+  const {
+    requireAdmin
+  } = await import("./assets/auth-C4x3awEg.js");
+  await requireAdmin(context.api);
+  return {};
+}
 const admin_addGame = UNSAFE_withComponentProps(function AdminAddGame() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
@@ -2148,7 +2251,7 @@ const admin_addGame = UNSAFE_withComponentProps(function AdminAddGame() {
     try {
       const response = await apiClient.fetch(`/bgg/search?q=${encodeURIComponent(searchQuery)}`);
       if (response.ok) {
-        const data = bggGamesListSchema.parse(await response.json());
+        const data = bggSearchResultsListSchema.parse(await response.json());
         setBggResults(data);
       } else {
         addToast("error", "Failed to search BGG. Please try again.");
@@ -2171,7 +2274,15 @@ const admin_addGame = UNSAFE_withComponentProps(function AdminAddGame() {
         addToast("success", `Successfully imported ${game.name}!`);
         navigate(`/admin/games/${game.id}`);
       } else {
-        addToast("error", "Failed to import game from BGG. Please try again.");
+        let errorMessage = "Failed to import game from BGG. Please try again.";
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch {
+        }
+        addToast("error", errorMessage);
       }
     } catch (error) {
       console.error("Import error:", error);
@@ -2191,105 +2302,87 @@ const admin_addGame = UNSAFE_withComponentProps(function AdminAddGame() {
       }, {
         label: "Add Game"
       }],
-      title: "Add Game",
-      description: "Search BoardGameGeek to pull in official art and metadata. You can always refine the details after importing."
+      title: "Add Game"
     }), /* @__PURE__ */ jsxs("div", {
-      className: "mx-auto max-w-4xl space-y-8",
-      children: [/* @__PURE__ */ jsxs(Card, {
-        children: [/* @__PURE__ */ jsxs(CardHeader, {
-          className: "space-y-2",
-          children: [/* @__PURE__ */ jsx(CardTitle, {
-            className: "text-2xl font-semibold",
-            children: "Find your game"
-          }), /* @__PURE__ */ jsx(CardDescription, {
-            className: "text-muted-foreground",
-            children: "Search BoardGameGeek to import official box art, year, and metadata. You can always tweak details later or switch to manual entry."
-          })]
-        }), /* @__PURE__ */ jsx(CardContent, {
-          children: /* @__PURE__ */ jsxs("form", {
-            onSubmit: handleSearch,
-            className: "space-y-4",
-            children: [/* @__PURE__ */ jsxs("div", {
-              className: "flex flex-col gap-3 md:flex-row",
-              children: [/* @__PURE__ */ jsx(Input, {
-                type: "text",
-                value: searchQuery,
-                onChange: (e) => setSearchQuery(e.target.value),
-                placeholder: "Search for a game...",
-                className: "flex-1"
-              }), /* @__PURE__ */ jsx(Button, {
-                type: "submit",
-                disabled: searching,
-                className: "md:w-auto",
-                children: searching ? /* @__PURE__ */ jsx(Spinner, {
-                  size: "sm"
-                }) : "Search"
-              })]
-            }), /* @__PURE__ */ jsx("p", {
-              className: "text-xs text-muted-foreground",
-              children: "Tip: include the publisher or edition to narrow things down."
-            })]
-          })
-        })]
-      }), bggResults.length > 0 ? /* @__PURE__ */ jsx("div", {
+      className: "space-y-6",
+      children: [/* @__PURE__ */ jsxs("form", {
+        onSubmit: handleSearch,
         className: "space-y-3",
-        children: bggResults.map((game) => /* @__PURE__ */ jsx(Card, {
-          className: "hover:bg-accent/30 transition-colors",
-          onClick: () => handleImportFromBGG(game.id),
-          children: /* @__PURE__ */ jsxs(CardContent, {
-            className: "flex items-center gap-4 p-4",
-            children: [game.thumbnail ? /* @__PURE__ */ jsx("div", {
-              className: "relative h-20 w-20 overflow-hidden rounded-md border border-border bg-muted",
-              children: /* @__PURE__ */ jsx("img", {
-                src: game.thumbnail,
-                alt: game.name,
-                className: "h-full w-full object-cover",
-                loading: "lazy"
-              })
-            }) : /* @__PURE__ */ jsx("div", {
-              className: "flex h-20 w-20 items-center justify-center rounded-md border border-dashed text-2xl text-muted-foreground",
-              children: "🎲"
-            }), /* @__PURE__ */ jsxs("div", {
-              className: "flex-1 min-w-0",
-              children: [/* @__PURE__ */ jsxs("div", {
-                className: "flex items-baseline justify-between gap-4",
-                children: [/* @__PURE__ */ jsx("h4", {
-                  className: "text-lg font-semibold truncate",
-                  children: game.name
-                }), game.yearPublished && /* @__PURE__ */ jsx("span", {
-                  className: "text-sm text-muted-foreground",
-                  children: game.yearPublished
-                })]
-              }), /* @__PURE__ */ jsx("p", {
-                className: "mt-1 text-sm text-muted-foreground truncate",
-                children: game.bggUrl
-              })]
-            }), /* @__PURE__ */ jsx(Button, {
-              variant: "secondary",
-              size: "sm",
-              disabled: importing,
-              onClick: (e) => {
-                e.stopPropagation();
-                handleImportFromBGG(game.id);
-              },
-              children: importing ? /* @__PURE__ */ jsx(Spinner, {
-                size: "sm"
-              }) : "Import"
-            })]
-          })
-        }, game.id))
-      }) : !searching && /* @__PURE__ */ jsx(Card, {
-        className: "border-dashed",
-        children: /* @__PURE__ */ jsxs(CardContent, {
-          className: "flex flex-col items-center justify-center gap-3 py-14 text-center",
-          children: [/* @__PURE__ */ jsx("div", {
-            className: "rounded-full bg-muted px-4 py-2 text-sm text-muted-foreground",
-            children: "No results yet"
-          }), /* @__PURE__ */ jsx("p", {
-            className: "max-w-sm text-sm text-muted-foreground",
-            children: "Try searching for your game above using the BoardGameGeek search."
+        children: [/* @__PURE__ */ jsxs("div", {
+          className: "flex gap-2",
+          children: [/* @__PURE__ */ jsx(Input, {
+            type: "text",
+            value: searchQuery,
+            onChange: (e) => setSearchQuery(e.target.value),
+            placeholder: "Search BoardGameGeek...",
+            className: "flex-1",
+            autoFocus: true
+          }), /* @__PURE__ */ jsx(Button, {
+            type: "submit",
+            disabled: searching,
+            className: "min-w-[100px]",
+            children: searching ? /* @__PURE__ */ jsx(Spinner, {
+              size: "sm"
+            }) : "Search"
           })]
+        }), /* @__PURE__ */ jsx("p", {
+          className: "text-sm text-muted-foreground",
+          children: "Search BoardGameGeek to import official game data, box art, and metadata."
+        })]
+      }), bggResults.length > 0 && /* @__PURE__ */ jsx(Card, {
+        children: /* @__PURE__ */ jsx(CardContent, {
+          className: "p-0",
+          children: /* @__PURE__ */ jsx("div", {
+            className: "divide-y",
+            children: bggResults.map((game) => /* @__PURE__ */ jsxs("div", {
+              className: "flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors cursor-pointer",
+              onClick: () => handleImportFromBGG(game.id),
+              children: [game.thumbnailUrl ? /* @__PURE__ */ jsx("img", {
+                src: game.thumbnailUrl,
+                alt: game.name,
+                className: "w-16 h-16 object-cover rounded bg-muted",
+                loading: "lazy"
+              }) : /* @__PURE__ */ jsx("div", {
+                className: "w-16 h-16 rounded bg-muted flex items-center justify-center text-2xl",
+                children: "🎲"
+              }), /* @__PURE__ */ jsxs("div", {
+                className: "flex-1 min-w-0",
+                children: [/* @__PURE__ */ jsxs("div", {
+                  className: "flex items-baseline gap-3",
+                  children: [/* @__PURE__ */ jsx("h4", {
+                    className: "font-medium text-lg truncate",
+                    children: game.name
+                  }), game.yearPublished && /* @__PURE__ */ jsxs("span", {
+                    className: "text-sm text-muted-foreground shrink-0",
+                    children: ["(", game.yearPublished, ")"]
+                  })]
+                }), /* @__PURE__ */ jsxs("p", {
+                  className: "text-sm text-muted-foreground truncate mt-0.5",
+                  children: [game.type === "boardgameexpansion" && "🧩 Expansion • ", "BGG #", game.id]
+                })]
+              }), /* @__PURE__ */ jsx(Button, {
+                variant: "secondary",
+                size: "sm",
+                disabled: importing || game.isImported,
+                onClick: (e) => {
+                  e.stopPropagation();
+                  handleImportFromBGG(game.id);
+                },
+                children: importing ? /* @__PURE__ */ jsx(Spinner, {
+                  size: "sm"
+                }) : game.isImported ? "Imported" : "Import"
+              })]
+            }, game.id))
+          })
         })
+      }), !searching && bggResults.length === 0 && searchQuery && /* @__PURE__ */ jsxs("div", {
+        className: "text-center py-12 text-muted-foreground",
+        children: [/* @__PURE__ */ jsxs("p", {
+          children: ['No results found for "', searchQuery, '"']
+        }), /* @__PURE__ */ jsx("p", {
+          className: "text-sm mt-1",
+          children: "Try a different search term or check the spelling"
+        })]
       })]
     })]
   });
@@ -2297,6 +2390,7 @@ const admin_addGame = UNSAFE_withComponentProps(function AdminAddGame() {
 const route7 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: admin_addGame,
+  loader: loader$9,
   meta: meta$3
 }, Symbol.toStringTag, { value: "Module" }));
 const Tabs = React.forwardRef(({ className, ...props }, ref) => /* @__PURE__ */ jsx("div", { ref, className: cn("w-full", className), ...props }));
@@ -2355,10 +2449,14 @@ const meta$2 = ({
     noIndex: true
   });
 };
-async function loader$3({
+async function loader$8({
   params,
   context
 }) {
+  const {
+    requireAdmin
+  } = await import("./assets/auth-C4x3awEg.js");
+  await requireAdmin(context.api);
   const gameResponse = await context.api.fetch(`/games/${params.gameId}`);
   if (!gameResponse.ok) {
     if (gameResponse.status === 404) {
@@ -2439,11 +2537,6 @@ This will re-extract PDFs, re-analyze images, and re-embed all content.`)) {
   const handleSyncFromBGG = async () => {
     if (!game.bggId) {
       addToast("error", "This game does not have a BGG ID");
-      return;
-    }
-    if (!confirm(`Sync "${game.name}" from BoardGameGeek?
-
-This will update the game name, year, and image from BGG.`)) {
       return;
     }
     try {
@@ -2620,7 +2713,7 @@ This action cannot be undone.`;
 const route8 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: admin_games_$gameId,
-  loader: loader$3,
+  loader: loader$8,
   meta: meta$2
 }, Symbol.toStringTag, { value: "Module" }));
 function useTimeout(callback, delay) {
@@ -2672,6 +2765,15 @@ function SaveButton({
 const imageUploadResponseSchema = z.object({
   url: z.string()
 });
+async function loader$7({
+  context
+}) {
+  const {
+    requireAdmin
+  } = await import("./assets/auth-C4x3awEg.js");
+  await requireAdmin(context.api);
+  return {};
+}
 const admin_games_$gameId_details = UNSAFE_withComponentProps(function GameDetailsTab() {
   const {
     gameId
@@ -2829,16 +2931,31 @@ const admin_games_$gameId_details = UNSAFE_withComponentProps(function GameDetai
               placeholder: "e.g. https://boardgamegeek.com/boardgame/13/catan"
             })]
           }), /* @__PURE__ */ jsxs("div", {
-            className: "space-y-2",
-            children: [/* @__PURE__ */ jsx(Label, {
-              htmlFor: "bggId",
-              children: "BGG ID"
-            }), /* @__PURE__ */ jsx(Input, {
-              id: "bggId",
-              type: "text",
-              value: game.bggId || "N/A",
-              readOnly: true,
-              className: "bg-muted cursor-not-allowed"
+            className: "grid grid-cols-2 gap-4",
+            children: [/* @__PURE__ */ jsxs("div", {
+              className: "space-y-2",
+              children: [/* @__PURE__ */ jsx(Label, {
+                htmlFor: "bggId",
+                children: "BGG ID"
+              }), /* @__PURE__ */ jsx(Input, {
+                id: "bggId",
+                type: "text",
+                value: game.bggId || "N/A",
+                readOnly: true,
+                className: "bg-muted cursor-not-allowed"
+              })]
+            }), /* @__PURE__ */ jsxs("div", {
+              className: "space-y-2",
+              children: [/* @__PURE__ */ jsx(Label, {
+                htmlFor: "year",
+                children: "Year"
+              }), /* @__PURE__ */ jsx(Input, {
+                id: "year",
+                type: "text",
+                value: game.year || "N/A",
+                readOnly: true,
+                className: "bg-muted cursor-not-allowed"
+              })]
             })]
           }), /* @__PURE__ */ jsxs("div", {
             className: "grid grid-cols-2 gap-4",
@@ -2946,8 +3063,18 @@ const admin_games_$gameId_details = UNSAFE_withComponentProps(function GameDetai
 });
 const route9 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  default: admin_games_$gameId_details
+  default: admin_games_$gameId_details,
+  loader: loader$7
 }, Symbol.toStringTag, { value: "Module" }));
+async function loader$6({
+  context
+}) {
+  const {
+    requireAdmin
+  } = await import("./assets/auth-C4x3awEg.js");
+  await requireAdmin(context.api);
+  return {};
+}
 const admin_games_$gameId_resourcesList = UNSAFE_withComponentProps(function GameResourcesTab() {
   const {
     gameId
@@ -3187,7 +3314,8 @@ const admin_games_$gameId_resourcesList = UNSAFE_withComponentProps(function Gam
 });
 const route10 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  default: admin_games_$gameId_resourcesList
+  default: admin_games_$gameId_resourcesList,
+  loader: loader$6
 }, Symbol.toStringTag, { value: "Module" }));
 const attachmentSchema = z.object({
   id: z.string(),
@@ -3206,10 +3334,14 @@ const attachmentSchema = z.object({
   createdAt: z.string()
 });
 const attachmentsListSchema = z.array(attachmentSchema);
-async function loader$2({
+async function loader$5({
   params,
   context
 }) {
+  const {
+    requireAdmin
+  } = await import("./assets/auth-C4x3awEg.js");
+  await requireAdmin(context.api);
   const response = await context.api.fetch(`/games/${params.gameId}/attachments`);
   if (!response.ok) {
     throw new Error(`Failed to load attachments (${response.status})`);
@@ -3308,8 +3440,17 @@ const admin_games_$gameId_attachments = UNSAFE_withComponentProps(function GameA
 const route11 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: admin_games_$gameId_attachments,
-  loader: loader$2
+  loader: loader$5
 }, Symbol.toStringTag, { value: "Module" }));
+async function loader$4({
+  context
+}) {
+  const {
+    requireAdmin
+  } = await import("./assets/auth-C4x3awEg.js");
+  await requireAdmin(context.api);
+  return {};
+}
 const admin_games_$gameId_edit = UNSAFE_withComponentProps(function EditGame() {
   const {
     gameId
@@ -3327,7 +3468,8 @@ const admin_games_$gameId_edit = UNSAFE_withComponentProps(function EditGame() {
 });
 const route12 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  default: admin_games_$gameId_edit
+  default: admin_games_$gameId_edit,
+  loader: loader$4
 }, Symbol.toStringTag, { value: "Module" }));
 const meta$1 = ({
   data
@@ -3352,10 +3494,14 @@ const extendedResourceSchema$1 = resourceSchema.extend({
   content: z.string().optional()
   // createdAt and updatedAt already defined in base schema as coerced numbers
 });
-async function loader$1({
+async function loader$3({
   params,
   context
 }) {
+  const {
+    requireAdmin
+  } = await import("./assets/auth-C4x3awEg.js");
+  await requireAdmin(context.api);
   const [resourceRes, attachmentsRes, gameRes] = await Promise.all([context.api.fetch(`/resources/${params.resourceId}`), context.api.fetch(`/resources/${params.resourceId}/attachments`), context.api.fetch(`/games/${params.gameId}`)]);
   if (!resourceRes.ok) throw new Error("Resource not found");
   if (!attachmentsRes.ok) throw new Error("Failed to load attachments");
@@ -3663,7 +3809,7 @@ const route13 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.definePrope
   __proto__: null,
   default: admin_games_$gameId_resources_$resourceId,
   extendedResourceSchema: extendedResourceSchema$1,
-  loader: loader$1,
+  loader: loader$3,
   meta: meta$1
 }, Symbol.toStringTag, { value: "Module" }));
 const extendedResourceSchema = resourceSchema.extend({
@@ -3673,6 +3819,15 @@ const extendedResourceSchema = resourceSchema.extend({
   attributionUrl: z.string().nullable().optional(),
   content: z.string().optional()
 });
+async function loader$2({
+  context
+}) {
+  const {
+    requireAdmin
+  } = await import("./assets/auth-C4x3awEg.js");
+  await requireAdmin(context.api);
+  return {};
+}
 const admin_games_$gameId_resources_$resourceId_details = UNSAFE_withComponentProps(function ResourceDetailsTab() {
   const {
     resourceId
@@ -3894,7 +4049,8 @@ const admin_games_$gameId_resources_$resourceId_details = UNSAFE_withComponentPr
 });
 const route14 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  default: admin_games_$gameId_resources_$resourceId_details
+  default: admin_games_$gameId_resources_$resourceId_details,
+  loader: loader$2
 }, Symbol.toStringTag, { value: "Module" }));
 function AttachmentList({ attachments: attachments2, gameId, resourceId }) {
   if (attachments2.length === 0) {
@@ -3958,6 +4114,15 @@ function AttachmentList({ attachments: attachments2, gameId, resourceId }) {
     );
   }) });
 }
+async function loader$1({
+  context
+}) {
+  const {
+    requireAdmin
+  } = await import("./assets/auth-C4x3awEg.js");
+  await requireAdmin(context.api);
+  return {};
+}
 const admin_games_$gameId_resources_$resourceId_attachmentsList = UNSAFE_withComponentProps(function ResourceAttachmentsTab() {
   const {
     gameId,
@@ -3976,7 +4141,8 @@ const admin_games_$gameId_resources_$resourceId_attachmentsList = UNSAFE_withCom
 });
 const route15 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
-  default: admin_games_$gameId_resources_$resourceId_attachmentsList
+  default: admin_games_$gameId_resources_$resourceId_attachmentsList,
+  loader: loader$1
 }, Symbol.toStringTag, { value: "Module" }));
 const meta = ({
   data
@@ -4002,6 +4168,10 @@ async function loader({
   params,
   context
 }) {
+  const {
+    requireAdmin
+  } = await import("./assets/auth-C4x3awEg.js");
+  await requireAdmin(context.api);
   const [attachmentRes, resourceRes, gameRes] = await Promise.all([context.api.fetch(`/attachments/${params.attachmentId}`), context.api.fetch(`/resources/${params.resourceId}`), context.api.fetch(`/games/${params.gameId}`)]);
   if (!attachmentRes.ok) throw new Error("Attachment not found");
   if (!resourceRes.ok) throw new Error("Resource not found");
@@ -4255,7 +4425,7 @@ const route16 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.definePrope
   loader,
   meta
 }, Symbol.toStringTag, { value: "Module" }));
-const serverManifest = { "entry": { "module": "/assets/entry.client-BdAkpNmB.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js"], "css": [] }, "routes": { "root": { "id": "root", "parentId": void 0, "path": "", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": true, "module": "/assets/root-BAmaEZUk.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/clsx-B-dksMZM.js", "/assets/load-context-D2Z0WZnA.js"], "css": ["/assets/root-WLrPUKtD.css"], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/home": { "id": "routes/home", "parentId": "root", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/home-CM1mTOLX.js", "imports": ["/assets/meta-CNUq8pDr.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/games": { "id": "routes/games", "parentId": "root", "path": "games", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/games-CsD9r32z.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-9RCZNNId.js", "/assets/Heading-C0GfT8od.js", "/assets/card-CJfnq3IM.js", "/assets/input-BmiXuwB2.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/games.$gameId": { "id": "routes/games.$gameId", "parentId": "root", "path": "games/:gameId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": true, "module": "/assets/games._gameId-D6W3J9AX.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-9RCZNNId.js", "/assets/card-CJfnq3IM.js", "/assets/button-ouPXXec2.js", "/assets/schemas-Xcc7DRF5.js", "/assets/input-BmiXuwB2.js", "/assets/spinner-CF7tze4L.js", "/assets/load-context-D2Z0WZnA.js", "/assets/Footer-D-fFsJ66.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/meta-CNUq8pDr.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/auth-context-kPJ7oDZw.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/login": { "id": "routes/login", "parentId": "root", "path": "login", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/login-CF_SxP10.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-9RCZNNId.js", "/assets/button-ouPXXec2.js", "/assets/input-BmiXuwB2.js", "/assets/label-DzmZ1EYu.js", "/assets/card-CJfnq3IM.js", "/assets/Heading-C0GfT8od.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/login.verify": { "id": "routes/login.verify", "parentId": "root", "path": "login/verify", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/login.verify-C_7BLI6Z.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-9RCZNNId.js", "/assets/spinner-CF7tze4L.js", "/assets/card-CJfnq3IM.js", "/assets/button-ouPXXec2.js", "/assets/Heading-C0GfT8od.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/schemas-Xcc7DRF5.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin": { "id": "routes/admin", "parentId": "root", "path": "admin", "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin-djU5Vv2i.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/button-ouPXXec2.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/table-B87ZRoRV.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.add-game": { "id": "routes/admin.add-game", "parentId": "root", "path": "admin/add-game", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.add-game-DTj4h0Qz.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/button-ouPXXec2.js", "/assets/input-BmiXuwB2.js", "/assets/spinner-CF7tze4L.js", "/assets/card-CJfnq3IM.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/schemas-5vN7JF7p.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/schemas-Xcc7DRF5.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId": { "id": "routes/admin.games.$gameId", "parentId": "root", "path": "admin/games/:gameId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId-CQNVaKF5.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/tabs-BhvMaZ4L.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/schemas-5vN7JF7p.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/refresh-cw-B0fLozax.js", "/assets/trash-2-B4HTxjkd.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/schemas-Xcc7DRF5.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.details": { "id": "routes/admin.games.$gameId.details", "parentId": "routes/admin.games.$gameId", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.details-BTskJdIU.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/button-ouPXXec2.js", "/assets/input-BmiXuwB2.js", "/assets/label-DzmZ1EYu.js", "/assets/card-CJfnq3IM.js", "/assets/save-button-Df5I4AXy.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/schemas-5vN7JF7p.js", "/assets/load-context-D2Z0WZnA.js", "/assets/schemas-Xcc7DRF5.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/createLucideIcon-5-DrwdCU.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources-list": { "id": "routes/admin.games.$gameId.resources-list", "parentId": "routes/admin.games.$gameId", "path": "resources", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources-list-CnkozQQU.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/button-ouPXXec2.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/table-B87ZRoRV.js", "/assets/schemas-5vN7JF7p.js", "/assets/load-context-D2Z0WZnA.js", "/assets/refresh-cw-B0fLozax.js", "/assets/download-DdZudP_p.js", "/assets/trash-2-B4HTxjkd.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/schemas-Xcc7DRF5.js", "/assets/createLucideIcon-5-DrwdCU.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.attachments": { "id": "routes/admin.games.$gameId.attachments", "parentId": "routes/admin.games.$gameId", "path": "attachments", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.attachments-B0lafAMX.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.edit": { "id": "routes/admin.games.$gameId.edit", "parentId": "root", "path": "admin/games/:gameId/edit", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.edit-BUU3FnCH.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources.$resourceId": { "id": "routes/admin.games.$gameId.resources.$resourceId", "parentId": "root", "path": "admin/games/:gameId/resources/:resourceId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources._resourceId-D6RFArFY.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/tabs-BhvMaZ4L.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/schemas-5vN7JF7p.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/refresh-cw-B0fLozax.js", "/assets/download-DdZudP_p.js", "/assets/trash-2-B4HTxjkd.js", "/assets/schemas-Xcc7DRF5.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources.$resourceId.details": { "id": "routes/admin.games.$gameId.resources.$resourceId.details", "parentId": "routes/admin.games.$gameId.resources.$resourceId", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources._resourceId.details-BLuS7cJW.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/input-BmiXuwB2.js", "/assets/label-DzmZ1EYu.js", "/assets/save-button-Df5I4AXy.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/card-CJfnq3IM.js", "/assets/load-context-D2Z0WZnA.js", "/assets/schemas-5vN7JF7p.js", "/assets/schemas-Xcc7DRF5.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/createLucideIcon-5-DrwdCU.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources.$resourceId.attachments-list": { "id": "routes/admin.games.$gameId.resources.$resourceId.attachments-list", "parentId": "routes/admin.games.$gameId.resources.$resourceId", "path": "attachments", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources._resourceId.attachments-list-DKUx_5lJ.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/createLucideIcon-5-DrwdCU.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources.$resourceId.attachments.$attachmentId": { "id": "routes/admin.games.$gameId.resources.$resourceId.attachments.$attachmentId", "parentId": "root", "path": "admin/games/:gameId/resources/:resourceId/attachments/:attachmentId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources._resourceId.attachments._attachmentId-CH9NEs89.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/useFlashNotifications-C7fjaguF.js", "/assets/button-ouPXXec2.js", "/assets/input-BmiXuwB2.js", "/assets/label-DzmZ1EYu.js", "/assets/spinner-CF7tze4L.js", "/assets/save-button-Df5I4AXy.js", "/assets/card-CJfnq3IM.js", "/assets/schemas-5vN7JF7p.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/refresh-cw-B0fLozax.js", "/assets/schemas-Xcc7DRF5.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 } }, "url": "/assets/manifest-49881ad5.js", "version": "49881ad5", "sri": void 0 };
+const serverManifest = { "entry": { "module": "/assets/entry.client-BdAkpNmB.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js"], "css": [] }, "routes": { "root": { "id": "root", "parentId": void 0, "path": "", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": true, "module": "/assets/root-BAbuwJN4.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/useFlashNotifications-DNu8WSnk.js", "/assets/clsx-B-dksMZM.js", "/assets/load-context-D2Z0WZnA.js"], "css": ["/assets/root-mgQQW3Xc.css"], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/home": { "id": "routes/home", "parentId": "root", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/home-CM1mTOLX.js", "imports": ["/assets/meta-CNUq8pDr.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/games": { "id": "routes/games", "parentId": "root", "path": "games", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/games-BQU0UwOt.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-9RCZNNId.js", "/assets/Heading-C0GfT8od.js", "/assets/card-7zNpy3wy.js", "/assets/input-BmiXuwB2.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/games.$gameId": { "id": "routes/games.$gameId", "parentId": "root", "path": "games/:gameId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": true, "module": "/assets/games._gameId-Bv_qZvx5.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-9RCZNNId.js", "/assets/card-7zNpy3wy.js", "/assets/button-ouPXXec2.js", "/assets/schemas-Xcc7DRF5.js", "/assets/input-BmiXuwB2.js", "/assets/spinner-CF7tze4L.js", "/assets/load-context-D2Z0WZnA.js", "/assets/Footer-D-fFsJ66.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/meta-CNUq8pDr.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/auth-context-kPJ7oDZw.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/login": { "id": "routes/login", "parentId": "root", "path": "login", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/login-B3rdrr4Y.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-9RCZNNId.js", "/assets/button-ouPXXec2.js", "/assets/input-BmiXuwB2.js", "/assets/label-DzmZ1EYu.js", "/assets/card-7zNpy3wy.js", "/assets/Heading-C0GfT8od.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/login.verify": { "id": "routes/login.verify", "parentId": "root", "path": "login/verify", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": false, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/login.verify-2t6nNyMm.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/Layout-9RCZNNId.js", "/assets/spinner-CF7tze4L.js", "/assets/card-7zNpy3wy.js", "/assets/button-ouPXXec2.js", "/assets/Heading-C0GfT8od.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/schemas-Xcc7DRF5.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin": { "id": "routes/admin", "parentId": "root", "path": "admin", "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin-nDVSepSI.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/button-ouPXXec2.js", "/assets/useFlashNotifications-DNu8WSnk.js", "/assets/table-B87ZRoRV.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.add-game": { "id": "routes/admin.add-game", "parentId": "root", "path": "admin/add-game", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.add-game-DfTVvc_F.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/button-ouPXXec2.js", "/assets/input-BmiXuwB2.js", "/assets/spinner-CF7tze4L.js", "/assets/card-7zNpy3wy.js", "/assets/useFlashNotifications-DNu8WSnk.js", "/assets/schemas-Bpv80Wy9.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/schemas-Xcc7DRF5.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId": { "id": "routes/admin.games.$gameId", "parentId": "root", "path": "admin/games/:gameId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId-nQ99ZcJ8.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/tabs-BhvMaZ4L.js", "/assets/useFlashNotifications-DNu8WSnk.js", "/assets/schemas-Bpv80Wy9.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/refresh-cw-B0fLozax.js", "/assets/trash-2-B4HTxjkd.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/schemas-Xcc7DRF5.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.details": { "id": "routes/admin.games.$gameId.details", "parentId": "routes/admin.games.$gameId", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.details-c7GdmQM_.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/button-ouPXXec2.js", "/assets/input-BmiXuwB2.js", "/assets/label-DzmZ1EYu.js", "/assets/card-7zNpy3wy.js", "/assets/save-button-Df5I4AXy.js", "/assets/useFlashNotifications-DNu8WSnk.js", "/assets/schemas-Bpv80Wy9.js", "/assets/load-context-D2Z0WZnA.js", "/assets/schemas-Xcc7DRF5.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/createLucideIcon-5-DrwdCU.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources-list": { "id": "routes/admin.games.$gameId.resources-list", "parentId": "routes/admin.games.$gameId", "path": "resources", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources-list-C-zH5B9S.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/button-ouPXXec2.js", "/assets/useFlashNotifications-DNu8WSnk.js", "/assets/table-B87ZRoRV.js", "/assets/schemas-Bpv80Wy9.js", "/assets/load-context-D2Z0WZnA.js", "/assets/refresh-cw-B0fLozax.js", "/assets/download-DdZudP_p.js", "/assets/trash-2-B4HTxjkd.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/schemas-Xcc7DRF5.js", "/assets/createLucideIcon-5-DrwdCU.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.attachments": { "id": "routes/admin.games.$gameId.attachments", "parentId": "routes/admin.games.$gameId", "path": "attachments", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.attachments-B0lafAMX.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.edit": { "id": "routes/admin.games.$gameId.edit", "parentId": "root", "path": "admin/games/:gameId/edit", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.edit-BUU3FnCH.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources.$resourceId": { "id": "routes/admin.games.$gameId.resources.$resourceId", "parentId": "root", "path": "admin/games/:gameId/resources/:resourceId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources._resourceId-880jtdV-.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/tabs-BhvMaZ4L.js", "/assets/useFlashNotifications-DNu8WSnk.js", "/assets/schemas-Bpv80Wy9.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/refresh-cw-B0fLozax.js", "/assets/download-DdZudP_p.js", "/assets/trash-2-B4HTxjkd.js", "/assets/schemas-Xcc7DRF5.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources.$resourceId.details": { "id": "routes/admin.games.$gameId.resources.$resourceId.details", "parentId": "routes/admin.games.$gameId.resources.$resourceId", "path": void 0, "index": true, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources._resourceId.details-6EHduhTM.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/input-BmiXuwB2.js", "/assets/label-DzmZ1EYu.js", "/assets/save-button-Df5I4AXy.js", "/assets/useFlashNotifications-DNu8WSnk.js", "/assets/card-7zNpy3wy.js", "/assets/load-context-D2Z0WZnA.js", "/assets/schemas-Bpv80Wy9.js", "/assets/schemas-Xcc7DRF5.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js", "/assets/createLucideIcon-5-DrwdCU.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources.$resourceId.attachments-list": { "id": "routes/admin.games.$gameId.resources.$resourceId.attachments-list", "parentId": "routes/admin.games.$gameId.resources.$resourceId", "path": "attachments", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources._resourceId.attachments-list-DKUx_5lJ.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/createLucideIcon-5-DrwdCU.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 }, "routes/admin.games.$gameId.resources.$resourceId.attachments.$attachmentId": { "id": "routes/admin.games.$gameId.resources.$resourceId.attachments.$attachmentId", "parentId": "root", "path": "admin/games/:gameId/resources/:resourceId/attachments/:attachmentId", "index": void 0, "caseSensitive": void 0, "hasAction": false, "hasLoader": true, "hasClientAction": false, "hasClientLoader": false, "hasClientMiddleware": false, "hasErrorBoundary": false, "module": "/assets/admin.games._gameId.resources._resourceId.attachments._attachmentId-DRcymGWV.js", "imports": ["/assets/chunk-OIYGIGL5-CJLaNaD0.js", "/assets/PageHeader-nrvhErpG.js", "/assets/useFlashNotifications-DNu8WSnk.js", "/assets/button-ouPXXec2.js", "/assets/input-BmiXuwB2.js", "/assets/label-DzmZ1EYu.js", "/assets/spinner-CF7tze4L.js", "/assets/save-button-Df5I4AXy.js", "/assets/card-7zNpy3wy.js", "/assets/schemas-Bpv80Wy9.js", "/assets/load-context-D2Z0WZnA.js", "/assets/meta-CNUq8pDr.js", "/assets/refresh-cw-B0fLozax.js", "/assets/schemas-Xcc7DRF5.js", "/assets/Footer-D-fFsJ66.js", "/assets/auth-context-kPJ7oDZw.js", "/assets/createLucideIcon-5-DrwdCU.js", "/assets/utils-NikRBbYi.js", "/assets/clsx-B-dksMZM.js"], "css": [], "clientActionModule": void 0, "clientLoaderModule": void 0, "clientMiddlewareModule": void 0, "hydrateFallbackModule": void 0 } }, "url": "/assets/manifest-e406021d.js", "version": "e406021d", "sri": void 0 };
 const assetsBuildDirectory = "build/client";
 const basename = "/";
 const future = { "v8_middleware": false, "unstable_optimizeDeps": false, "unstable_splitRouteModules": false, "unstable_subResourceIntegrity": false, "unstable_viteEnvironmentApi": false };

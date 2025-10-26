@@ -21,13 +21,15 @@ export async function gamesCommand() {
 
     console.log(`Found ${games.length} game${games.length === 1 ? '' : 's'}:\n`);
 
-    // Find max name length for alignment
+    // Find max lengths for alignment
     const maxNameLength = Math.max(...games.map((g: any) => g.name.length));
+    const maxSlugLength = Math.max(...games.map((g: any) => (g.slug || '').length));
 
     for (const game of games) {
-      const resourceText = ''; // We'll add resource count if available in API response
+      const slug = (game.slug || '').padEnd(maxSlugLength);
+      const resourceText = game.resourceCount > 0 ? `(${game.resourceCount} resource${game.resourceCount === 1 ? '' : 's'})` : '';
 
-      console.log(`  ${game.id}  ${game.name.padEnd(maxNameLength)}  ${resourceText}`);
+      console.log(`  ${slug}  ${game.name.padEnd(maxNameLength)}  ${resourceText}`);
     }
 
     console.log('');

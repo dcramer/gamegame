@@ -3,6 +3,7 @@ import type { D1Database, VectorizeIndex } from '@cloudflare/workers-types';
 import { getDb, fragments, resources } from '../db';
 import { generateEmbedding } from './embeddings';
 import { searchVectorize } from './vectorize';
+import { getModel } from '../config/models';
 
 export interface SearchResult {
   resourceId: string;
@@ -16,6 +17,125 @@ export interface SearchResult {
     bbox?: number[];
     caption?: string;
   }>;
+}
+
+/**
+ * Diversify search results to avoid redundancy
+ * Limits results per page and per resource to provide broader coverage
+ */
+function diversifyResults<T extends { pageNumber?: number | null; resourceId: string }>(
+  results: T[],
+  options: {
+    maxPerPage?: number;
+    maxPerResource?: number;
+  }
+): T[] {
+  const { maxPerPage = 2, maxPerResource = 6 } = options;
+
+  const diversified: T[] = [];
+  const pageCount = new Map<string, number>(); // key: "resourceId:pageNumber"
+  const resourceCount = new Map<string, number>();
+
+  for (const result of results) {
+    const pageKey = `${result.resourceId}:${result.pageNumber ?? 'none'}`;
+    const resourceKey = result.resourceId;
+
+    // Check constraints
+    const currentPageCount = pageCount.get(pageKey) || 0;
+    const currentResourceCount = resourceCount.get(resourceKey) || 0;
+
+    if (currentPageCount >= maxPerPage) continue;
+    if (currentResourceCount >= maxPerResource) continue;
+
+    // Add result and update counts
+    diversified.push(result);
+    pageCount.set(pageKey, currentPageCount + 1);
+    resourceCount.set(resourceKey, currentResourceCount + 1);
+  }
+
+  return diversified;
+}
+
+/**
+ * Rerank search results using cross-encoder LLM scoring
+ * Scores each candidate's relevance to the query (0-100)
+ *
+ * Uses gpt-5-mini for reranking (fast and cost-effective for scoring tasks)
+ *
+ * @param query User's search query
+ * @param candidates Candidate results with searchable content
+ * @param openaiApiKey OpenAI API key
+ * @param environment Environment for model selection
+ * @returns Candidates sorted by relevance score (highest first)
+ */
+async function rerankWithCrossEncoder<T extends { searchableContent?: string | null; content: string }>(
+  query: string,
+  candidates: T[],
+  openaiApiKey: string,
+  environment?: string
+): Promise<T[]> {
+  if (candidates.length === 0) {
+    return candidates;
+  }
+
+  // gpt-5-mini is used for reranking (defined in config/models.ts)
+  const model = getModel('reranking', environment);
+
+  // Score all candidates in parallel
+  const scoredResults = await Promise.all(
+    candidates.map(async (candidate) => {
+      try {
+        // Use searchableContent if available (has more context), fallback to content
+        const documentText = (candidate.searchableContent || candidate.content).slice(0, 2000);
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openaiApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{
+              role: 'user',
+              content: `Rate how well this content answers the query on a scale of 0-100.
+
+Query: "${query}"
+
+Content:
+${documentText}
+
+Return ONLY a number between 0-100, nothing else.`
+            }],
+            temperature: 0,
+            max_tokens: 10,
+          }),
+        });
+
+        if (!response.ok) {
+          console.error('Reranking API error:', response.status, response.statusText);
+          return { candidate, score: 0 };
+        }
+
+        const data = await response.json() as { choices: Array<{ message: { content: string } }> };
+        const scoreText = data.choices[0]?.message?.content?.trim() || '0';
+        const score = parseInt(scoreText, 10);
+
+        // Validate score is in range, default to 0 if invalid
+        const validScore = !isNaN(score) && score >= 0 && score <= 100 ? score : 0;
+
+        return { candidate, score: validScore };
+      } catch (error) {
+        console.error('Error scoring candidate:', error);
+        return { candidate, score: 0 };
+      }
+    })
+  );
+
+  // Sort by score (highest first) and return candidates
+  return scoredResults
+    .sort((a, b) => b.score - a.score)
+    .map(r => r.candidate);
 }
 
 /**
@@ -122,10 +242,13 @@ function prepareSearchQuery(query: string): string {
 }
 
 /**
- * Perform hybrid search combining:
- * 1. Vector similarity search (Vectorize)
- * 2. Full-text search (D1 FTS5)
- * 3. Reciprocal Rank Fusion (RRF) to merge results
+ * Perform advanced hybrid search with cross-encoder reranking:
+ * 1. Content vector search (Vectorize with type='content')
+ * 2. Question vector search (Vectorize with type='question' - HyDE)
+ * 3. Full-text search (D1 FTS5)
+ * 4. Reciprocal Rank Fusion (RRF) to merge results
+ * 5. Cross-encoder reranking with LLM (optional, enabled by default)
+ * 6. Result diversification to avoid redundancy
  */
 export async function findRelevantContent(
   db: D1Database,
@@ -133,7 +256,14 @@ export async function findRelevantContent(
   gameId: string,
   userQuery: string,
   openaiApiKey: string,
-  options: { limit?: number; offset?: number } = {}
+  options: {
+    limit?: number;
+    offset?: number;
+    fragmentType?: 'text' | 'image'; // Filter by fragment type
+    resourceType?: string;            // Filter by resource type
+    environment?: string;              // Environment for model selection
+    enableReranking?: boolean;         // Enable cross-encoder reranking (default: true)
+  } = {}
 ): Promise<SearchResult[]> {
   const limit = options.limit ?? 10;
   const offset = options.offset ?? 0;
@@ -147,12 +277,22 @@ export async function findRelevantContent(
   // Step 1: Generate embedding for user query
   const [queryEmbedding] = await generateEmbedding(userQuery, openaiApiKey);
 
-  // Step 2: Execute vector and full-text search in parallel with graceful degradation
-  const [vectorResults, ftsResults] = await Promise.allSettled([
-    // Vector search via Vectorize
-    searchVectorize(vectorIndex, queryEmbedding, gameId, { limit: candidateCount }),
+  // Step 2: Execute 3 searches in parallel with graceful degradation
+  const [contentResults, questionResults, ftsResults] = await Promise.allSettled([
+    // A. Content vector search (search fragment content)
+    searchVectorize(vectorIndex, queryEmbedding, gameId, {
+      limit: candidateCount,
+      type: 'content',
+      fragmentType: options.fragmentType,
+    }),
 
-    // Full-text search via D1 FTS5
+    // B. Question vector search (search synthetic questions - HyDE)
+    searchVectorize(vectorIndex, queryEmbedding, gameId, {
+      limit: Math.floor(candidateCount / 2), // Fewer questions
+      type: 'question',
+    }),
+
+    // C. Full-text search via D1 FTS5
     db
       .prepare(`
         SELECT
@@ -161,22 +301,32 @@ export async function findRelevantContent(
         FROM fragments_fts fts
         JOIN fragments f ON f.id = fts.id
         WHERE fts.content MATCH ? AND f.game_id = ?
+        ${options.fragmentType ? `AND f.type = ?` : ''}
         ORDER BY fts.rank
         LIMIT ?
       `)
-      .bind(prepareSearchQuery(userQuery), gameId, candidateCount)
+      .bind(
+        prepareSearchQuery(userQuery),
+        gameId,
+        ...(options.fragmentType ? [options.fragmentType] : []),
+        candidateCount
+      )
       .all<{ id: string; rank: number }>()
   ]);
 
   // Handle search failures gracefully - use whatever results we got
-  const vectorMatches = vectorResults.status === 'fulfilled' ? vectorResults.value : [];
+  const contentMatches = contentResults.status === 'fulfilled' ? contentResults.value : [];
+  const questionMatches = questionResults.status === 'fulfilled' ? questionResults.value : [];
   const ftsMatches = ftsResults.status === 'fulfilled' && ftsResults.value.results
     ? ftsResults.value.results
     : [];
 
   // Log failures for monitoring
-  if (vectorResults.status === 'rejected') {
-    console.error('Vector search failed:', vectorResults.reason);
+  if (contentResults.status === 'rejected') {
+    console.error('Content vector search failed:', contentResults.reason);
+  }
+  if (questionResults.status === 'rejected') {
+    console.error('Question vector search failed:', questionResults.reason);
   }
   if (ftsResults.status === 'rejected') {
     console.error('FTS search failed:', ftsResults.reason);
@@ -184,12 +334,16 @@ export async function findRelevantContent(
 
   // Step 3: Reciprocal Rank Fusion (RRF)
   const rrfK = 50;
-  const vectorWeight = 1.0;
+  const contentWeight = 1.0;
+  const questionWeight = 0.7; // Questions slightly less weight (they're indirect matches)
   const ftsWeight = 1.0;
 
   // Build rank maps
-  const vectorRanks = new Map(
-    vectorMatches.map((r, index) => [r.fragmentId, index])
+  const contentRanks = new Map(
+    contentMatches.map((r, index) => [r.fragmentId, index])
+  );
+  const questionRanks = new Map(
+    questionMatches.map((r, index) => [r.fragmentId, index])
   );
   const ftsRanks = new Map(
     ftsMatches.map((r, index) => [r.id, index])
@@ -197,18 +351,23 @@ export async function findRelevantContent(
 
   // Get all unique fragment IDs
   const allFragmentIds = new Set([
-    ...vectorMatches.map(r => r.fragmentId),
+    ...contentMatches.map(r => r.fragmentId),
+    ...questionMatches.map(r => r.fragmentId),
     ...ftsMatches.map((r) => r.id)
   ]);
 
   // Calculate RRF scores
   const rrfScores: Array<{ fragmentId: string; score: number }> = [];
   for (const fragmentId of allFragmentIds) {
-    const vectorRank = vectorRanks.get(fragmentId);
+    const contentRank = contentRanks.get(fragmentId);
+    const questionRank = questionRanks.get(fragmentId);
     const ftsRank = ftsRanks.get(fragmentId);
 
-    const vectorScore = vectorRank !== undefined
-      ? vectorWeight / (rrfK + vectorRank)
+    const contentScore = contentRank !== undefined
+      ? contentWeight / (rrfK + contentRank)
+      : 0;
+    const questionScore = questionRank !== undefined
+      ? questionWeight / (rrfK + questionRank)
       : 0;
     const ftsScore = ftsRank !== undefined
       ? ftsWeight / (rrfK + ftsRank)
@@ -216,21 +375,21 @@ export async function findRelevantContent(
 
     rrfScores.push({
       fragmentId,
-      score: vectorScore + ftsScore
+      score: contentScore + questionScore + ftsScore
     });
   }
 
-  // Sort by RRF score and apply pagination
+  // Sort by RRF score and take top candidates for diversification
   rrfScores.sort((a, b) => b.score - a.score);
-  const topFragmentIds = rrfScores
-    .slice(offset, offset + limit)
+  const candidateIds = rrfScores
+    .slice(0, (limit + offset) * 3) // Get 3x candidates for diversification
     .map(r => r.fragmentId);
 
-  if (topFragmentIds.length === 0) {
+  if (candidateIds.length === 0) {
     return [];
   }
 
-  // Step 4: Fetch full fragment data with resource info using Drizzle
+  // Step 4: Fetch fragment data for candidates
   const orm = getDb(db);
 
   const fragmentData = await orm
@@ -239,20 +398,38 @@ export async function findRelevantContent(
       resourceId: resources.id,
       resourceName: resources.name,
       content: fragments.content,
+      searchableContent: fragments.searchableContent,
       pageNumber: fragments.pageNumber,
       section: fragments.section,
       images: fragments.images,
     })
     .from(fragments)
     .innerJoin(resources, eq(fragments.resourceId, resources.id))
-    .where(inArray(fragments.id, topFragmentIds))
+    .where(inArray(fragments.id, candidateIds))
     .all();
 
-  // Filter to only top fragment IDs and re-sort by RRF score
+  // Create fragment map and re-sort by RRF score
   const fragmentMap = new Map(fragmentData.map(f => [f.fragmentId, f]));
-  const sorted = topFragmentIds
+  const scoreMap = new Map(rrfScores.map(r => [r.fragmentId, r.score]));
+
+  const candidatesWithData = candidateIds
     .map(id => fragmentMap.get(id))
     .filter((f): f is NonNullable<typeof f> => f !== undefined);
+
+  // Step 5: Cross-encoder reranking (optional, enabled by default)
+  const enableReranking = options.enableReranking ?? true;
+  const rerankedCandidates = enableReranking
+    ? await rerankWithCrossEncoder(userQuery, candidatesWithData, openaiApiKey, options.environment)
+    : candidatesWithData;
+
+  // Step 6: Diversify to avoid redundancy
+  const diversified = diversifyResults(rerankedCandidates, {
+    maxPerPage: 2,
+    maxPerResource: Math.ceil(limit * 0.6),
+  });
+
+  // Apply pagination
+  const sorted = diversified.slice(offset, offset + limit);
 
   // Parse images JSON and return results
   return sorted.map(f => {

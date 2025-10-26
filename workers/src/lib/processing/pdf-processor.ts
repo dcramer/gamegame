@@ -227,15 +227,32 @@ async function deleteExistingFragments(env: Env, resourceId: string) {
     await db.delete(fragments).where(eq(fragments.resourceId, resourceId));
 
     const MAX_VECTOR_ID_LENGTH = 64;
-    const vectorIds = existingFragments
-      .map((fragment) => fragment.id)
-      .filter((id) => id.length <= MAX_VECTOR_ID_LENGTH);
+
+    // Build list of all vector IDs to delete (content + questions)
+    const vectorIds: string[] = [];
+    const skipped: Array<{ id: string }> = [];
+
+    existingFragments.forEach((fragment) => {
+      // Content vector (main fragment ID)
+      if (fragment.id.length <= MAX_VECTOR_ID_LENGTH) {
+        vectorIds.push(fragment.id);
+
+        // Question vectors (up to 5 per fragment: fragmentId-q0 through fragmentId-q4)
+        for (let qIdx = 0; qIdx < 5; qIdx++) {
+          const questionId = `${fragment.id}-q${qIdx}`;
+          if (questionId.length <= MAX_VECTOR_ID_LENGTH) {
+            vectorIds.push(questionId);
+          }
+        }
+      } else {
+        skipped.push(fragment);
+      }
+    });
 
     if (vectorIds.length > 0) {
       await deleteEmbeddings(env.VECTORIZE, vectorIds);
     }
 
-    const skipped = existingFragments.filter((fragment) => fragment.id.length > MAX_VECTOR_ID_LENGTH);
     if (skipped.length > 0) {
       console.warn(
         `Skipped deleting ${skipped.length} vector embeddings with IDs longer than ${MAX_VECTOR_ID_LENGTH} bytes. ` +
@@ -402,6 +419,7 @@ export async function runVisionStage(task: QueueMessage, env: Env): Promise<Queu
         progress: progressPercent,
       });
     },
+    environment: env.ENVIRONMENT, // Use env-based model selection
   });
 
   await saveStructured(env, task.resourceId, structured);
@@ -772,26 +790,310 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
   const rebuiltMarkdown = rebuildMarkdownFromPages(structured);
   const finalContent = replaceImageReferences(rebuiltMarkdown, allImagesWithUrls);
 
-  const pdfChunks = await chunkStructuredPDF(structured);
-  const [embeddingsData, version] = await generateEmbeddings(pdfChunks, env.OPENAI_API_KEY);
+  // ======================
+  // MULTI-MODAL FRAGMENT GENERATION
+  // ======================
+  // Create both text and image fragments with enriched searchable content
 
-  const fragmentRecords = embeddingsData.map((embedding) => ({
+  console.log(
+    JSON.stringify({
+      module: 'pdf-processor',
+      stage: 'embed',
+      event: 'fragment_generation_started',
+      resourceId: task.resourceId,
+    })
+  );
+
+  // Get fresh resource metadata for searchable content
+  const [resourceMetadata] = await db
+    .select({
+      name: resources.name,
+      originalFilename: resources.originalFilename,
+      description: resources.description,
+      resourceType: resources.resourceType,
+      edition: resources.edition,
+    })
+    .from(resources)
+    .where(eq(resources.id, task.resourceId))
+    .limit(1);
+
+  if (!resourceMetadata) {
+    throw new Error(`Resource ${task.resourceId} not found during embed stage`);
+  }
+
+  // Prepare resource info for fragments
+  const resourceInfo = {
+    name: resourceMetadata.name || task.name,
+    originalFilename: resourceMetadata.originalFilename ?? null,
+    description: resourceMetadata.description ?? null,
+    resourceType: (resourceMetadata.resourceType || 'rulebook') as 'rulebook' | 'expansion' | 'faq' | 'errata' | 'reference',
+    edition: resourceMetadata.edition ?? null,
+  };
+
+  // Step 1: Generate TEXT FRAGMENTS from chunks
+  const pdfChunks = await chunkStructuredPDF(structured);
+
+  console.log(
+    JSON.stringify({
+      module: 'pdf-processor',
+      stage: 'embed',
+      event: 'text_chunks_generated',
+      resourceId: task.resourceId,
+      chunkCount: pdfChunks.length,
+    })
+  );
+
+  // Import new services
+  const { buildSearchableContent } = await import('../services/searchable-content');
+  const { generateQuestionsForFragments } = await import('../services/hyde');
+
+  // Build searchable content for each text chunk
+  const textFragmentsData = pdfChunks.map((chunk) => {
+    const searchableContent = buildSearchableContent(
+      chunk,
+      resourceInfo,
+      attachmentRecords.map((att) => ({
+        id: att.id,
+        description: att.description,
+        detectedType: null, // Will be populated by image analysis service
+      }))
+    );
+
+    return {
+      chunk,
+      searchableContent,
+    };
+  });
+
+  // Generate HyDE synthetic questions for text chunks (in batches)
+  await updateJob(env.JOB_STATUS_KV, task.jobId, {
+    currentStep: 'Generating search questions',
+    progress: 70,
+  });
+
+  const syntheticQuestionsArrays = await generateQuestionsForFragments(
+    pdfChunks.map((chunk) => ({
+      content: chunk.content,
+      section: chunk.section,
+      pageNumber: chunk.pageNumber,
+    })),
+    resourceInfo,
+    env.OPENAI_API_KEY,
+    {
+      batchSize: 10,
+      count: 5,
+      environment: env.ENVIRONMENT, // Use env-based model selection
+    }
+  );
+
+  console.log(
+    JSON.stringify({
+      module: 'pdf-processor',
+      stage: 'embed',
+      event: 'hyde_questions_generated',
+      resourceId: task.resourceId,
+      totalQuestions: syntheticQuestionsArrays.reduce((sum, arr) => sum + arr.length, 0),
+    })
+  );
+
+  // Step 2: Generate IMAGE FRAGMENTS for relevant images
+  const { buildImageSearchableContent } = await import('../services/searchable-content');
+
+  const relevantImages = structured.pages.flatMap((page) =>
+    page.images
+      .filter((img) => img.isGoodQuality === 'good' && img.url)
+      .map((img) => ({
+        image: img,
+        page: {
+          pageNumber: page.pageNumber,
+          sections: page.sections,
+        },
+      }))
+  );
+
+  const imageFragmentsData = relevantImages.map(({ image, page }) => {
+    const attachment = attachmentRecords.find((att) => att.id === image.id);
+
+    if (!attachment) {
+      return null;
+    }
+
+    const searchableContent = buildImageSearchableContent(
+      image,
+      {
+        description: attachment.description,
+        detectedType: null, // Will be set if we add image type detection
+        caption: attachment.caption,
+        ocrText: null, // Will be set if we add OCR
+      },
+      page,
+      resourceInfo
+    );
+
+    return {
+      image,
+      attachment,
+      page,
+      searchableContent,
+    };
+  }).filter((item): item is NonNullable<typeof item> => item !== null);
+
+  console.log(
+    JSON.stringify({
+      module: 'pdf-processor',
+      stage: 'embed',
+      event: 'image_fragments_generated',
+      resourceId: task.resourceId,
+      imageFragmentCount: imageFragmentsData.length,
+    })
+  );
+
+  // Step 3: Combine text + image fragments for embedding
+  const allFragmentsForEmbedding = [
+    ...textFragmentsData.map((item, index) => ({
+      type: 'text' as const,
+      content: item.chunk.content,
+      searchableContent: item.searchableContent,
+      syntheticQuestions: syntheticQuestionsArrays[index] || [],
+      pageNumber: item.chunk.pageNumber,
+      pageRange: item.chunk.pageRange,
+      section: item.chunk.section,
+      images: item.chunk.images,
+      attachmentId: null,
+    })),
+    ...imageFragmentsData.map((item) => ({
+      type: 'image' as const,
+      content: item.attachment.description || '',
+      searchableContent: item.searchableContent,
+      syntheticQuestions: [] as string[], // Images don't get HyDE questions (for now)
+      pageNumber: item.page.pageNumber,
+      pageRange: null,
+      section: item.page.sections.length > 0
+        ? item.page.sections[item.page.sections.length - 1].hierarchy
+        : null,
+      images: item.image.url ? [{
+        id: item.image.id,
+        url: item.image.url,
+        bbox: item.image.bbox,
+        caption: item.image.caption,
+      }] : null,
+      attachmentId: item.attachment.id,
+    })),
+  ];
+
+  // Step 4: Generate embeddings from searchable content + synthetic questions
+  await updateJob(env.JOB_STATUS_KV, task.jobId, {
+    currentStep: `Generating embeddings: ${allFragmentsForEmbedding.length} fragments`,
+    progress: 75,
+  });
+
+  // Build array of all texts to embed (content + questions)
+  const textsToEmbed: Array<{
+    content: string;
+    pageNumber?: number;
+    pageRange?: [number, number];
+    section?: string;
+    images?: any;
+  }> = [];
+
+  // Track which embeddings belong to which fragments
+  const embeddingMap: Array<{
+    fragmentIndex: number;
+    isQuestion: boolean;
+    questionIndex?: number;
+    questionText?: string;
+  }> = [];
+
+  allFragmentsForEmbedding.forEach((item, fragmentIndex) => {
+    // 1. Always embed the content itself
+    textsToEmbed.push({
+      content: item.searchableContent,
+      pageNumber: item.pageNumber,
+      pageRange: item.pageRange ?? undefined,
+      section: item.section ?? undefined,
+      images: item.images ?? undefined,
+    });
+    embeddingMap.push({ fragmentIndex, isQuestion: false });
+
+    // 2. Embed each synthetic question (for text fragments only)
+    if (item.type === 'text' && item.syntheticQuestions.length > 0) {
+      item.syntheticQuestions.forEach((question, qIdx) => {
+        textsToEmbed.push({
+          content: question,
+          pageNumber: item.pageNumber,
+          section: item.section ?? undefined,
+        });
+        embeddingMap.push({
+          fragmentIndex,
+          isQuestion: true,
+          questionIndex: qIdx,
+          questionText: question,
+        });
+      });
+    }
+  });
+
+  const [embeddingsData, version] = await generateEmbeddings(
+    textsToEmbed,
+    env.OPENAI_API_KEY
+  );
+
+  console.log(
+    JSON.stringify({
+      module: 'pdf-processor',
+      stage: 'embed',
+      event: 'embeddings_generated',
+      resourceId: task.resourceId,
+      contentEmbeddings: allFragmentsForEmbedding.length,
+      questionEmbeddings: embeddingsData.length - allFragmentsForEmbedding.length,
+      totalEmbeddings: embeddingsData.length,
+      version,
+    })
+  );
+
+  // Step 5: Create fragment records with all new fields
+  const fragmentRecords = allFragmentsForEmbedding.map((item) => ({
     id: nanoid(),
     gameId: task.gameId,
     resourceId: task.resourceId,
-    content: embedding.content,
+    type: item.type,
+    attachmentId: item.attachmentId,
+    content: item.content, // Clean content for display
+    searchableContent: item.searchableContent, // Enriched content (what was embedded)
+    syntheticQuestions: item.syntheticQuestions.length > 0
+      ? JSON.stringify(item.syntheticQuestions)
+      : null,
+    resourceName: resourceInfo.name,
+    resourceDescription: resourceInfo.description,
+    resourceType: resourceInfo.resourceType,
     version,
-    pageNumber: embedding.pageNumber ?? null,
-    pageRangeStart: embedding.pageRange ? embedding.pageRange[0] : null,
-    pageRangeEnd: embedding.pageRange ? embedding.pageRange[1] : null,
-    section: embedding.section ?? null,
-    images: embedding.images ? JSON.stringify(embedding.images) : null,
+    pageNumber: item.pageNumber ?? null,
+    pageRangeStart: item.pageRange ? item.pageRange[0] : null,
+    pageRangeEnd: item.pageRange ? item.pageRange[1] : null,
+    section: item.section ?? null,
+    images: item.images ? JSON.stringify(item.images) : null,
   }));
 
-  if (fragmentRecords.length > 0) {
-    const FRAGMENT_BATCH_SIZE = 10;
+  console.log(
+    JSON.stringify({
+      module: 'pdf-processor',
+      stage: 'embed',
+      event: 'fragment_records_created',
+      resourceId: task.resourceId,
+      textFragments: fragmentRecords.filter((f) => f.type === 'text').length,
+      imageFragments: fragmentRecords.filter((f) => f.type === 'image').length,
+    })
+  );
 
-    // Step 1: Insert fragments to D1 (source of truth)
+  if (fragmentRecords.length > 0) {
+    const FRAGMENT_BATCH_SIZE = 5; // Reduced from 10 due to many new fields (17 columns per row)
+
+    // Step 6: Insert fragments to D1 (source of truth)
+    await updateJob(env.JOB_STATUS_KV, task.jobId, {
+      currentStep: `Storing ${fragmentRecords.length} fragments`,
+      progress: 80,
+    });
+
     for (let i = 0; i < fragmentRecords.length; i += FRAGMENT_BATCH_SIZE) {
       const fragmentBatch = fragmentRecords.slice(i, i + FRAGMENT_BATCH_SIZE);
       if (fragmentBatch.length > 0) {
@@ -799,22 +1101,48 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
       }
     }
 
-    // Step 2: Insert embeddings to Vectorize with rollback on failure
-    try {
-      await insertEmbeddings(
-        env.VECTORIZE!,
-        fragmentRecords.map((fragment, index) => ({
-          id: fragment.id,
-          values: embeddingsData[index].embedding,
+    // Step 7: Insert embeddings to Vectorize with rollback on failure
+    // Create vectors for both content and questions
+    const vectorizeEntries = embeddingMap.map((mapping, embeddingIndex) => {
+      const fragment = fragmentRecords[mapping.fragmentIndex];
+      const embedding = embeddingsData[embeddingIndex].embedding;
+
+      if (mapping.isQuestion) {
+        // Question vector: separate ID, links back to parent fragment
+        return {
+          id: `${fragment.id}-q${mapping.questionIndex}`,
+          values: embedding,
           metadata: {
             fragmentId: fragment.id,
             gameId: task.gameId,
             resourceId: task.resourceId,
+            type: 'question' as const,
+            questionIndex: mapping.questionIndex!,
+            questionText: mapping.questionText!,
             ...(fragment.pageNumber != null && { pageNumber: fragment.pageNumber }),
             ...(fragment.section != null && { section: fragment.section }),
           },
-        }))
-      );
+        };
+      } else {
+        // Content vector: main fragment embedding
+        return {
+          id: fragment.id,
+          values: embedding,
+          metadata: {
+            fragmentId: fragment.id,
+            gameId: task.gameId,
+            resourceId: task.resourceId,
+            type: 'content' as const,
+            fragmentType: fragment.type,
+            ...(fragment.pageNumber != null && { pageNumber: fragment.pageNumber }),
+            ...(fragment.section != null && { section: fragment.section }),
+          },
+        };
+      }
+    });
+
+    try {
+      await insertEmbeddings(env.VECTORIZE!, vectorizeEntries);
     } catch (vectorizeError) {
       // Rollback: Delete the fragments we just inserted since Vectorize failed
       console.error(`[Embed Stage] Vectorize insert failed, rolling back D1 fragments:`, vectorizeError);

@@ -5,7 +5,7 @@
  * Usage: pnpm cli <command> [args]
  *
  * Commands:
- *   ask <gameId> <prompt>           - Ask a question about a game
+ *   ask <game-slug-or-id> <prompt>  - Ask a question about a game
  *   games                           - List all games with their IDs
  *   create-user <email> [options]   - Create a user directly in D1
  *   grant-admin <email> [--remote]  - Grant admin privileges to a user
@@ -23,8 +23,8 @@ const command = process.argv[2];
 if (!command) {
   console.error('Usage: pnpm cli <command> [args]');
   console.error('\nCommands:');
-  console.error('  ask <gameId> <prompt>           Ask a question about a game');
-  console.error('  games                           List all games with their IDs');
+  console.error('  ask <game> <prompt>             Ask a question about a game');
+  console.error('  games                           List all games with their IDs and slugs');
   console.error('  create-user <email> [options]   Create a user directly in D1');
   console.error('  grant-admin <email> [--remote]  Grant admin privileges to a user');
   console.error('  login-url <email>               Generate a magic link login URL');
@@ -51,8 +51,8 @@ async function main() {
     default:
       console.error(`Unknown command: ${command}`);
       console.error('\nAvailable commands:');
-      console.error('  ask <gameId> <prompt>           Ask a question about a game');
-      console.error('  games                           List all games with their IDs');
+      console.error('  ask <game> <prompt>             Ask a question about a game');
+      console.error('  games                           List all games with their IDs and slugs');
       console.error('  create-user <email> [options]   Create a user directly in D1');
       console.error('  grant-admin <email> [--remote]  Grant admin privileges to a user');
       console.error('  login-url <email>               Generate a magic link login URL');

@@ -37,6 +37,9 @@ export const extendedResourceSchema = resourceSchema.extend({
 });
 
 export async function loader({ params, context }: Route.LoaderArgs) {
+  const { requireAdmin } = await import('../lib/auth');
+  await requireAdmin(context.api);
+
   const [resourceRes, attachmentsRes, gameRes] = await Promise.all([
     context.api.fetch(`/resources/${params.resourceId}`),
     context.api.fetch(`/resources/${params.resourceId}/attachments`),

@@ -51,4 +51,14 @@ export type VectorMetadata = Record<string, string | number | boolean | string[]
   resourceId: string;
   pageNumber?: number;
   section?: string;
+
+  // Vector type discrimination
+  type: 'content' | 'question'; // 'content' = fragment content, 'question' = synthetic question
+
+  // Fragment type (only for content vectors)
+  fragmentType?: 'text' | 'image';
+
+  // Question-specific fields (only for question vectors)
+  questionIndex?: number;      // Which question (0-4) in the syntheticQuestions array
+  questionText?: string;       // The actual question text (for debugging)
 };

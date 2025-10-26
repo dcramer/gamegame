@@ -96,20 +96,41 @@ export async function searchVectorize(
   index: VectorizeIndex,
   queryVector: number[],
   gameId: string,
-  options: { limit?: number } = {}
-): Promise<Array<{ fragmentId: string; score: number }>> {
+  options: {
+    limit?: number;
+    type?: 'content' | 'question';     // Filter by vector type
+    fragmentType?: 'text' | 'image';   // Filter by fragment type (only for content vectors)
+    resourceId?: string;                // Filter by resource
+  } = {}
+): Promise<Array<{ fragmentId: string; score: number; metadata?: any }>> {
   const limit = options.limit ?? 20;
+
+  // Build filter object
+  const filter: Record<string, any> = { gameId };
+
+  if (options.type) {
+    filter.type = options.type;
+  }
+
+  if (options.fragmentType) {
+    filter.fragmentType = options.fragmentType;
+  }
+
+  if (options.resourceId) {
+    filter.resourceId = options.resourceId;
+  }
 
   const results = await index.query(queryVector, {
     topK: limit,
-    filter: { gameId }, // Filter by game using metadata
+    filter,
     returnValues: false,
     returnMetadata: true,
   });
 
   return results.matches.map((match) => ({
-    fragmentId: match.id,
+    fragmentId: match.metadata?.fragmentId || match.id,
     score: match.score,
+    metadata: match.metadata,
   }));
 }
 

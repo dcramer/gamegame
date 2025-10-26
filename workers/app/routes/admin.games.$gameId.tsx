@@ -31,6 +31,9 @@ export const meta = ({ data }: Route.MetaArgs) => {
 };
 
 export async function loader({ params, context }: Route.LoaderArgs) {
+  const { requireAdmin } = await import('../lib/auth');
+  await requireAdmin(context.api);
+
   const gameResponse = await context.api.fetch(`/games/${params.gameId}`);
   if (!gameResponse.ok) {
     if (gameResponse.status === 404) {

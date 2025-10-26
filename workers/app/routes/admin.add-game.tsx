@@ -5,9 +5,9 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Spinner } from '../components/ui/spinner';
 import { PageHeader } from '../components/PageHeader';
-import { Card, CardContent, CardHeader, CardDescription, CardTitle } from '../components/ui/card';
+import { Card, CardContent } from '../components/ui/card';
 import { useFlashNotifications } from '../hooks/useFlashNotifications';
-import { type BGGGame, bggGamesListSchema, gameSchema } from '../lib/schemas';
+import { type BGGSearchResult, bggSearchResultsListSchema, gameSchema } from '../lib/schemas';
 import { apiClient } from '../../load-context';
 import { createMeta, createAdminTitle } from '../lib/meta';
 
@@ -19,11 +19,17 @@ export const meta = () => {
   });
 };
 
+export async function loader({ context }: { context: { api: any } }) {
+  const { requireAdmin } = await import('../lib/auth');
+  await requireAdmin(context.api);
+  return {};
+}
+
 export default function AdminAddGame() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
-  const [bggResults, setBggResults] = useState<BGGGame[]>([]);
+  const [bggResults, setBggResults] = useState<BGGSearchResult[]>([]);
   const [importing, setImporting] = useState(false);
   const { addToast } = useFlashNotifications();
 
@@ -35,7 +41,7 @@ export default function AdminAddGame() {
     try {
       const response = await apiClient.fetch(`/bgg/search?q=${encodeURIComponent(searchQuery)}`);
       if (response.ok) {
-        const data = bggGamesListSchema.parse(await response.json());
+        const data = bggSearchResultsListSchema.parse(await response.json());
         setBggResults(data);
       } else {
         addToast('error', 'Failed to search BGG. Please try again.');
@@ -60,7 +66,17 @@ export default function AdminAddGame() {
         addToast('success', `Successfully imported ${game.name}!`);
         navigate(`/admin/games/${game.id}`);
       } else {
-        addToast('error', 'Failed to import game from BGG. Please try again.');
+        // Try to extract error message from response
+        let errorMessage = 'Failed to import game from BGG. Please try again.';
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch {
+          // Use default message if can't parse response
+        }
+        addToast('error', errorMessage);
       }
     } catch (error) {
       console.error('Import error:', error);
@@ -79,98 +95,93 @@ export default function AdminAddGame() {
           { label: 'Add Game' },
         ]}
         title="Add Game"
-        description="Search BoardGameGeek to pull in official art and metadata. You can always refine the details after importing."
       />
 
-      <div className="mx-auto max-w-4xl space-y-8">
-      <Card>
-        <CardHeader className="space-y-2">
-          <CardTitle className="text-2xl font-semibold">Find your game</CardTitle>
-          <CardDescription className="text-muted-foreground">
-            Search BoardGameGeek to import official box art, year, and metadata. You can always tweak details later or switch to manual entry.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSearch} className="space-y-4">
-            <div className="flex flex-col gap-3 md:flex-row">
-              <Input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search for a game..."
-                className="flex-1"
-              />
-              <Button type="submit" disabled={searching} className="md:w-auto">
-                {searching ? <Spinner size="sm" /> : 'Search'}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Tip: include the publisher or edition to narrow things down.
-            </p>
-          </form>
-        </CardContent>
-      </Card>
-      {bggResults.length > 0 ? (
-        <div className="space-y-3">
-          {bggResults.map((game) => (
-            <Card
-              key={game.id}
-              className="hover:bg-accent/30 transition-colors"
-              onClick={() => handleImportFromBGG(game.id)}
-            >
-              <CardContent className="flex items-center gap-4 p-4">
-                {game.thumbnail ? (
-                  <div className="relative h-20 w-20 overflow-hidden rounded-md border border-border bg-muted">
-                    <img
-                      src={game.thumbnail}
-                      alt={game.name}
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  </div>
-                ) : (
-                  <div className="flex h-20 w-20 items-center justify-center rounded-md border border-dashed text-2xl text-muted-foreground">
-                    🎲
-                  </div>
-                )}
+      <div className="space-y-6">
+        {/* Search Form */}
+        <form onSubmit={handleSearch} className="space-y-3">
+          <div className="flex gap-2">
+            <Input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search BoardGameGeek..."
+              className="flex-1"
+              autoFocus
+            />
+            <Button type="submit" disabled={searching} className="min-w-[100px]">
+              {searching ? <Spinner size="sm" /> : 'Search'}
+            </Button>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Search BoardGameGeek to import official game data, box art, and metadata.
+          </p>
+        </form>
 
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-baseline justify-between gap-4">
-                    <h4 className="text-lg font-semibold truncate">{game.name}</h4>
-                    {game.yearPublished && (
-                      <span className="text-sm text-muted-foreground">{game.yearPublished}</span>
+        {/* Results */}
+        {bggResults.length > 0 && (
+          <Card>
+            <CardContent className="p-0">
+              <div className="divide-y">
+                {bggResults.map((game) => (
+                  <div
+                    key={game.id}
+                    className="flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors cursor-pointer"
+                    onClick={() => handleImportFromBGG(game.id)}
+                  >
+                    {game.thumbnailUrl ? (
+                      <img
+                        src={game.thumbnailUrl}
+                        alt={game.name}
+                        className="w-16 h-16 object-cover rounded bg-muted"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="w-16 h-16 rounded bg-muted flex items-center justify-center text-2xl">
+                        🎲
+                      </div>
                     )}
-                  </div>
-                  <p className="mt-1 text-sm text-muted-foreground truncate">{game.bggUrl}</p>
-                </div>
 
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={importing}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleImportFromBGG(game.id);
-                  }}
-                >
-                  {importing ? <Spinner size="sm" /> : 'Import'}
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        !searching && (
-          <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center justify-center gap-3 py-14 text-center">
-              <div className="rounded-full bg-muted px-4 py-2 text-sm text-muted-foreground">No results yet</div>
-              <p className="max-w-sm text-sm text-muted-foreground">
-                Try searching for your game above using the BoardGameGeek search.
-              </p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-3">
+                        <h4 className="font-medium text-lg truncate">{game.name}</h4>
+                        {game.yearPublished && (
+                          <span className="text-sm text-muted-foreground shrink-0">
+                            ({game.yearPublished})
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground truncate mt-0.5">
+                        {game.type === 'boardgameexpansion' && '🧩 Expansion • '}
+                        BGG #{game.id}
+                      </p>
+                    </div>
+
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={importing || game.isImported}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleImportFromBGG(game.id);
+                      }}
+                    >
+                      {importing ? <Spinner size="sm" /> : game.isImported ? 'Imported' : 'Import'}
+                    </Button>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
-        )
-      )}
+        )}
+
+        {/* Empty State */}
+        {!searching && bggResults.length === 0 && searchQuery && (
+          <div className="text-center py-12 text-muted-foreground">
+            <p>No results found for "{searchQuery}"</p>
+            <p className="text-sm mt-1">Try a different search term or check the spelling</p>
+          </div>
+        )}
       </div>
     </AdminLayout>
   );

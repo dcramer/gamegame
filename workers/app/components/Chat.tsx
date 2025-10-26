@@ -9,6 +9,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
 import { Spinner } from './ui/spinner';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import {
   Dices,
   ExternalLink,
@@ -20,9 +21,95 @@ import { apiClient } from '../../load-context';
 
 interface ParsedMessage {
   answer?: string;
-  followUps?: string[];
-  resources?: { name: string; id: string }[];
+  followUps?: string[] | Array<{ question: string; category?: string }>;
+  resources?: Array<{ name: string; id: string }>;
+  questionType?: 'gameplay' | 'knowledge' | 'external' | 'gamegame';
+  // Optional enhanced fields from structuredAnswerSchema
+  confidence?: 'high' | 'medium' | 'low';
+  ambiguities?: string[];
+  citations?: Array<{
+    resourceId: string;
+    resourceName: string;
+    pageNumber?: number;
+    pageRange?: [number, number];
+    section?: string;
+    quote?: string;
+  }>;
 }
+
+// Component to render citation pill badge with tooltip
+const CitationPill = ({
+  number,
+  citation
+}: {
+  number: number;
+  citation?: {
+    resourceName: string;
+    pageNumber?: number;
+    pageRange?: [number, number];
+    section?: string;
+    quote?: string;
+  };
+}) => {
+  const tooltipContent = citation ? (
+    <div className="max-w-xs">
+      <div className="font-semibold">{citation.resourceName}</div>
+      {citation.pageNumber && <div className="text-xs">Page {citation.pageNumber}</div>}
+      {citation.pageRange && <div className="text-xs">Pages {citation.pageRange[0]}-{citation.pageRange[1]}</div>}
+      {citation.section && <div className="text-xs text-gray-400">{citation.section}</div>}
+      {citation.quote && <div className="mt-1 text-xs italic border-l-2 border-gray-600 pl-2">"{citation.quote}"</div>}
+    </div>
+  ) : null;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <a
+          href={`#cite-${number}`}
+          className="inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-1.5 py-0.5 rounded no-underline transition-colors mx-0.5"
+          onClick={(e) => {
+            e.preventDefault();
+            document.getElementById(`cite-${number}`)?.scrollIntoView({ behavior: 'smooth' });
+          }}
+        >
+          {number}
+        </a>
+      </TooltipTrigger>
+      {tooltipContent && (
+        <TooltipContent side="top" className="max-w-xs">
+          {tooltipContent}
+        </TooltipContent>
+      )}
+    </Tooltip>
+  );
+};
+
+// Component to render answer with inline citation pills
+const AnswerWithCitations = ({
+  answer,
+  citations
+}: {
+  answer: string;
+  citations?: ParsedMessage['citations'];
+}) => {
+  // Parse [1], [2], etc. and replace with citation pills
+  const parts = answer.split(/(\[\d+\])/g);
+
+  return (
+    <div className="prose prose-invert lg:prose-base prose-sm">
+      {parts.map((part, index) => {
+        const match = part.match(/^\[(\d+)\]$/);
+        if (match) {
+          const citationNumber = parseInt(match[1], 10);
+          const citation = citations?.[citationNumber - 1]; // Array is 0-indexed
+          return <CitationPill key={index} number={citationNumber} citation={citation} />;
+        }
+        // Render markdown for non-citation parts
+        return <Markdown key={index}>{part}</Markdown>;
+      })}
+    </div>
+  );
+};
 
 const SystemMessage = ({
   message,
@@ -66,7 +153,10 @@ const SystemMessage = ({
     );
   }
 
-  const { answer, followUps, resources } = parsed;
+  const { answer, followUps, resources, confidence, ambiguities, citations } = parsed;
+
+  // Use citations if available, otherwise fall back to resources
+  const displayResources = citations || resources;
 
   if (!answer) {
     console.error("no answer in JSON payload", message);
@@ -91,10 +181,26 @@ const SystemMessage = ({
   }
 
   return (
-    <div className="flex flex-col">
-      <div className="prose prose-invert lg:prose-base prose-sm">
-        <Markdown>{answer}</Markdown>
-      </div>
+    <TooltipProvider>
+      <div className="flex flex-col">
+        <AnswerWithCitations answer={answer} citations={citations} />
+      {confidence && confidence !== 'high' && (
+        <div className="mt-3 text-sm text-yellow-400 bg-yellow-950/30 border border-yellow-900/50 rounded p-2">
+          ⚠️ Confidence: {confidence}
+        </div>
+      )}
+      {!!ambiguities?.length && (
+        <div className="mt-3 flex flex-col gap-2 text-sm">
+          <h4 className="text-xs font-bold uppercase tracking-tight text-yellow-400">
+            ⚠️ Ambiguities
+          </h4>
+          <ul className="list-disc list-inside text-yellow-200/80 space-y-1">
+            {ambiguities.map((amb, index) => (
+              <li key={index}>{amb}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {!!attachments.length && (
         <div className="mt-4 flex flex-col gap-2 text-sm">
           <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground inline-flex items-center gap-1.5">
@@ -121,24 +227,58 @@ const SystemMessage = ({
           </div>
         </div>
       )}
-      {!!resources?.length && (
+      {!!displayResources?.length && (
         <div className="mt-4 flex flex-col gap-2 text-sm flex-wrap">
           <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground inline-flex items-center gap-1.5">
             <ExternalLink className="w-3 h-3" />
-            Resources
+            {citations ? 'Citations' : 'Resources'}
           </h4>
-          <div className="flex flex-row gap-2 text-xs flex-wrap">
-            {resources.map((resource) => (
-              <Button
-                key={resource.id}
-                variant="secondary"
-                size="sm"
-                className="whitespace-normal h-auto py-2"
-                onClick={() => onResourceClick(resource.id)}
-              >
-                {resource.name}
-              </Button>
-            ))}
+          <div className="flex flex-col gap-2 text-xs">
+            {displayResources.map((resource: any, index) => {
+              const isCitation = 'resourceId' in resource;
+              const id = isCitation ? resource.resourceId : resource.id;
+              const name = isCitation ? resource.resourceName : resource.name;
+
+              // Format citation details
+              let details = '';
+              if (isCitation) {
+                if (resource.pageNumber) {
+                  details = ` (page ${resource.pageNumber})`;
+                } else if (resource.pageRange) {
+                  details = ` (pages ${resource.pageRange[0]}-${resource.pageRange[1]})`;
+                }
+                if (resource.section) {
+                  details += ` - ${resource.section}`;
+                }
+              }
+
+              return (
+                <div
+                  key={`${id}-${index}`}
+                  id={`cite-${index + 1}`}
+                  className="flex flex-row gap-2 items-start scroll-mt-4"
+                >
+                  <span className="inline-flex items-center justify-center bg-blue-600 text-white text-xs font-medium px-1.5 py-0.5 rounded min-w-[1.5rem] h-5">
+                    {index + 1}
+                  </span>
+                  <div className="flex flex-col gap-1 flex-1">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="whitespace-normal h-auto py-2 text-left justify-start w-full"
+                      onClick={() => onResourceClick(id)}
+                    >
+                      {name}{details}
+                    </Button>
+                    {isCitation && resource.quote && (
+                      <p className="text-muted-foreground italic pl-3 border-l-2 border-muted text-xs">
+                        "{resource.quote}"
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -149,22 +289,30 @@ const SystemMessage = ({
             Follow Ups
           </h4>
           <ul className="flex flex-col gap-2 text-sm flex-wrap">
-            {followUps.map((followUp) => (
-              <li key={followUp}>
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="whitespace-normal text-left py-2 block h-auto"
-                  onClick={() => onFollowUp(followUp)}
-                >
-                  {followUp}
-                </Button>
-              </li>
-            ))}
+            {followUps.map((followUp, index) => {
+              // Handle both string format and structured object format
+              const question = typeof followUp === 'string' ? followUp : followUp.question;
+              const category = typeof followUp === 'object' && followUp.category ? followUp.category : null;
+
+              return (
+                <li key={`${question}-${index}`}>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="whitespace-normal text-left py-2 block h-auto"
+                    onClick={() => onFollowUp(question)}
+                  >
+                    {category && <span className="text-xs opacity-70">[{category}] </span>}
+                    {question}
+                  </Button>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
-    </div>
+      </div>
+    </TooltipProvider>
   );
 };
 
