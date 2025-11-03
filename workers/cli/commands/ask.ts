@@ -59,6 +59,31 @@ export async function askCommand() {
   let firstByteTime = 0;
   let streamEndTime = 0;
 
+  // Tool call tracking for Claude Code-style display
+  const toolCallData = new Map<string, { name: string; args: any; startTime: number }>();
+
+  // Helper: Extract primary description from tool arguments
+  function getToolDescription(toolName: string, args: any): string {
+    switch (toolName) {
+      case 'search_resources':
+      case 'search_media':
+        return args?.query ? `"${args.query}"` : '';
+      case 'get_attachment':
+        return args?.attachmentId ? `(${args.attachmentId.slice(0, 8)})` : '';
+      case 'list_resources':
+        return '';
+      default:
+        return '';
+    }
+  }
+
+  // Helper: Extract summary from tool result (not available in SSE, would need tool output)
+  function getToolSummary(toolName: string, result: any): string {
+    // Note: We don't have access to tool results in SSE events currently
+    // This would need to be added to the chat-handler if we want result summaries
+    return '';
+  }
+
   try {
     fetchStartTime = Date.now();
     const response = await fetch(url, {
@@ -104,28 +129,37 @@ export async function askCommand() {
           console.log(`[DEBUG] Event ${eventCount}:`, event.type, event.data.textDelta ? `(${event.data.textDelta.length} chars)` : '');
         }
 
-        // Show progress for tool calls
+        const currentTime = Date.now();
+
+        // Show progress for tool calls - Claude Code style
         if (event.type === 'tool-call-start') {
-          if (showVerbose) {
-            // Verbose: show args
-            const argsStr = event.data.args ? JSON.stringify(event.data.args) : '';
-            console.log(`  🔧 ${event.data.toolName}(${argsStr})`);
-          } else {
-            // Default: simple progress
-            console.log(`  🔧 Calling tool: ${event.data.toolName}...`);
-          }
+          // Store tool call data
+          toolCallData.set(event.data.toolCallId, {
+            name: event.data.toolName,
+            args: event.data.args,
+            startTime: currentTime,
+          });
+
+          // Display tool start - Claude Code style
+          const description = getToolDescription(event.data.toolName, event.data.args);
+          console.log(`● ${event.data.toolName}${description ? `(${description})` : ''}`);
         }
 
         if (event.type === 'tool-call-end') {
-          if (showVerbose) {
-            // Verbose: show timing and args
-            const duration = event.data.durationMs || 0;
-            const argsStr = event.data.args ? JSON.stringify(event.data.args) : '';
-            console.log(`  ✓ ${event.data.toolName}(${argsStr}) → ${duration}ms`);
+          // Get stored tool data
+          const toolData = toolCallData.get(event.data.toolCallId);
+          const duration = event.data.durationMs || 0;
+          const summary = getToolSummary(event.data.toolName, null); // No result data available
+
+          // Display tool completion - Claude Code style
+          if (summary) {
+            console.log(`  ⎿  ${duration}ms - ${summary}\n`);
           } else {
-            // Default: simple completion
-            console.log(`  ✓ Tool completed: ${event.data.toolName}`);
+            console.log(`  ⎿  ${duration}ms\n`);
           }
+
+          // Cleanup
+          toolCallData.delete(event.data.toolCallId);
         }
       }
     );
@@ -156,55 +190,9 @@ export async function askCommand() {
         return;
       }
 
-      // Display answer from JSON
+      // Display answer from JSON - clean, no extras
       console.log(structuredOutput.answer || answerText.trim());
       console.log('');
-
-      // Display confidence if low or medium
-      if (structuredOutput.confidence && structuredOutput.confidence !== 'high') {
-        console.log(`⚠️  Confidence: ${structuredOutput.confidence}`);
-        console.log('');
-      }
-
-      // Display ambiguities
-      if (structuredOutput.ambiguities && structuredOutput.ambiguities.length > 0) {
-        console.log('⚠️  Ambiguities:');
-        structuredOutput.ambiguities.forEach((amb: string) => {
-          console.log(`  - ${amb}`);
-        });
-        console.log('');
-      }
-
-      // Display citations
-      if (structuredOutput.citations && structuredOutput.citations.length > 0) {
-        console.log('Sources:');
-        structuredOutput.citations.forEach((citation: any) => {
-          const pageInfo = citation.pageNumber
-            ? ` (page ${citation.pageNumber})`
-            : citation.pageRange
-              ? ` (pages ${citation.pageRange[0]}-${citation.pageRange[1]})`
-              : '';
-          const section = citation.section ? ` - ${citation.section}` : '';
-          console.log(`  • ${citation.resourceName}${pageInfo}${section}`);
-
-          if (citation.quote) {
-            console.log(`    "${citation.quote}"`);
-          }
-        });
-        console.log('');
-      }
-
-      // Display follow-ups
-      if (structuredOutput.followUps && structuredOutput.followUps.length > 0) {
-        console.log('Follow-up questions:');
-        structuredOutput.followUps.forEach((followUp: any) => {
-          // Handle both simple strings and structured objects
-          const question = typeof followUp === 'string' ? followUp : followUp.question;
-          const category = typeof followUp === 'object' && followUp.category ? `[${followUp.category}]` : '';
-          console.log(`  ${category}${category ? ' ' : ''}${question}`);
-        });
-        console.log('');
-      }
 
       // Display timing and metrics if --verbose flag is set
       if (showVerbose) {

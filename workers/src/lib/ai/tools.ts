@@ -85,15 +85,16 @@ export function getAgentTools(
   openaiApiKey: string,
   baseUrl: string,
   environment?: string,
-  onToolComplete?: (metrics: ToolMetrics) => void
+  onToolComplete?: (metrics: ToolMetrics) => void,
+  enableFullTextSearch?: boolean
 ) {
   return [
     tool({
       name: "search_resources",
       description:
-        "Search rulebook text for rules, setup instructions, gameplay mechanics, clarifications, and game information. Returns text chunks with page numbers and sections. Use this for most questions about rules and gameplay.",
+        "Search the rulebook for relevant content. Returns text chunks with page numbers and section context.",
       parameters: z.object({
-        query: z.string().describe("What to search for"),
+        query: z.string().describe("Natural language search query. Use the user's question directly or rephrase it clearly (e.g., 'how do docks work' or 'dock mechanics and rules'). DO NOT keyword stuff."),
         resourceType: z
           .enum(["all", "rulebook", "expansion", "faq", "errata"])
           .default("all")
@@ -117,6 +118,7 @@ export function getAgentTools(
               limit,
               environment,
               enableReranking: false, // Temporarily disabled - gpt-5-mini API errors
+              enableFullTextSearch, // Pass through FTS toggle
             }),
             TOOL_TIMEOUT_MS,
             "search_resources"
@@ -154,11 +156,11 @@ export function getAgentTools(
     }),
 
     tool({
-      name: "listResources",
+      name: "list_resources",
       description: "List the resources available to you with their statistics",
       parameters: z.object({}),
       execute: withPerformanceTracking(
-        "listResources",
+        "list_resources",
         async () =>
           withTimeout(
             (async () => {
@@ -181,14 +183,14 @@ export function getAgentTools(
               }));
             })(),
             TOOL_TIMEOUT_MS,
-            "listResources"
+            "list_resources"
           ),
         onToolComplete
       ),
     }),
 
     tool({
-      name: "getAttachment",
+      name: "get_attachment",
       description:
         "Retrieve an attachment (image, diagram, etc.) by its ID to include in your response. Use this when you find attachment:// references in the knowledge base content.",
       parameters: z.object({
@@ -197,7 +199,7 @@ export function getAgentTools(
           .describe("The attachment ID from attachment:// URL"),
       }),
       execute: withPerformanceTracking(
-        "getAttachment",
+        "get_attachment",
         async ({ attachmentId }) =>
           withTimeout(
             (async () => {
@@ -235,33 +237,7 @@ export function getAgentTools(
               }
             })(),
             TOOL_TIMEOUT_MS,
-            "getAttachment"
-          ),
-        onToolComplete
-      ),
-    }),
-    tool({
-      name: "share_thinking",
-      description:
-        "Share your reasoning process with the user. Use this to explain what you're analyzing, what approach you're taking, or any important considerations before executing tools. This helps users understand your thought process and builds trust.",
-      parameters: z.object({
-        thought: z.string().describe("Your current thinking, reasoning, or analysis"),
-      }),
-      execute: withPerformanceTracking(
-        "share_thinking",
-        async ({ thought }: { thought: string }) =>
-          withTimeout(
-            (async () => {
-              // This tool simply returns the thinking text
-              // The chat handler will emit it as a thinking event
-              return {
-                success: true,
-                thought,
-                timestamp: Date.now(),
-              };
-            })(),
-            TOOL_TIMEOUT_MS,
-            "share_thinking"
+            "get_attachment"
           ),
         onToolComplete
       ),

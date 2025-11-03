@@ -90,6 +90,14 @@ export async function streamChatResponse(
   // Map to track tool call start times and metrics
   const toolCallMetrics = new Map<string, { startTime: number; name: string; args?: any }>();
 
+  // Track token usage for current step
+  const currentStepTokenUsage = {
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    reasoningTokens: 0,
+  };
+
   // Callback passed to tools for performance tracking
   const onToolComplete = (toolMetrics: ToolMetrics) => {
     currentStepToolMetrics.push(toolMetrics);
@@ -103,7 +111,8 @@ export async function streamChatResponse(
     env.OPENAI_API_KEY,
     baseUrl,
     env.ENVIRONMENT,
-    onToolComplete
+    onToolComplete,
+    env.ENABLE_FULL_TEXT_SEARCH !== 'false' // Default to true unless explicitly set to 'false'
   );
 
   // Use configured chat model or default to gpt-5
@@ -118,14 +127,20 @@ export async function streamChatResponse(
   }
 
   // Create agent with instructions and tools
+  // Enable reasoning summaries to expose model's thought process
   const agent = new Agent({
     name: 'GameGame Assistant',
     instructions: buildPrompt(game),
     tools,
     outputType: AnswerSchema,
     model: chatModel,
-    modelConfig: {
-      reasoning_effort: 'low', // Reduce reasoning tokens for faster responses
+    modelSettings: {
+      providerData: {
+        reasoning: {
+          effort: 'minimal', // Minimal reasoning effort for faster responses
+          summary: 'auto',   // Enable reasoning summaries
+        },
+      },
     },
     // Note: maxTurns is set via run() options, not Agent config
   });
@@ -173,6 +188,11 @@ export async function streamChatResponse(
 
         // Iterate over stream events
         for await (const event of result) {
+          // Debug: log all event types to understand SDK event structure
+          if (env.CHAT_DEBUG_VERBOSE === 'true') {
+            console.log(`[Event Debug] type: ${event.type}, name: ${(event as any).name || 'N/A'}`);
+          }
+
           // Map OpenAI Agents SDK events to our SSE format
           if (event.type === 'run_item_stream_event') {
             // RunItemStreamEvent has a 'name' property with the actual event type
@@ -184,12 +204,15 @@ export async function streamChatResponse(
                 const toolCallId = itemEvent.item?.id;
                 const toolArgs = itemEvent.item?.rawItem?.arguments || itemEvent.item?.arguments;
 
-                // Track tool call start
+                // Track tool call start time
+                const startTime = Date.now();
                 toolCallMetrics.set(toolCallId, {
-                  startTime: Date.now(),
+                  startTime,
                   name: toolName,
                   args: toolArgs ? JSON.parse(toolArgs) : undefined,
                 });
+
+                console.log(`[DURATION DEBUG] tool_called: ${toolName} (${toolCallId}) at ${startTime}`);
 
                 sendSSE({
                   type: 'tool-call-start',
@@ -203,15 +226,25 @@ export async function streamChatResponse(
                 const outputToolName = itemEvent.item?.rawItem?.name || itemEvent.item?.name;
                 const outputToolCallId = itemEvent.item?.id;
 
-                // Calculate duration
+                // Calculate duration from SSE event timing (wall-clock time from start to end)
                 const callData = toolCallMetrics.get(outputToolCallId);
-                const durationMs = callData ? Date.now() - callData.startTime : 0;
+
+                if (!callData) {
+                  console.warn(`[Agent] tool_output received for ${outputToolName} (${outputToolCallId}) without matching tool_called event`);
+                } else if (callData.name !== outputToolName) {
+                  console.warn(`[Agent] tool_output name mismatch: expected ${callData.name}, got ${outputToolName} for ID ${outputToolCallId}`);
+                }
+
+                const endTime = Date.now();
+                const durationMs = callData ? endTime - callData.startTime : undefined;
+
+                console.log(`[DURATION DEBUG] tool_output: ${outputToolName} (${outputToolCallId}) at ${endTime}, startTime: ${callData?.startTime}, duration: ${durationMs ?? 'unknown'}ms`);
 
                 sendSSE({
                   type: 'tool-call-end',
                   toolName: outputToolName,
                   toolCallId: outputToolCallId,
-                  durationMs,
+                  ...(durationMs !== undefined && { durationMs }), // Only include if we have timing data
                   args: callData?.args,
                 });
 
@@ -220,10 +253,32 @@ export async function streamChatResponse(
                 break;
 
               case 'reasoning_item_created':
-                // LLM is thinking - send a thinking event
+                // LLM is thinking - extract reasoning summary if available
+                const reasoningItem = itemEvent.item;
+
+                // Debug: log the full event structure to see what's available
+                if (env.CHAT_DEBUG_VERBOSE === 'true') {
+                  console.log('[Reasoning Event]', JSON.stringify(reasoningItem, null, 2));
+                }
+
+                // Extract reasoning summary text from the item
+                // Structure: reasoningItem.summary[0].text
+                let reasoningSummary = null;
+                if (reasoningItem?.summary && Array.isArray(reasoningItem.summary) && reasoningItem.summary.length > 0) {
+                  reasoningSummary = reasoningItem.summary[0].text;
+                } else if (reasoningItem?.content) {
+                  // Fallback to content field
+                  reasoningSummary = reasoningItem.content;
+                } else if (reasoningItem?.text) {
+                  // Fallback to text field
+                  reasoningSummary = reasoningItem.text;
+                }
+
+                // Send thinking event with reasoning summary
                 sendSSE({
                   type: 'thinking',
                   timestamp: Date.now(),
+                  ...(reasoningSummary && { content: reasoningSummary }),
                 });
                 break;
             }
@@ -235,20 +290,29 @@ export async function streamChatResponse(
             if (rawEvent.data?.type === 'response_done' && rawEvent.data?.response?.usage) {
               const usage = rawEvent.data.response.usage;
 
+              // Add to total metrics
               performanceMetrics.totalTokens.prompt += usage.inputTokens || 0;
               performanceMetrics.totalTokens.completion += usage.outputTokens || 0;
               performanceMetrics.totalTokens.total += usage.totalTokens || 0;
 
+              // Add to current step metrics
+              currentStepTokenUsage.promptTokens += usage.inputTokens || 0;
+              currentStepTokenUsage.completionTokens += usage.outputTokens || 0;
+              currentStepTokenUsage.totalTokens += usage.totalTokens || 0;
+
               // Capture reasoning tokens if available
               if (usage.outputTokensDetails?.reasoning_tokens) {
+                const reasoningTokens = usage.outputTokensDetails.reasoning_tokens;
                 performanceMetrics.totalTokens.reasoning =
-                  (performanceMetrics.totalTokens.reasoning || 0) + usage.outputTokensDetails.reasoning_tokens;
+                  (performanceMetrics.totalTokens.reasoning || 0) + reasoningTokens;
+                currentStepTokenUsage.reasoningTokens += reasoningTokens;
               }
             }
           }
 
           // Track step completion for performance metrics
-          if ((event as any).name === 'step_completed') {
+          // Add defensive type checking for SDK event structure
+          if (event && typeof event === 'object' && 'name' in event && (event as any).name === 'step_completed') {
             currentStep++;
             const stepEndTime = Date.now();
             const stepMetrics: StepMetrics = {
@@ -257,14 +321,21 @@ export async function streamChatResponse(
               stepDurationMs: stepEndTime - lastStepTime,
               finishReason: 'completed',
               tokenUsage: {
-                promptTokens: 0,
-                completionTokens: 0,
-                totalTokens: 0,
+                promptTokens: currentStepTokenUsage.promptTokens,
+                completionTokens: currentStepTokenUsage.completionTokens,
+                totalTokens: currentStepTokenUsage.totalTokens,
+                ...(currentStepTokenUsage.reasoningTokens > 0 && { reasoningTokens: currentStepTokenUsage.reasoningTokens }),
               },
               toolCalls: [...currentStepToolMetrics],
             };
             performanceMetrics.steps.push(stepMetrics);
+
+            // Reset current step tracking
             currentStepToolMetrics.length = 0;
+            currentStepTokenUsage.promptTokens = 0;
+            currentStepTokenUsage.completionTokens = 0;
+            currentStepTokenUsage.totalTokens = 0;
+            currentStepTokenUsage.reasoningTokens = 0;
             lastStepTime = stepEndTime;
           }
         }
@@ -298,6 +369,9 @@ export async function streamChatResponse(
         // Send done signal
         sendSSE('[DONE]');
 
+        // Clean up tool call tracking map
+        toolCallMetrics.clear();
+
         controller.close();
 
         // Log debug information
@@ -315,6 +389,8 @@ export async function streamChatResponse(
           type: 'error',
           error: error instanceof Error ? error.message : String(error),
         });
+        // Clean up tool call tracking map on error
+        toolCallMetrics.clear();
         controller.close();
       }
     },

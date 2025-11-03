@@ -1,22 +1,27 @@
 import { useState, useCallback, useRef } from 'react';
 
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: number;
-  // For assistant messages: associated tool calls
-  toolCalls?: ToolCall[];
-}
-
-export interface ToolCall {
-  id: string;
-  name: string;
-  args?: any;
-  startTime: number;
-  endTime?: number;
-  durationMs?: number;
-}
+export type ChatMessage =
+  | {
+      id: string;
+      type: 'user';
+      content: string;
+      timestamp: number;
+    }
+  | {
+      id: string;
+      type: 'tool-call';
+      name: string;
+      args?: any;
+      timestamp: number;
+      status: 'running' | 'completed';
+      durationMs?: number;
+    }
+  | {
+      id: string;
+      type: 'assistant';
+      content: string;
+      timestamp: number;
+    };
 
 export interface ChatMetadata {
   performance?: any;
@@ -34,8 +39,6 @@ export interface UseAgentChatOptions {
 
 export interface UseAgentChatReturn {
   messages: ChatMessage[];
-  toolCalls: ToolCall[];
-  activeToolCalls: ToolCall[];
   isThinking: boolean;
   metadata: ChatMetadata | null;
   status: ChatStatus;
@@ -50,8 +53,6 @@ export interface UseAgentChatReturn {
  */
 export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
-  const [activeToolCalls, setActiveToolCalls] = useState<ToolCall[]>([]);
   const [isThinking, setIsThinking] = useState(false);
   const [metadata, setMetadata] = useState<ChatMetadata | null>(null);
   const [status, setStatus] = useState<ChatStatus>('idle');
@@ -67,7 +68,7 @@ export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentCha
       // Add user message
       const userMessage: ChatMessage = {
         id: `user-${Date.now()}`,
-        role: 'user',
+        type: 'user',
         content: text,
         timestamp: Date.now(),
       };
@@ -75,8 +76,6 @@ export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentCha
       setMessages((prev) => [...prev, userMessage]);
       setStatus('loading');
       setError(null);
-      setToolCalls([]);
-      setActiveToolCalls([]);
 
       // Create abort controller for this request
       const abortController = new AbortController();
@@ -117,12 +116,9 @@ export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentCha
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let assistantText = '';
-        const currentToolCalls = new Map<string, ToolCall>();
-        // Track tool calls for this turn to attach to assistant message
-        const currentTurnToolCalls: ToolCall[] = [];
+        let streamComplete = false;
 
-        while (true) {
+        while (!streamComplete) {
           const { done, value } = await reader.read();
 
           if (done) {
@@ -144,7 +140,8 @@ export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentCha
             const data = line.slice(6); // Remove 'data: ' prefix
 
             if (data === '[DONE]') {
-              // Stream complete
+              // Stream complete - break out of both loops
+              streamComplete = true;
               break;
             }
 
@@ -154,29 +151,29 @@ export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentCha
               switch (event.type) {
                 case 'tool-call-start':
                   {
-                    const toolCall: ToolCall = {
+                    // Append tool-call message in 'running' state
+                    const toolCallMessage: ChatMessage = {
                       id: event.toolCallId,
+                      type: 'tool-call',
                       name: event.toolName,
                       args: event.args,
-                      startTime: Date.now(),
+                      timestamp: Date.now(),
+                      status: 'running',
                     };
-                    currentToolCalls.set(event.toolCallId, toolCall);
-                    setActiveToolCalls(Array.from(currentToolCalls.values()));
+                    setMessages((prev) => [...prev, toolCallMessage]);
                   }
                   break;
 
                 case 'tool-call-end':
                   {
-                    const toolCall = currentToolCalls.get(event.toolCallId);
-                    if (toolCall) {
-                      toolCall.endTime = Date.now();
-                      toolCall.durationMs = event.durationMs;
-                      currentToolCalls.delete(event.toolCallId);
-                      // Save to current turn for this assistant message
-                      currentTurnToolCalls.push(toolCall);
-                      setToolCalls((prev) => [...prev, toolCall]);
-                      setActiveToolCalls(Array.from(currentToolCalls.values()));
-                    }
+                    // Update existing tool-call message to 'completed' with duration
+                    setMessages((prev) =>
+                      prev.map((msg) =>
+                        msg.type === 'tool-call' && msg.id === event.toolCallId
+                          ? { ...msg, status: 'completed' as const, durationMs: event.durationMs }
+                          : msg
+                      )
+                    );
                     // Clear thinking state when a tool completes
                     setIsThinking(false);
                   }
@@ -188,23 +185,52 @@ export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentCha
                   break;
 
                 case 'text-delta':
+                  // Agent is generating response, not thinking anymore
+                  setIsThinking(false);
                   if (event.textDelta) {
-                    assistantText += event.textDelta;
+                    // Append to or create assistant message
+                    setMessages((prev) => {
+                      const lastMsg = prev[prev.length - 1];
+                      if (lastMsg?.type === 'assistant') {
+                        // Append to existing assistant message
+                        return [
+                          ...prev.slice(0, -1),
+                          {
+                            ...lastMsg,
+                            content: lastMsg.content + event.textDelta,
+                          },
+                        ];
+                      }
+                      // Create new assistant message
+                      return [
+                        ...prev,
+                        {
+                          id: `assistant-${Date.now()}`,
+                          type: 'assistant',
+                          content: event.textDelta,
+                          timestamp: Date.now(),
+                        },
+                      ];
+                    });
                   }
                   break;
 
                 case 'finish':
+                  // Agent is done - clear thinking state
+                  setIsThinking(false);
                   if (event.messageMetadata) {
                     setMetadata(event.messageMetadata);
                   }
                   break;
 
                 case 'error':
+                  // Clear thinking on error
+                  setIsThinking(false);
                   throw new Error(event.error || 'Unknown error occurred');
               }
             } catch (err) {
-              // Skip invalid JSON lines
-              if (err instanceof Error && !err.message.startsWith('Request failed')) {
+              // Skip invalid JSON lines, but rethrow actual errors from event handling
+              if (err instanceof SyntaxError) {
                 console.warn('Failed to parse SSE event:', line, err);
               } else {
                 throw err;
@@ -213,23 +239,8 @@ export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentCha
           }
         }
 
-        // Add assistant message with the collected text
-        if (assistantText) {
-          const assistantMessage: ChatMessage = {
-            id: `assistant-${Date.now()}`,
-            role: 'assistant',
-            content: assistantText,
-            timestamp: Date.now(),
-            // Attach tool calls from this turn
-            toolCalls: currentTurnToolCalls.length > 0 ? currentTurnToolCalls : undefined,
-          };
-          setMessages((prev) => [...prev, assistantMessage]);
-        }
-
         // Clear state for next turn
         setStatus('idle');
-        setActiveToolCalls([]);
-        setToolCalls([]);
       } catch (err) {
         if (err instanceof Error) {
           // Ignore abort errors
@@ -243,6 +254,17 @@ export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentCha
           onError?.(err);
         }
       } finally {
+        // Clean up: mark any still-running tool calls as completed
+        // This prevents spinners from showing forever if stream ends unexpectedly
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.type === 'tool-call' && msg.status === 'running'
+              ? { ...msg, status: 'completed' as const }
+              : msg
+          )
+        );
+        // Clear thinking state to prevent stuck indicator
+        setIsThinking(false);
         abortControllerRef.current = null;
       }
     },
@@ -251,8 +273,6 @@ export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentCha
 
   return {
     messages,
-    toolCalls,
-    activeToolCalls,
     isThinking,
     metadata,
     status,

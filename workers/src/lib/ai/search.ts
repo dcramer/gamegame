@@ -263,6 +263,7 @@ export async function findRelevantContent(
     resourceType?: string;            // Filter by resource type
     environment?: string;              // Environment for model selection
     enableReranking?: boolean;         // Enable cross-encoder reranking (default: true)
+    enableFullTextSearch?: boolean;    // Enable FTS component of hybrid search (default: true)
   } = {}
 ): Promise<SearchResult[]> {
   const startTime = Date.now();
@@ -275,16 +276,18 @@ export async function findRelevantContent(
     return [];
   }
 
-  console.log(`[Search] Starting search for "${userQuery.slice(0, 50)}..." (limit=${limit}, enableReranking=${options.enableReranking ?? true})`);
+  const enableFTS = options.enableFullTextSearch ?? true;
+  console.log(`[Search] Starting search for "${userQuery.slice(0, 50)}..." (limit=${limit}, enableReranking=${options.enableReranking ?? true}, enableFTS=${enableFTS})`);
 
   // Step 1: Generate embedding for user query
   const embeddingStart = Date.now();
   const [queryEmbedding] = await generateEmbedding(userQuery, openaiApiKey);
   console.log(`[Search] Embedding generated in ${Date.now() - embeddingStart}ms`);
 
-  // Step 2: Execute 3 searches in parallel with graceful degradation
+  // Step 2: Execute searches in parallel with graceful degradation
   const searchStart = Date.now();
-  const [contentResults, questionResults, ftsResults] = await Promise.allSettled([
+
+  const searches = [
     // A. Content vector search (search fragment content)
     searchVectorize(vectorIndex, queryEmbedding, gameId, {
       limit: candidateCount,
@@ -297,28 +300,39 @@ export async function findRelevantContent(
       limit: Math.floor(candidateCount / 2), // Fewer questions
       type: 'question',
     }),
+  ];
 
-    // C. Full-text search via D1 FTS5
-    db
-      .prepare(`
-        SELECT
-          fts.id,
-          fts.rank
-        FROM fragments_fts fts
-        JOIN fragments f ON f.id = fts.id
-        WHERE fts.content MATCH ? AND f.game_id = ?
-        ${options.fragmentType ? `AND f.type = ?` : ''}
-        ORDER BY fts.rank
-        LIMIT ?
-      `)
-      .bind(
-        prepareSearchQuery(userQuery),
-        gameId,
-        ...(options.fragmentType ? [options.fragmentType] : []),
-        candidateCount
-      )
-      .all<{ id: string; rank: number }>()
-  ]);
+  // C. Full-text search via D1 FTS5 (optional)
+  if (enableFTS) {
+    searches.push(
+      db
+        .prepare(`
+          SELECT
+            fts.id,
+            fts.rank
+          FROM fragments_fts fts
+          JOIN fragments f ON f.id = fts.id
+          WHERE fts.content MATCH ? AND f.game_id = ?
+          ${options.fragmentType ? `AND f.type = ?` : ''}
+          ORDER BY fts.rank
+          LIMIT ?
+        `)
+        .bind(
+          prepareSearchQuery(userQuery),
+          gameId,
+          ...(options.fragmentType ? [options.fragmentType] : []),
+          candidateCount
+        )
+        .all<{ id: string; rank: number }>()
+    );
+  }
+
+  const results = await Promise.allSettled(searches);
+  const [contentResults, questionResults, ftsResults] = [
+    results[0],
+    results[1],
+    enableFTS ? results[2] : { status: 'fulfilled' as const, value: { results: [] } }
+  ];
 
   console.log(`[Search] Parallel searches completed in ${Date.now() - searchStart}ms`);
 

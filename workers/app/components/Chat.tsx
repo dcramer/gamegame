@@ -19,7 +19,7 @@ import {
   Brain,
 } from 'lucide-react';
 import { apiClient } from '../../load-context';
-import { useAgentChat, type ChatMessage, type ToolCall, type ThinkingMessage } from '../hooks/useAgentChat';
+import { useAgentChat, type ChatMessage } from '../hooks/useAgentChat';
 
 interface ParsedMessage {
   answer?: string;
@@ -66,16 +66,9 @@ const CitationLink = ({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <a
-          href={`#cite-${number}`}
-          className="text-blue-400 hover:text-blue-300 no-underline hover:underline transition-colors cursor-pointer"
-          onClick={(e) => {
-            e.preventDefault();
-            document.getElementById(`cite-${number}`)?.scrollIntoView({ behavior: 'smooth' });
-          }}
-        >
+        <sup className="text-blue-400 font-bold cursor-help">
           [{number}]
-        </a>
+        </sup>
       </TooltipTrigger>
       {tooltipContent && (
         <TooltipContent side="top" className="max-w-xs">
@@ -132,22 +125,10 @@ const AnswerWithCitations = ({
   );
 };
 
-// Component to show tool call activity log (both active and completed)
-const ToolActivityLog = ({
-  completedToolCalls,
-  activeToolCalls,
-  isThinking
-}: {
-  completedToolCalls: ToolCall[];
-  activeToolCalls: ToolCall[];
-  isThinking: boolean;
-}) => {
-  // Combine all tool calls and sort chronologically
-  const allToolCalls = [...completedToolCalls, ...activeToolCalls].sort((a, b) => a.startTime - b.startTime);
-
-  const hasActivity = allToolCalls.length > 0 || isThinking;
-
-  if (!hasActivity) return null;
+// Component to render a single tool-call message
+const ToolCallMessage = ({ message }: { message: Extract<ChatMessage, { type: 'tool-call' }> }) => {
+  const isActive = message.status === 'running';
+  const duration = message.durationMs;
 
   const getToolIcon = (name: string, isActive: boolean) => {
     if (isActive) {
@@ -156,8 +137,8 @@ const ToolActivityLog = ({
     // Use lucide icons for tools
     if (name === 'search_resources') return <Search className="w-3 h-3" />;
     if (name === 'search_media') return <ImageIcon className="w-3 h-3" />;
-    if (name === 'listResources') return <FileText className="w-3 h-3" />;
-    if (name === 'getAttachment') return <ImageIcon className="w-3 h-3" />;
+    if (name === 'list_resources') return <FileText className="w-3 h-3" />;
+    if (name === 'get_attachment') return <ImageIcon className="w-3 h-3" />;
     // Generic completed icon
     return <span className="w-3 h-3 text-green-500">✓</span>;
   };
@@ -165,14 +146,12 @@ const ToolActivityLog = ({
   const getToolLabel = (name: string) => {
     if (name === 'search_resources') return 'Searching rulebook';
     if (name === 'search_media') return 'Searching for images';
-    if (name === 'listResources') return 'Checking available resources';
-    if (name === 'getAttachment') return 'Loading image';
+    if (name === 'list_resources') return 'Checking available resources';
+    if (name === 'get_attachment') return 'Loading image';
     return name;
   };
 
-  const getToolParams = (toolCall: ToolCall): string | null => {
-    const { name, args } = toolCall;
-
+  const getToolParams = (name: string, args?: any): string | null => {
     if (!args) return null;
 
     // Format search queries
@@ -181,77 +160,46 @@ const ToolActivityLog = ({
     }
 
     // Format attachment ID
-    if (name === 'getAttachment') {
+    if (name === 'get_attachment') {
       return args.attachmentId ? `#${args.attachmentId.slice(0, 8)}` : null;
     }
 
-    // No params for listResources
+    // No params for list_resources
     return null;
   };
 
+  // Regular tool rendering - with background and border
+  // Layout: [icon] [tool name --- duration]
+  //                [tool description]
+  const toolParams = getToolParams(message.name, message.args);
+
   return (
-    <div className="flex flex-col gap-3 text-xs mb-3">
-      {/* Show generic thinking indicator if no tool calls */}
-      {isThinking && allToolCalls.length === 0 && (
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <Brain className="w-3 h-3 animate-pulse" />
-          <span>Thinking...</span>
+    <div className="flex items-start gap-2 p-2 bg-muted/30 rounded border border-muted text-muted-foreground">
+      {/* First column: icon */}
+      <div className="shrink-0 mt-0.5">
+        {getToolIcon(message.name, isActive)}
+      </div>
+
+      {/* Second column: everything else */}
+      <div className="flex-1 flex flex-col gap-1">
+        {/* First line: tool name and duration */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs">{getToolLabel(message.name)}</span>
+          {duration && (
+            <span className="text-muted-foreground/50 text-xs ml-auto">
+              {duration}ms
+            </span>
+          )}
+          {isActive && !duration && <span className="text-muted-foreground/50 text-xs ml-auto">...</span>}
         </div>
-      )}
 
-      {/* Show all tool calls in chronological order */}
-      {allToolCalls.map((toolCall) => {
-        const isActive = !toolCall.endTime;
-        const duration = toolCall.durationMs || (toolCall.endTime ? toolCall.endTime - toolCall.startTime : null);
-
-        // Special rendering for share_thinking tool
-        if (toolCall.name === 'share_thinking') {
-          const thought = toolCall.args?.thought;
-          if (!thought) return null;
-
-          return (
-            <div
-              key={toolCall.id}
-              className="flex flex-col gap-1 p-2 bg-muted/30 rounded border border-muted text-muted-foreground"
-            >
-              <div className="flex items-center gap-1.5">
-                <Brain className="w-3 h-3 shrink-0" />
-                <span className="font-medium text-[10px] uppercase tracking-wide">Thinking</span>
-                {duration && (
-                  <span className="text-muted-foreground/50 text-[10px] ml-auto">
-                    {duration}ms
-                  </span>
-                )}
-              </div>
-              <p className="text-xs leading-relaxed">{thought}</p>
-            </div>
-          );
-        }
-
-        // Regular tool rendering
-        const toolParams = getToolParams(toolCall);
-
-        return (
-          <div
-            key={toolCall.id}
-            className={`flex items-center gap-2 py-0.5 ${isActive ? 'text-muted-foreground' : 'text-muted-foreground/70'}`}
-          >
-            {getToolIcon(toolCall.name, isActive)}
-            <span className="text-xs">{getToolLabel(toolCall.name)}</span>
-            {toolParams && (
-              <span className="text-muted-foreground/60 text-[10px]">
-                {toolParams}
-              </span>
-            )}
-            {duration && (
-              <span className="text-muted-foreground/50 text-[10px] ml-auto">
-                {duration}ms
-              </span>
-            )}
-            {isActive && !duration && <span className="text-muted-foreground/50 text-[10px] ml-auto">...</span>}
+        {/* Second line: tool params/description if present */}
+        {toolParams && (
+          <div className="text-muted-foreground/60 text-xs">
+            {toolParams}
           </div>
-        );
-      })}
+        )}
+      </div>
     </div>
   );
 };
@@ -262,7 +210,7 @@ const SystemMessage = ({
   onFollowUp,
   onResourceClick,
 }: {
-  message: ChatMessage;
+  message: Extract<ChatMessage, { type: 'assistant' }>;
   isCurrent: boolean;
   onFollowUp: (followUp: string) => void;
   onResourceClick: (resourceId: string) => void;
@@ -453,7 +401,7 @@ const SystemMessage = ({
   );
 };
 
-const UserMessage = ({ message }: { message: ChatMessage }) => {
+const UserMessage = ({ message }: { message: Extract<ChatMessage, { type: 'user' }> }) => {
   return (
     <div className="font-semibold rounded bg-muted text-muted-foreground self-end p-2 lg:p-3">
       <div className="prose prose-invert lg:prose-base prose-sm">
@@ -490,8 +438,6 @@ export function Chat({
 
   const {
     messages,
-    toolCalls,
-    activeToolCalls,
     isThinking,
     error,
     sendMessage,
@@ -572,44 +518,36 @@ export function Chat({
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto mb-4 gap-y-6 flex flex-col">
+        <div className="flex-1 overflow-y-auto mb-4 gap-y-4 flex flex-col">
           {visibleMessages.length > 0 ? (
             <>
-              {visibleMessages.map((m, index) => (
-                <div key={m.id} className="flex flex-col gap-0">
-                  {m.role === 'user' ? (
-                    <UserMessage message={m} />
-                  ) : (
-                    <>
-                      {/* Show tool activity BEFORE assistant response */}
-                      {m.toolCalls?.length && (
-                        <ToolActivityLog
-                          completedToolCalls={m.toolCalls}
-                          activeToolCalls={[]}
-                          isThinking={false}
-                        />
-                      )}
-                      <SystemMessage
-                        message={m}
-                        isCurrent={index === visibleMessages.length - 1}
-                        onFollowUp={(followUp) => {
-                          sendMessage(followUp);
-                        }}
-                        onResourceClick={openResource}
-                      />
-                    </>
-                  )}
-                </div>
-              ))}
+              {visibleMessages.map((m, index) => {
+                // Render based on message type
+                if (m.type === 'user') {
+                  return <UserMessage key={m.id} message={m} />;
+                } else if (m.type === 'tool-call') {
+                  return <ToolCallMessage key={m.id} message={m} />;
+                } else if (m.type === 'assistant') {
+                  return (
+                    <SystemMessage
+                      key={m.id}
+                      message={m}
+                      isCurrent={index === visibleMessages.length - 1}
+                      onFollowUp={(followUp) => {
+                        sendMessage(followUp);
+                      }}
+                      onResourceClick={openResource}
+                    />
+                  );
+                }
+                return null;
+              })}
 
-              {/* Show CURRENT streaming activity (only while loading) */}
-              {isLoading && (toolCalls.length > 0 || activeToolCalls.length > 0 || isThinking) && (
-                <div className="flex flex-col gap-2">
-                  <ToolActivityLog
-                    completedToolCalls={toolCalls}
-                    activeToolCalls={activeToolCalls}
-                    isThinking={isThinking}
-                  />
+              {/* Show generic thinking indicator while loading (if no active tool calls) */}
+              {isLoading && isThinking && (
+                <div className="flex items-center gap-2 text-muted-foreground text-xs">
+                  <Brain className="w-3 h-3 animate-pulse" />
+                  <span>Thinking...</span>
                 </div>
               )}
             </>
