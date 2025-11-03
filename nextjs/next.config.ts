@@ -1,0 +1,32 @@
+import type { NextConfig } from 'next';
+
+const nextConfig: NextConfig = {
+  experimental: {
+    ppr: true, // Partial prerendering
+    serverActions: {
+      bodySizeLimit: '10mb', // For file uploads
+    },
+  },
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**.vercel-storage.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.public.blob.vercel-storage.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'cf-geekdo-images.com', // BGG images
+      },
+    ],
+  },
+  // Enable React Compiler
+  compiler: {
+    removeConsole: process.env.NODE_ENV === 'production' ? { exclude: ['error', 'warn'] } : false,
+  },
+};
+
+export default nextConfig;
