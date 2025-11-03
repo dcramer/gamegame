@@ -111,8 +111,7 @@ export async function streamChatResponse(
     env.OPENAI_API_KEY,
     baseUrl,
     env.ENVIRONMENT,
-    onToolComplete,
-    env.ENABLE_FULL_TEXT_SEARCH !== 'false' // Default to true unless explicitly set to 'false'
+    onToolComplete
   );
 
   // Use configured chat model or default to gpt-5

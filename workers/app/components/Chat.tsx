@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import { Link } from 'react-router';
 import { Button } from './ui/button';
@@ -10,7 +10,6 @@ import { Spinner } from './ui/spinner';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import {
   Dices,
-  ExternalLink,
   ImageIcon,
   MessageCircle,
   MessageCircleQuestion,
@@ -18,7 +17,6 @@ import {
   FileText,
   Brain,
 } from 'lucide-react';
-import { apiClient } from '../../load-context';
 import { useAgentChat, type ChatMessage } from '../hooks/useAgentChat';
 
 interface ParsedMessage {
@@ -208,12 +206,10 @@ const SystemMessage = ({
   message,
   isCurrent,
   onFollowUp,
-  onResourceClick,
 }: {
   message: Extract<ChatMessage, { type: 'assistant' }>;
   isCurrent: boolean;
   onFollowUp: (followUp: string) => void;
-  onResourceClick: (resourceId: string) => void;
 }) => {
   const textContent = message.content;
 
@@ -238,10 +234,7 @@ const SystemMessage = ({
     );
   }
 
-  const { answer, followUps, resources, confidence, ambiguities, citations } = parsed;
-
-  // Use citations if available, otherwise fall back to resources
-  const displayResources = citations || resources;
+  const { answer, followUps, confidence, ambiguities, citations } = parsed;
 
   if (!answer) {
     console.error("no answer in JSON payload", message);
@@ -312,61 +305,6 @@ const SystemMessage = ({
           </div>
         </div>
       )}
-      {!!displayResources?.length && (
-        <div className="mt-4 flex flex-col gap-2 text-sm flex-wrap">
-          <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground inline-flex items-center gap-1.5">
-            <ExternalLink className="w-3 h-3" />
-            {citations ? 'Citations' : 'Resources'}
-          </h4>
-          <div className="flex flex-col gap-2 text-xs">
-            {displayResources.map((resource: any, index) => {
-              const isCitation = 'resourceId' in resource;
-              const id = isCitation ? resource.resourceId : resource.id;
-              const name = isCitation ? resource.resourceName : resource.name;
-
-              // Format citation details
-              let details = '';
-              if (isCitation) {
-                if (resource.pageNumber) {
-                  details = ` (page ${resource.pageNumber})`;
-                } else if (resource.pageRange) {
-                  details = ` (pages ${resource.pageRange[0]}-${resource.pageRange[1]})`;
-                }
-                if (resource.section) {
-                  details += ` - ${resource.section}`;
-                }
-              }
-
-              return (
-                <div
-                  key={`${id}-${index}`}
-                  id={`cite-${index + 1}`}
-                  className="flex flex-row gap-2 items-start scroll-mt-4"
-                >
-                  <span className="text-blue-400 text-sm font-medium shrink-0">
-                    [{index + 1}]
-                  </span>
-                  <div className="flex flex-col gap-1 flex-1">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="whitespace-normal h-auto py-2 text-left justify-start w-full"
-                      onClick={() => onResourceClick(id)}
-                    >
-                      {name}{details}
-                    </Button>
-                    {isCitation && resource.quote && (
-                      <p className="text-muted-foreground italic pl-3 border-l-2 border-muted text-xs">
-                        "{resource.quote}"
-                      </p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
       {isCurrent && !!followUps?.length && (
         <div className="mt-4 flex flex-col gap-2 text-sm flex-wrap">
           <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground inline-flex items-center gap-1.5">
@@ -433,8 +371,6 @@ export function Chat({
   setImageError: (error: boolean) => void;
 }) {
   const [input, setInput] = useState("");
-  const [resourceUrls, setResourceUrls] = useState<Record<string, string>>({});
-  const [resourceError, setResourceError] = useState<string | null>(null);
 
   const {
     messages,
@@ -465,37 +401,6 @@ export function Chat({
     }
   }, []);
 
-  const openResource = useCallback(
-    async (resourceId: string) => {
-      try {
-        let targetUrl = resourceUrls[resourceId];
-
-        if (!targetUrl) {
-          const response = await apiClient.fetch(`/resources/${resourceId}`);
-          if (!response.ok) {
-            throw new Error(`Failed to load resource: ${response.status}`);
-          }
-          const data = await response.json() as { url?: string };
-          if (!data?.url) {
-            throw new Error('Resource missing URL');
-          }
-          targetUrl = String(data.url);
-          setResourceUrls((prev) => ({ ...prev, [resourceId]: targetUrl }));
-        }
-
-        const resolvedUrl = targetUrl.startsWith('http')
-          ? targetUrl
-          : new URL(targetUrl, window.location.origin).toString();
-
-        window.open(resolvedUrl, '_blank', 'noopener');
-      } catch (error) {
-        console.error('Failed to open resource', error);
-        setResourceError('Unable to open the resource. Please try again later.');
-      }
-    },
-    [resourceUrls]
-  );
-
   return (
     <>
       <Card className="flex-1 flex absolute inset-0 max-w-full overflow-hidden w-full">
@@ -503,18 +408,6 @@ export function Chat({
         {error && (
           <div className="bg-destructive text-destructive-foreground font-bold p-2 lg:p-3 rounded mb-4">
             {error.message || 'An error occurred'}
-          </div>
-        )}
-        {resourceError && (
-          <div className="bg-destructive text-destructive-foreground font-bold p-2 lg:p-3 rounded mb-4 flex items-center justify-between">
-            <span>{resourceError}</span>
-            <button
-              onClick={() => setResourceError(null)}
-              className="hover:opacity-80 transition-opacity"
-              aria-label="Dismiss"
-            >
-              ✕
-            </button>
           </div>
         )}
 
@@ -536,7 +429,6 @@ export function Chat({
                       onFollowUp={(followUp) => {
                         sendMessage(followUp);
                       }}
-                      onResourceClick={openResource}
                     />
                   );
                 }

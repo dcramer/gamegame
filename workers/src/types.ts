@@ -33,9 +33,6 @@ export interface Env {
 
   // Debug flags (set to 'true' to enable)
   CHAT_DEBUG_VERBOSE?: string; // Log detailed tool call traces to stdout
-
-  // Search configuration
-  ENABLE_FULL_TEXT_SEARCH?: string; // Set to 'false' to disable full-text search (vector-only hybrid search)
 }
 
 export type ProcessingTaskType = 'INGEST' | 'VISION' | 'CLEANUP' | 'METADATA' | 'EMBED' | 'FINALIZE';
