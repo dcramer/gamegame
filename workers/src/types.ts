@@ -21,6 +21,7 @@ export interface Env {
   // Secrets
   OPENAI_API_KEY: string;
   MISTRAL_API_KEY: string;
+  BGG_API_KEY?: string; // Optional: BoardGameGeek API key for XML API access (required as of 2025)
   JWT_SECRET: string;
   RESEND_API_KEY?: string; // Optional: for sending emails via Resend
   SENTRY_DSN?: string; // Optional: Sentry DSN for error tracking and performance monitoring

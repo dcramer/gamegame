@@ -2,14 +2,13 @@ import { sign } from 'hono/jwt';
 import { loadDevVars } from '../utils';
 
 export async function loginUrlCommand() {
-  const args = process.argv.slice(3);
-  const email = args[0];
+  const email = process.argv[4];
 
   if (!email || email.startsWith('--')) {
-    console.error('Usage: pnpm cli login-url <email>');
+    console.error('Usage: pnpm cli users login-url <email>');
     console.error('');
     console.error('Examples:');
-    console.error('  pnpm cli login-url user@example.com');
+    console.error('  pnpm cli users login-url user@example.com');
     process.exit(1);
   }
 

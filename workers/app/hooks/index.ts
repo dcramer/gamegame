@@ -12,3 +12,6 @@ export { useInterval, usePolling } from './useInterval';
 export { useTimeout, useDebounce } from './useTimeout';
 
 export { useFlashNotifications } from './useFlashNotifications';
+
+export { useAgentChat } from './useAgentChat';
+export type { ChatMessage, ToolCall, ChatMetadata, ChatStatus, UseAgentChatOptions, UseAgentChatReturn } from './useAgentChat';

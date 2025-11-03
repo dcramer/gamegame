@@ -1,9 +1,10 @@
 import { useParams, useNavigate, useLoaderData, Outlet, useLocation } from 'react-router';
-import { RefreshCw, Trash2 } from 'lucide-react';
+import { RefreshCw, Trash2, MessageSquare } from 'lucide-react';
 import AdminLayout from '../components/AdminLayout';
 import { PageHeader } from '../components/PageHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { ActionButton } from '../components/ui/action-button';
+import { Button } from '../components/ui/button';
 import { useFlashNotifications } from '../hooks/useFlashNotifications';
 import {
   gameSchema,
@@ -175,7 +176,20 @@ export default function AdminGameLayout() {
           { label: 'Games', href: '/admin' },
           { label: game.name },
         ]}
-        title={game.name}
+        title={
+          <div className="flex items-center gap-3">
+            <span>{game.name}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(`/games/${game.slug}`)}
+              title="Open chat"
+              className="h-8 w-8 p-0"
+            >
+              <MessageSquare className="h-4 w-4" />
+            </Button>
+          </div>
+        }
         stats={resources.length > 0 ? `${resources.length} ${resources.length === 1 ? 'resource' : 'resources'}` : undefined}
       />
 

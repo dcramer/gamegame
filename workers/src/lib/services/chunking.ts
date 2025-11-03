@@ -7,8 +7,8 @@ import type {
 } from '../types/pdf';
 
 const splitter = RecursiveCharacterTextSplitter.fromLanguage('markdown', {
-  chunkSize: 1000,
-  chunkOverlap: 100,
+  chunkSize: 2500,  // Increased from 1000 for better section coherence
+  chunkOverlap: 200, // Increased from 100 (8% overlap maintained)
 });
 
 /**
@@ -70,7 +70,7 @@ async function chunkPage(
       return;
     }
 
-    if (trimmed.length < 1500) {
+    if (trimmed.length < 3000) {
       chunks.push({
         content: trimmed,
         pageNumber: page.pageNumber,
@@ -92,7 +92,7 @@ async function chunkPage(
   }
 
   // If the page content is small enough, keep it as one chunk
-  if (page.markdown.length < 1500 && pageSections.length <= 1) {
+  if (page.markdown.length < 3000 && pageSections.length <= 1) {
     const section = getCurrentSection(page, allSections);
     await addRange(0, page.markdown.length, section);
 

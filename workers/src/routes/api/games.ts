@@ -334,6 +334,14 @@ gamesRouter.post('/:gameId/sync-from-bgg', requireAdmin, async (c) => {
   const { gameId } = c.req.param();
   const db = getDb(c.env.DB);
 
+  // Check if BGG API key is configured
+  if (!c.env.BGG_API_KEY) {
+    return c.json({
+      error: 'BGG_API_KEY_MISSING',
+      message: 'BoardGameGeek API key is not configured.'
+    }, 503);
+  }
+
   // Get the game to ensure it exists and has a BGG ID
   const [game] = await db
     .select()
@@ -355,7 +363,7 @@ gamesRouter.post('/:gameId/sync-from-bgg', requireAdmin, async (c) => {
       game.bggId,
       c.env.DB,
       c.env.RATE_LIMIT_KV,
-      { bypassCache: true }
+      { bypassCache: true, apiKey: c.env.BGG_API_KEY }
     );
 
     // Prepare update data
@@ -701,10 +709,7 @@ gamesRouter.post('/:gameIdOrSlug/chat', ratelimit(20, 60), async (c) => {
   // Extract base URL from request for absolute attachment URLs
   const baseUrl = new URL(c.req.url).origin;
 
-  const response = await streamChatResponse(c.env, game, body, baseUrl, {
-    router: 'games',
-    requestedGame: gameIdOrSlug,
-  });
+  const response = await streamChatResponse(c.env, game, body, baseUrl);
 
   return response;
 });

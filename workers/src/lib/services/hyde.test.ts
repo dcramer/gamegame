@@ -4,10 +4,10 @@ import {
   generateQuestionsForFragments,
 } from './hyde';
 import type { Resource } from '../db/schema/d1';
+import { createMockFetch, openAI } from '@/test-utils/api-mocks';
 
-// Mock fetch globally
-const mockFetch = vi.fn();
-global.fetch = mockFetch as any;
+// Mock fetch for external OpenAI API calls only
+const mockFetch = createMockFetch();
 
 describe('generateQuestionsForFragment', () => {
   const mockResource: Pick<Resource, 'name' | 'description' | 'resourceType'> = {
@@ -37,18 +37,7 @@ describe('generateQuestionsForFragment', () => {
       'How many territory cards does each player get?',
     ];
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({ questions: mockQuestions }),
-            },
-          },
-        ],
-      }),
-    });
+    mockFetch.mockResolvedValueOnce(openAI.chatCompletion({ questions: mockQuestions }));
 
     const result = await generateQuestionsForFragment(
       mockFragment,
@@ -71,18 +60,7 @@ describe('generateQuestionsForFragment', () => {
   });
 
   it('should include fragment context in prompt', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({ questions: [] }),
-            },
-          },
-        ],
-      }),
-    });
+    mockFetch.mockResolvedValueOnce(openAI.chatCompletion({ questions: [] }));
 
     await generateQuestionsForFragment(mockFragment, mockResource, 'test-api-key');
 
@@ -96,41 +74,19 @@ describe('generateQuestionsForFragment', () => {
   });
 
   it('should use default options when not provided', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({ questions: [] }),
-            },
-          },
-        ],
-      }),
-    });
+    mockFetch.mockResolvedValueOnce(openAI.chatCompletion({ questions: [] }));
 
     await generateQuestionsForFragment(mockFragment, mockResource, 'test-api-key');
 
     const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
 
-    expect(callBody.model).toBe('gpt-4o-mini');
+    expect(callBody.model).toBe('gpt-5-mini');
     expect(callBody.temperature).toBe(0.7);
     expect(callBody.response_format).toEqual({ type: 'json_object' });
   });
 
   it('should respect custom options', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({ questions: [] }),
-            },
-          },
-        ],
-      }),
-    });
+    mockFetch.mockResolvedValueOnce(openAI.chatCompletion({ questions: [] }));
 
     await generateQuestionsForFragment(mockFragment, mockResource, 'test-api-key', {
       count: 3,
@@ -148,11 +104,7 @@ describe('generateQuestionsForFragment', () => {
   });
 
   it('should handle API errors gracefully', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      text: async () => 'Internal Server Error',
-    });
+    mockFetch.mockResolvedValueOnce(openAI.error(500, 'Internal Server Error'));
 
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -169,18 +121,7 @@ describe('generateQuestionsForFragment', () => {
   });
 
   it('should handle invalid JSON response', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: 'not valid json',
-            },
-          },
-        ],
-      }),
-    });
+    mockFetch.mockResolvedValueOnce(openAI.chatCompletion('not valid json'));
 
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -197,18 +138,7 @@ describe('generateQuestionsForFragment', () => {
   });
 
   it('should handle missing questions array in response', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({ wrong_field: [] }),
-            },
-          },
-        ],
-      }),
-    });
+    mockFetch.mockResolvedValueOnce(openAI.chatCompletion({ wrong_field: [] }));
 
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -225,26 +155,17 @@ describe('generateQuestionsForFragment', () => {
   });
 
   it('should filter out non-string questions', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({
-                questions: [
-                  'Valid question 1',
-                  123, // Invalid
-                  'Valid question 2',
-                  null, // Invalid
-                  'Valid question 3',
-                ],
-              }),
-            },
-          },
+    mockFetch.mockResolvedValueOnce(
+      openAI.chatCompletion({
+        questions: [
+          'Valid question 1',
+          123, // Invalid
+          'Valid question 2',
+          null, // Invalid
+          'Valid question 3',
         ],
-      }),
-    });
+      })
+    );
 
     const result = await generateQuestionsForFragment(
       mockFragment,
@@ -256,18 +177,7 @@ describe('generateQuestionsForFragment', () => {
   });
 
   it('should handle fragment without optional fields', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({ questions: [] }),
-            },
-          },
-        ],
-      }),
-    });
+    mockFetch.mockResolvedValueOnce(openAI.chatCompletion({ questions: [] }));
 
     const minimalFragment = {
       content: 'Some content',
@@ -284,18 +194,7 @@ describe('generateQuestionsForFragment', () => {
   });
 
   it('should handle resource without optional fields', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({ questions: [] }),
-            },
-          },
-        ],
-      }),
-    });
+    mockFetch.mockResolvedValueOnce(openAI.chatCompletion({ questions: [] }));
 
     const minimalResource = {
       name: 'Basic Rulebook',
@@ -333,24 +232,9 @@ describe('generateQuestionsForFragments', () => {
 
     // Mock responses for each fragment
     mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          choices: [{ message: { content: JSON.stringify({ questions: ['Q1'] }) } }],
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          choices: [{ message: { content: JSON.stringify({ questions: ['Q2'] }) } }],
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          choices: [{ message: { content: JSON.stringify({ questions: ['Q3'] }) } }],
-        }),
-      });
+      .mockResolvedValueOnce(openAI.chatCompletion({ questions: ['Q1'] }))
+      .mockResolvedValueOnce(openAI.chatCompletion({ questions: ['Q2'] }))
+      .mockResolvedValueOnce(openAI.chatCompletion({ questions: ['Q3'] }));
 
     const results = await generateQuestionsForFragments(fragments, mockResource, 'test-key');
 
@@ -366,12 +250,7 @@ describe('generateQuestionsForFragments', () => {
       content: `Fragment ${i}`,
     }));
 
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        choices: [{ message: { content: JSON.stringify({ questions: [] }) } }],
-      }),
-    });
+    mockFetch.mockResolvedValue(openAI.chatCompletion({ questions: [] }));
 
     await generateQuestionsForFragments(fragments, mockResource, 'test-key', {
       batchSize: 5,
@@ -385,17 +264,8 @@ describe('generateQuestionsForFragments', () => {
     const fragments = [{ content: 'Fragment 1' }, { content: 'Fragment 2' }];
 
     mockFetch
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        text: async () => 'Error',
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          choices: [{ message: { content: JSON.stringify({ questions: ['Q2'] }) } }],
-        }),
-      });
+      .mockResolvedValueOnce(openAI.error(500, 'Error'))
+      .mockResolvedValueOnce(openAI.chatCompletion({ questions: ['Q2'] }));
 
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 

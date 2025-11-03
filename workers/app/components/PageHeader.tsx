@@ -8,9 +8,9 @@ export interface PageHeaderProps {
   breadcrumbs?: BreadcrumbItem[];
 
   /**
-   * Page title (required)
+   * Page title (required) - can be a string or a React node
    */
-  title: string;
+  title: string | ReactNode;
 
   /**
    * Optional description or subtitle

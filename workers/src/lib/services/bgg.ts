@@ -9,6 +9,12 @@ import { drizzle } from 'drizzle-orm/d1';
 export type { BGGSearchResult, BGGGameDetails };
 
 /**
+ * User-Agent for BGG API requests
+ * BGG requires a proper User-Agent to prevent abuse
+ */
+const BGG_USER_AGENT = "GameGame (https://gamegame.ai)";
+
+/**
  * Rate limiting queue for BGG API requests
  * Uses Workers KV as a distributed lock to ensure
  * only one request happens every 5 seconds across all Workers instances.
@@ -76,7 +82,7 @@ class BGGRequestQueue {
         if (!currentLock) {
           // No lock exists, try to set one
           await this.kv!.put(this.KV_KEY, Date.now().toString(), {
-            expirationTtl: Math.ceil(this.MIN_DELAY / 1000), // Expire after 5 seconds
+            expirationTtl: 60, // KV minimum is 60 seconds
           });
 
           // We got the lock! Make the request
@@ -152,11 +158,12 @@ export async function searchBGGGames(
   options: {
     fetchThumbnails?: boolean; // Default true, fetches thumbnails for top 5 results
     maxResults?: number; // Default 10
+    apiKey?: string; // BGG API key (required as of 2025)
   } = {}
 ): Promise<BGGSearchResult[]> {
   console.log(`Searching BGG for: "${query}"`);
 
-  const { fetchThumbnails = true, maxResults = 10 } = options;
+  const { fetchThumbnails = true, maxResults = 10, apiKey } = options;
   const requestQueue = new BGGRequestQueue(kv);
 
   const results = await requestQueue.enqueue(async () => {
@@ -166,9 +173,18 @@ export async function searchBGGGames(
         url.searchParams.set("query", query);
         url.searchParams.set("type", "boardgame,boardgameexpansion");
 
-        const response = await fetch(url.toString());
+        const headers: Record<string, string> = {
+          'User-Agent': BGG_USER_AGENT,
+        };
+        if (apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+
+        const response = await fetch(url.toString(), { headers });
         if (!response.ok) {
-          throw new Error(`BGG API error: ${response.statusText}`);
+          const body = await response.text();
+          console.error(`BGG API error: ${response.status} ${response.statusText}`, body.substring(0, 200));
+          throw new Error(`BGG API error: ${response.status} ${response.statusText}`);
         }
 
         const xml = await response.text();
@@ -225,7 +241,7 @@ export async function searchBGGGames(
           result.thumbnailUrl = cachedGame[0].thumbnailUrl || undefined;
         } else {
           // Not in DB cache, need to fetch from API (rate limited)
-          const details = await getBGGGameDetails(result.id, db, kv);
+          const details = await getBGGGameDetails(result.id, db, kv, { apiKey });
           result.thumbnailUrl = details.thumbnailUrl;
         }
       } catch (error) {
@@ -246,7 +262,7 @@ export async function getBGGGameDetails(
   bggId: string,
   db: D1Database,
   kv: KVNamespace | null,
-  options: { bypassCache?: boolean } = {}
+  options: { bypassCache?: boolean; apiKey?: string } = {}
 ): Promise<BGGGameDetails> {
   console.log(`Fetching BGG game details for ID: ${bggId}`);
 
@@ -291,9 +307,18 @@ export async function getBGGGameDetails(
         url.searchParams.set("id", bggId);
         url.searchParams.set("stats", "1");
 
-        const response = await fetch(url.toString());
+        const headers: Record<string, string> = {
+          'User-Agent': BGG_USER_AGENT,
+        };
+        if (options.apiKey) {
+          headers['Authorization'] = `Bearer ${options.apiKey}`;
+        }
+
+        const response = await fetch(url.toString(), { headers });
         if (!response.ok) {
-          throw new Error(`BGG API error: ${response.statusText}`);
+          const body = await response.text();
+          console.error(`BGG API error: ${response.status} ${response.statusText}`, body.substring(0, 200));
+          throw new Error(`BGG API error: ${response.status} ${response.statusText}`);
         }
 
         const xml = await response.text();
@@ -423,7 +448,11 @@ export async function downloadImage(sourceUrl: string): Promise<Buffer> {
   // Download the image
   const buffer = await withRetry(
     async () => {
-      const response = await fetch(sourceUrl);
+      const response = await fetch(sourceUrl, {
+        headers: {
+          'User-Agent': BGG_USER_AGENT,
+        },
+      });
       if (!response.ok) {
         throw new Error(`Failed to download image: ${response.statusText}`);
       }

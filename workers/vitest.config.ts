@@ -12,11 +12,14 @@ export default defineWorkersConfig(async () => {
       poolOptions: {
         workers: {
           main: './src/index.test.tsx', // Use test entry point without queue consumer
+          wrangler: { configPath: './wrangler.dev.toml' },
           miniflare: {
             // Use in-memory D1 for tests
             d1Databases: ['DB'],
             // Use in-memory KV for tests
             kvNamespaces: ['JOB_STATUS_KV', 'RATE_LIMIT_KV'],
+            // Use in-memory R2 for tests
+            r2Buckets: ['FILES'],
             // Enable Node.js compat for uuid and other Node packages
             compatibilityFlags: ['nodejs_compat'],
             compatibilityDate: '2025-01-15',

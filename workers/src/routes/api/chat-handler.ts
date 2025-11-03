@@ -1,9 +1,9 @@
-import { streamText, convertToCoreMessages, stepCountIs, Output, type CoreMessage, createUIMessageStreamResponse } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
+import { Agent, run, setDefaultOpenAIKey } from '@openai/agents';
 import type { Env, PerformanceMetadata, StepMetrics, ToolMetrics } from '@/types';
-import { buildPrompt, getTools, AnswerSchema } from '@/lib/ai/prompt';
+import { buildPrompt, AnswerSchema } from '@/lib/ai/prompt';
+import { getAgentTools } from '@/lib/ai/tools';
 import type { ChatRequest } from './schemas';
-import { setTag, setContext } from '@/lib/sentry';
+import { setTag } from '@/lib/sentry';
 
 // NOTE: gpt-5 is REAL and should NOT be changed to gpt-4o or any other model.
 // This is the actual production model in use.
@@ -34,77 +34,13 @@ function logChatDebug(
   const duration = Date.now() - context.startTime;
 
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔍 CHAT DEBUG');
+  console.log('🔍 CHAT DEBUG (OpenAI Agents SDK)');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`Game: ${context.gameSlug || context.gameId}`);
   console.log(`Model: ${context.model}`);
   console.log(`Duration: ${duration}ms`);
   console.log(`Finish Reason: ${context.finishReason || 'unknown'}`);
   console.log('');
-
-  // Verbose tool call logging
-  if (context.response?.messages) {
-    console.log('📋 EXECUTION TRACE');
-    console.log('');
-
-    let stepNumber = 0;
-    for (const message of context.response.messages) {
-      stepNumber++;
-
-      if (message.role === 'assistant' && 'toolCalls' in message && message.toolCalls) {
-        const toolCalls = message.toolCalls as any[];
-
-        console.log(`Step ${stepNumber}: ${toolCalls.length} tool call(s)`);
-
-        for (let i = 0; i < toolCalls.length; i++) {
-          const toolCall = toolCalls[i];
-          console.log(`  ${i + 1}. ${toolCall.toolName}`);
-
-          if (toolCall.args) {
-            const argsStr = JSON.stringify(toolCall.args, null, 2);
-            const lines = argsStr.split('\n');
-            // Truncate long args
-            const preview = lines.length > 5
-              ? lines.slice(0, 5).join('\n') + '\n     ...'
-              : argsStr;
-
-            console.log('     Args:');
-            preview.split('\n').forEach((line: string) => {
-              console.log(`     ${line}`);
-            });
-          }
-        }
-        console.log('');
-      } else if (message.role === 'assistant') {
-        // Assistant text response
-        const content = (message as any).content;
-        if (content && typeof content === 'string') {
-          console.log(`Step ${stepNumber}: TEXT RESPONSE`);
-          console.log(`     Length: ${content.length} characters`);
-          const preview = content.length > 200 ? content.substring(0, 200) + '...' : content;
-          console.log(`     Preview: ${preview}`);
-          console.log('');
-        }
-      } else if (message.role === 'tool') {
-        // Tool results
-        const result = (message as any).content;
-        if (result) {
-          const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-          const lines = resultStr.split('\n');
-          const preview = lines.length > 5
-            ? lines.slice(0, 5).join('\n') + '\n     ...'
-            : resultStr;
-
-          console.log(`     Result:`);
-          preview.split('\n').forEach((line: string) => {
-            console.log(`     ${line}`);
-          });
-          console.log('');
-        }
-      }
-    }
-  }
-
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 }
 
@@ -119,8 +55,7 @@ export async function streamChatResponse(
   env: Env,
   game: GameSummary,
   body: ChatRequest,
-  baseUrl: string,
-  metadata: Record<string, unknown> = {}
+  baseUrl: string
 ) {
   if (!env.OPENAI_API_KEY) {
     throw new Error('Missing OPENAI_API_KEY secret');
@@ -128,6 +63,9 @@ export async function streamChatResponse(
   if (!env.VECTORIZE) {
     throw new Error('Missing VECTORIZE binding');
   }
+
+  // Configure OpenAI API key for Agents SDK
+  setDefaultOpenAIKey(env.OPENAI_API_KEY);
 
   const startTime = Date.now();
   let currentStep = 0;
@@ -149,13 +87,16 @@ export async function streamChatResponse(
   // Buffer for tool metrics within current step
   const currentStepToolMetrics: ToolMetrics[] = [];
 
+  // Map to track tool call start times and metrics
+  const toolCallMetrics = new Map<string, { startTime: number; name: string; args?: any }>();
+
   // Callback passed to tools for performance tracking
   const onToolComplete = (toolMetrics: ToolMetrics) => {
     currentStepToolMetrics.push(toolMetrics);
     performanceMetrics.toolCallCount++;
   };
 
-  const tools = getTools(
+  const tools = getAgentTools(
     game.id,
     env.DB,
     env.VECTORIZE,
@@ -164,30 +105,9 @@ export async function streamChatResponse(
     env.ENVIRONMENT,
     onToolComplete
   );
-  const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY });
-
-  // Convert validated messages to CoreMessage format
-  // Note: body.messages has been validated by Zod to have role, content, and id fields
-  // We use 'as any' here because Zod's passthrough() adds an index signature that conflicts
-  // with the AI SDK's UIMessage type, but the runtime structure is compatible
-  let coreMessages: CoreMessage[];
-  try {
-    coreMessages = convertToCoreMessages(body.messages as any);
-  } catch (err) {
-    console.error('Error converting messages:', err);
-    throw new Error(`Failed to convert messages: ${err instanceof Error ? err.message : String(err)}`);
-  }
 
   // Use configured chat model or default to gpt-5
   const chatModel = env.CHAT_MODEL || DEFAULT_CHAT_MODEL;
-
-  const telemetryMetadata = {
-    gameId: game.id,
-    ...(game.slug && { gameSlug: game.slug }),
-    environment: env.ENVIRONMENT || 'development',
-    model: chatModel,
-    ...metadata,
-  };
 
   // Set Sentry tags for filtering
   setTag('game_id', game.id);
@@ -197,120 +117,216 @@ export async function streamChatResponse(
     setTag('game_slug', game.slug);
   }
 
-  const result = streamText({
-    model: openai(chatModel),
-    system: buildPrompt(game),
-    messages: coreMessages,
+  // Create agent with instructions and tools
+  const agent = new Agent({
+    name: 'GameGame Assistant',
+    instructions: buildPrompt(game),
     tools,
-    stopWhen: stepCountIs(50), // Allow up to 50 steps for multi-tool interactions
-    experimental_output: Output.object({
-      schema: AnswerSchema,
-    }),
-    experimental_telemetry: {
-      isEnabled: true,
-      functionId: 'chat',
-      metadata: telemetryMetadata,
-      recordInputs: true,   // Record prompts and tool inputs
-      recordOutputs: true,  // Record completions and tool outputs
+    outputType: AnswerSchema,
+    model: chatModel,
+    modelConfig: {
+      reasoning_effort: 'low', // Reduce reasoning tokens for faster responses
     },
+    // Note: maxTurns is set via run() options, not Agent config
+  });
 
-    // Capture metrics after each step
-    onStepFinish: async (stepResult) => {
-      const now = Date.now();
-      currentStep++;
+  // Extract last user message text
+  // For now, we'll use simple single-turn (just the last message)
+  // Multi-turn history management can be added later
+  const lastMessage = body.messages[body.messages.length - 1];
+  if (!lastMessage || lastMessage.role !== 'user' || !lastMessage.parts) {
+    throw new Error('Last message must be from user');
+  }
 
-      // Cast usage to any to access properties (type definition is incomplete)
-      const stepUsage = stepResult.usage as any;
-      const usage = {
-        promptTokens: stepUsage.promptTokens ?? 0,
-        completionTokens: stepUsage.completionTokens ?? 0,
-        totalTokens: stepUsage.totalTokens ?? 0,
-        reasoningTokens: stepUsage.reasoningTokens,
+  const textParts = lastMessage.parts.filter((p: any) => p.type === 'text');
+  const userText = textParts.map((p: any) => p.text).join('\n');
+
+  if (!userText || userText.trim() === '') {
+    throw new Error('User message cannot be empty');
+  }
+
+  // Add 60 second timeout for agent responses
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => {
+    console.error('Agent timeout: 60 seconds exceeded');
+    abortController.abort();
+  }, 60000);
+
+  // Create SSE stream
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
+
+      const sendSSE = (data: any) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
-      // Capture step metrics
-      const stepMetrics: StepMetrics = {
-        stepNumber: currentStep,
-        durationMs: now - startTime,
-        stepDurationMs: now - lastStepTime,
-        finishReason: stepResult.finishReason,
-        tokenUsage: usage,
-        toolCalls: [...currentStepToolMetrics],
-      };
-
-      performanceMetrics.steps.push(stepMetrics);
-
-      // Update totals
-      performanceMetrics.totalTokens.prompt += usage.promptTokens;
-      performanceMetrics.totalTokens.completion += usage.completionTokens;
-      performanceMetrics.totalTokens.total += usage.totalTokens;
-      if (usage.reasoningTokens) {
-        performanceMetrics.totalTokens.reasoning =
-          (performanceMetrics.totalTokens.reasoning ?? 0) + usage.reasoningTokens;
-      }
-
-      // Clear tool metrics buffer for next step
-      currentStepToolMetrics.length = 0;
-      lastStepTime = now;
-    },
-
-    onFinish: async ({ usage, finishReason, response }: any) => {
-      const endTime = Date.now();
-      performanceMetrics.totalDurationMs = endTime - startTime;
-
-      // Calculate average tool duration
-      const allToolCalls = performanceMetrics.steps.flatMap((s) => s.toolCalls);
-      if (allToolCalls.length > 0) {
-        const totalToolTime = allToolCalls.reduce((sum, t) => sum + t.durationMs, 0);
-        performanceMetrics.avgToolDurationMs = totalToolTime / allToolCalls.length;
-      }
-
-      // Set usage context for the entire transaction
-      if (usage) {
-        setContext('token_usage', {
-          input_tokens: usage.promptTokens,
-          output_tokens: usage.completionTokens,
-          total_tokens: usage.totalTokens,
+      try {
+        // Enable streaming for real-time progress
+        // Note: maxTurns limit increased from SDK default (10) to handle complex multi-tool queries
+        const result = await run(agent, userText, {
+          stream: true,
+          maxTurns: 50,
         });
+
+        clearTimeout(timeoutId);
+
+        // Iterate over stream events
+        for await (const event of result) {
+          // Map OpenAI Agents SDK events to our SSE format
+          if (event.type === 'run_item_stream_event') {
+            // RunItemStreamEvent has a 'name' property with the actual event type
+            const itemEvent = event as any;
+
+            switch (itemEvent.name) {
+              case 'tool_called':
+                const toolName = itemEvent.item?.rawItem?.name || itemEvent.item?.name;
+                const toolCallId = itemEvent.item?.id;
+                const toolArgs = itemEvent.item?.rawItem?.arguments || itemEvent.item?.arguments;
+
+                // Track tool call start
+                toolCallMetrics.set(toolCallId, {
+                  startTime: Date.now(),
+                  name: toolName,
+                  args: toolArgs ? JSON.parse(toolArgs) : undefined,
+                });
+
+                sendSSE({
+                  type: 'tool-call-start',
+                  toolName,
+                  toolCallId,
+                  args: toolArgs ? JSON.parse(toolArgs) : undefined,
+                });
+                break;
+
+              case 'tool_output':
+                const outputToolName = itemEvent.item?.rawItem?.name || itemEvent.item?.name;
+                const outputToolCallId = itemEvent.item?.id;
+
+                // Calculate duration
+                const callData = toolCallMetrics.get(outputToolCallId);
+                const durationMs = callData ? Date.now() - callData.startTime : 0;
+
+                sendSSE({
+                  type: 'tool-call-end',
+                  toolName: outputToolName,
+                  toolCallId: outputToolCallId,
+                  durationMs,
+                  args: callData?.args,
+                });
+
+                // Cleanup
+                toolCallMetrics.delete(outputToolCallId);
+                break;
+
+              case 'reasoning_item_created':
+                // LLM is thinking - send a thinking event
+                sendSSE({
+                  type: 'thinking',
+                  timestamp: Date.now(),
+                });
+                break;
+            }
+          } else if (event.type === 'raw_model_stream_event') {
+            // Raw streaming events from the model
+            const rawEvent = event as any;
+
+            // Capture token usage from response_done events
+            if (rawEvent.data?.type === 'response_done' && rawEvent.data?.response?.usage) {
+              const usage = rawEvent.data.response.usage;
+
+              performanceMetrics.totalTokens.prompt += usage.inputTokens || 0;
+              performanceMetrics.totalTokens.completion += usage.outputTokens || 0;
+              performanceMetrics.totalTokens.total += usage.totalTokens || 0;
+
+              // Capture reasoning tokens if available
+              if (usage.outputTokensDetails?.reasoning_tokens) {
+                performanceMetrics.totalTokens.reasoning =
+                  (performanceMetrics.totalTokens.reasoning || 0) + usage.outputTokensDetails.reasoning_tokens;
+              }
+            }
+          }
+
+          // Track step completion for performance metrics
+          if ((event as any).name === 'step_completed') {
+            currentStep++;
+            const stepEndTime = Date.now();
+            const stepMetrics: StepMetrics = {
+              stepNumber: currentStep,
+              durationMs: stepEndTime - startTime,
+              stepDurationMs: stepEndTime - lastStepTime,
+              finishReason: 'completed',
+              tokenUsage: {
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+              },
+              toolCalls: [...currentStepToolMetrics],
+            };
+            performanceMetrics.steps.push(stepMetrics);
+            currentStepToolMetrics.length = 0;
+            lastStepTime = stepEndTime;
+          }
+        }
+
+        // Get the final output after stream completes
+        const finalOutput = result.finalOutput;
+
+        if (!finalOutput) {
+          throw new Error('No output from agent');
+        }
+
+        // Calculate performance metrics
+        const endTime = Date.now();
+        performanceMetrics.totalDurationMs = endTime - startTime;
+
+        // Send the complete result as JSON
+        const jsonText = JSON.stringify(finalOutput);
+        sendSSE({ type: 'text-delta', textDelta: jsonText });
+
+        // Send finish event with metadata
+        sendSSE({
+          type: 'finish',
+          messageMetadata: {
+            performance: performanceMetrics,
+            model: chatModel,
+            gameId: game.id,
+            timestamp: Date.now(),
+          },
+        });
+
+        // Send done signal
+        sendSSE('[DONE]');
+
+        controller.close();
+
+        // Log debug information
+        logChatDebug(env, {
+          gameId: game.id,
+          gameSlug: game.slug,
+          model: chatModel,
+          startTime,
+          finishReason: 'stop',
+        });
+      } catch (error) {
+        clearTimeout(timeoutId);
+        console.error('[Agent] Stream error:', error);
+        sendSSE({
+          type: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        });
+        controller.close();
       }
-
-      const steps = response?.messages?.length || 0;
-      setContext('generation_info', {
-        step_count: steps,
-        finish_reason: finishReason,
-      });
-
-      // Set performance context for Sentry
-      setContext('performance', performanceMetrics);
-
-      console.log('Stream finished:', {
-        finishReason,
-        usage,
-        steps,
-      });
-
-      // Log debug information if enabled via env vars
-      logChatDebug(env, {
-        gameId: game.id,
-        gameSlug: game.slug,
-        model: chatModel,
-        startTime,
-        usage,
-        finishReason,
-        response,
-      });
     },
   });
 
-  // Return streaming UI message response with performance metadata
-  // NOTE: experimental_output streams JSON as text in message.content
-  // Frontend should use parsePartialJson from @ai-sdk/ui-utils to parse it
-  return result.toUIMessageStreamResponse({
-    messageMetadata: async () => ({
-      performance: performanceMetrics,
-      model: chatModel,
-      gameId: game.id,
-      timestamp: Date.now(),
-    }),
+  // Return SSE response
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Content-Type-Options': 'nosniff',
+    },
   });
 }

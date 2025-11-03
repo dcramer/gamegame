@@ -1,89 +1,12 @@
-import { tool } from "ai";
 import { z } from "zod";
-import { findRelevantContent } from "./search";
-import type { D1Database, VectorizeIndex } from "@cloudflare/workers-types";
-import { getDb, resources, attachments } from "../db";
-import { normalizeResourceSourceUrl } from "../services/r2-storage";
-import { eq } from "drizzle-orm";
-import type { ToolMetrics } from "@/types";
 
 const GITHUB_URL = "https://github.com/dcramer/gamegame";
-
-// Tool execution timeout in milliseconds (30 seconds)
-const TOOL_TIMEOUT_MS = 30000;
-
-/**
- * Wraps a tool execution function with a timeout
- * Prevents hanging requests when tools take too long
- */
-function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  toolName: string
-): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(
-        () =>
-          reject(
-            new Error(`Tool "${toolName}" timed out after ${timeoutMs}ms`)
-          ),
-        timeoutMs
-      )
-    ),
-  ]);
-}
-
-/**
- * Wraps a tool's execute function with performance tracking
- * Records execution time, arguments, and errors
- */
-function withPerformanceTracking<TArgs, TResult>(
-  toolName: string,
-  execute: (args: TArgs) => Promise<TResult>,
-  onComplete?: (metrics: ToolMetrics) => void
-): (args: TArgs) => Promise<TResult> {
-  if (!onComplete) {
-    return execute; // No tracking if no callback provided
-  }
-
-  return async (args: TArgs): Promise<TResult> => {
-    const startTime = performance.now();
-    const timestamp = Date.now();
-
-    try {
-      const result = await execute(args);
-      const durationMs = performance.now() - startTime;
-
-      onComplete({
-        name: toolName,
-        durationMs,
-        timestamp,
-        args,
-      });
-
-      return result;
-    } catch (error) {
-      const durationMs = performance.now() - startTime;
-
-      onComplete({
-        name: toolName,
-        durationMs,
-        timestamp,
-        args,
-        error: error instanceof Error ? error.message : String(error),
-      });
-
-      throw error;
-    }
-  };
-}
 
 export const AnswerSchema = z.object({
   answer: z.string().describe("The answer using markdown formatting"),
   questionType: z
     .enum(["gameplay", "knowledge", "external", "gamegame"])
+    .nullable()
     .optional()
     .describe("The type of question being answered"),
   citations: z
@@ -91,11 +14,11 @@ export const AnswerSchema = z.object({
       z.object({
         resourceId: z.string(),
         resourceName: z.string(),
-        pageNumber: z.number().optional(),
-        pageRange: z.array(z.number()).optional(),
-        section: z.string().optional(),
+        pageNumber: z.number().nullable().optional(),
+        pageRange: z.array(z.number()).nullable().optional(),
+        section: z.string().nullable().optional(),
         relevance: z.enum(["primary", "supporting", "related"]),
-        quote: z.string().optional(),
+        quote: z.string().nullable().optional(),
       })
     )
     .default([])
@@ -106,6 +29,7 @@ export const AnswerSchema = z.object({
     .describe("Confidence level in the answer"),
   ambiguities: z
     .array(z.string())
+    .nullable()
     .optional()
     .describe("List of ambiguous points or rule conflicts"),
   followUps: z
@@ -119,10 +43,12 @@ export const AnswerSchema = z.object({
     .describe("Suggested follow-up questions"),
   playerCountSpecific: z
     .number()
+    .nullable()
     .optional()
     .describe("Player count if answer is player-count specific"),
   expansionSpecific: z
     .array(z.string())
+    .nullable()
     .optional()
     .describe("Expansions if answer requires specific expansions"),
   // Legacy field for backward compatibility
@@ -133,160 +59,9 @@ export const AnswerSchema = z.object({
         id: z.string(),
       })
     )
+    .nullable()
     .optional(),
 });
-
-export function getTools(
-  gameId: string,
-  db: D1Database,
-  vectorIndex: VectorizeIndex,
-  openaiApiKey: string,
-  baseUrl: string,
-  environment?: string,
-  onToolComplete?: (metrics: ToolMetrics) => void
-) {
-  return {
-    search_resources: tool({
-      description:
-        "Search rulebook text for rules, setup instructions, gameplay mechanics, clarifications, and game information. Returns text chunks with page numbers and sections. Use this for most questions about rules and gameplay.",
-      inputSchema: z.object({
-        query: z.string().describe("What to search for"),
-        resourceType: z
-          .enum(["all", "rulebook", "expansion", "faq", "errata"])
-          .default("all")
-          .describe("Optional: limit to specific resource type"),
-      }),
-      execute: withPerformanceTracking(
-        "search_resources",
-        async ({ query, resourceType }) =>
-          withTimeout(
-            findRelevantContent(db, vectorIndex, gameId, query, openaiApiKey, {
-              fragmentType: "text",
-              resourceType: resourceType === "all" ? undefined : resourceType,
-              environment,
-              enableReranking: false, // Temporarily disabled - gpt-5-mini API errors
-            }),
-            TOOL_TIMEOUT_MS,
-            "search_resources"
-          ),
-        onToolComplete
-      ),
-    }),
-
-    search_media: tool({
-      description:
-        "Find diagrams, setup photos, component images, and visual aids from rulebooks. Use when the user wants to SEE something, understand layout visually, identify components, or when text alone is not sufficient.",
-      inputSchema: z.object({
-        query: z
-          .string()
-          .describe(
-            'What image/diagram to find (e.g., "setup diagram", "game board", "player board")'
-          ),
-      }),
-      execute: withPerformanceTracking(
-        "search_media",
-        async ({ query }) =>
-          withTimeout(
-            findRelevantContent(db, vectorIndex, gameId, query, openaiApiKey, {
-              fragmentType: "image",
-              limit: 5, // Fewer images
-              environment,
-              enableReranking: false, // Temporarily disabled - gpt-5-mini API errors
-            }),
-            TOOL_TIMEOUT_MS,
-            "search_media"
-          ),
-        onToolComplete
-      ),
-    }),
-
-    listResources: tool({
-      description: "List the resources available to you with their statistics",
-      inputSchema: z.object({}),
-      execute: withPerformanceTracking(
-        "listResources",
-        async () =>
-          withTimeout(
-            (async () => {
-              const orm = getDb(db);
-              const resourceList = await orm
-                .select()
-                .from(resources)
-                .where(eq(resources.gameId, gameId))
-                .all();
-
-              return resourceList.map((r) => ({
-                id: r.id,
-                name: r.name,
-                url: normalizeResourceSourceUrl(r.id, r.url) ?? r.url,
-                originalFilename: r.originalFilename ?? null,
-                description: r.description ?? null,
-                pageCount: r.pageCount ?? null,
-                imageCount: r.imageCount ?? 0,
-                wordCount: r.wordCount ?? 0,
-              }));
-            })(),
-            TOOL_TIMEOUT_MS,
-            "listResources"
-          ),
-        onToolComplete
-      ),
-    }),
-
-    getAttachment: tool({
-      description:
-        "Retrieve an attachment (image, diagram, etc.) by its ID to include in your response. Use this when you find attachment:// references in the knowledge base content.",
-      inputSchema: z.object({
-        attachmentId: z
-          .string()
-          .describe("The attachment ID from attachment:// URL"),
-      }),
-      execute: withPerformanceTracking(
-        "getAttachment",
-        async ({ attachmentId }) =>
-          withTimeout(
-            (async () => {
-              try {
-                const orm = getDb(db);
-                const [attachment] = await orm
-                  .select()
-                  .from(attachments)
-                  .where(eq(attachments.id, attachmentId))
-                  .limit(1);
-
-                if (!attachment) {
-                  return {
-                    success: false,
-                    error: `Attachment not found: ${attachmentId}`,
-                  };
-                }
-
-                const { r2KeyToUrl } = await import("../services/r2-storage");
-
-                return {
-                  success: true,
-                  id: attachment.id,
-                  type: attachment.type,
-                  url: `${baseUrl}${r2KeyToUrl(attachment.r2Key)}`,
-                  mimeType: attachment.mimeType ?? "image/png",
-                  caption: attachment.caption,
-                  pageNumber: attachment.pageNumber,
-                };
-              } catch (error) {
-                return {
-                  success: false,
-                  error: `Attachment not found or unavailable: ${attachmentId}`,
-                };
-              }
-            })(),
-            TOOL_TIMEOUT_MS,
-            "getAttachment"
-          ),
-        onToolComplete
-      ),
-    }),
-  };
-}
 
 export function buildPrompt(game: {
   id: string;
@@ -390,6 +165,21 @@ Match your answer thoroughness to the question type:
 
 Your first task is to determine the type of question being asked. You will then use the appropriate tools available to you in order to answer the question. ANYTHING outside of these lines of questions is not your job.
 
+**Sharing Your Thinking Process**:
+
+Use the "share_thinking" tool to explain your reasoning process to users, especially for:
+- Complex or multi-part questions that require analyzing multiple sources
+- Questions where you need to search different sections of the rulebook
+- Questions that involve rule interactions or edge cases
+- Any time you're unsure and need to explain your approach
+
+Example:
+- Question: "How does setup work for 5 players?"
+- Before searching, call: share_thinking("I need to search for general setup instructions first, then look for player-count-specific variations for 5 players")
+- After getting results, you might call: share_thinking("The first search gave me general setup, but I need to search for the specific 5-player components and placement rules")
+
+This helps users understand your process and builds trust in your answers.
+
 If you are unable to answer the question given the relevant information in the tool calls your "answer" should be "Sorry, I can't help with that.", and explain why. If you looked up any sources, include them in the "citations" field with appropriate relevance markers. Set confidence to "low" when you cannot answer definitively.
 
 ### Gameplay Questions
@@ -411,6 +201,22 @@ Before answering these questions, you MUST use the appropriate search tools:
 - User asks about layout or appearance ("what does the board look like?")
 - User needs to identify components visually
 - Visual aids would be more helpful than text (setup diagrams, game board, player aids)
+
+**IMPORTANT - Search Strategy**:
+- Use ONE targeted search that directly matches the user's question
+- Match the user's intent with specific search terms
+- You should need ONLY 1 search for most questions - avoid progressive refinement searches
+- If the first search doesn't fully answer the question, you may do ONE follow-up search for missing details only
+
+**Search Thoroughness (use the "limit" parameter)**:
+- **Simple factual questions** (player count, play time, age, components): Use limit: 2-3
+  - Example: "How many players?" → search_resources("player count", limit: 2)
+  - Example: "What's the play time?" → search_resources("play time duration", limit: 2)
+- **Complex rule questions** (mechanics, interactions, setup): Use limit: 5 (default)
+  - Example: "How do the docks work?" → search_resources("docks mechanics placement ambush", limit: 5)
+  - Example: "How does combat work?" → search_resources("combat attack defense resolution", limit: 5)
+
+Trust the search quality - comprehensive queries with appropriate limits get better results than multiple narrow searches.
 
 You can call BOTH tools when appropriate:
 - Example: "Show me how to set up for 5 players" → call search_resources("setup 5 players") AND search_media("setup diagram 5 players")

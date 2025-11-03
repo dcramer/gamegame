@@ -2,7 +2,7 @@ import { execSync } from 'child_process';
 import { randomUUID } from 'crypto';
 
 function printUsage() {
-  console.error('Usage: pnpm cli create-user <email> [--name="Full Name"] [--admin] [--remote]');
+  console.error('Usage: pnpm cli users create <email> [--name="Full Name"] [--admin] [--remote]');
   console.error('');
   console.error('Options:');
   console.error('  --name="Full Name"   Optional display name');
@@ -10,8 +10,8 @@ function printUsage() {
   console.error('  --remote             Run against the production database');
   console.error('');
   console.error('Examples:');
-  console.error('  pnpm cli create-user user@example.com');
-  console.error('  pnpm cli create-user admin@example.com --name="Site Admin" --admin');
+  console.error('  pnpm cli users create user@example.com');
+  console.error('  pnpm cli users create admin@example.com --name="Site Admin" --admin');
 }
 
 function escapeSql(value: string): string {
@@ -19,7 +19,7 @@ function escapeSql(value: string): string {
 }
 
 export async function createUserCommand() {
-  const args = process.argv.slice(3);
+  const args = process.argv.slice(4);
   const emailArg = args.find((arg) => !arg.startsWith('--'));
 
   if (!emailArg) {
@@ -73,7 +73,7 @@ export async function createUserCommand() {
 
     if (!checkResult.includes('Query returned no results') && !checkResult.includes('0 rows')) {
       console.error(`\n❌ User already exists: ${email}`);
-      console.error('Use "pnpm cli grant-admin" if you need to update permissions.');
+      console.error('Use "pnpm cli users grant-admin" if you need to update permissions.');
       process.exit(1);
     }
   } catch (error: any) {
@@ -101,8 +101,8 @@ export async function createUserCommand() {
 
   console.log(`\n✅ User created with ID ${userId}`);
   if (!isAdmin) {
-    console.log('👉 Need admin access? Run: pnpm cli grant-admin', email, isRemote ? '--remote' : '');
+    console.log('👉 Need admin access? Run: pnpm cli users grant-admin', email, isRemote ? '--remote' : '');
   }
-  console.log('👉 Generate a login link with: pnpm cli login-url', email);
+  console.log('👉 Generate a login link with: pnpm cli users login-url', email);
   console.log('');
 }

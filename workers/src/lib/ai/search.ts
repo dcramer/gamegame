@@ -266,7 +266,7 @@ export async function findRelevantContent(
   } = {}
 ): Promise<SearchResult[]> {
   const startTime = Date.now();
-  const limit = options.limit ?? 10;
+  const limit = options.limit ?? 5;  // Reduced from 10 to decrease token usage
   const offset = options.offset ?? 0;
   const candidateCount = (limit + offset) * 2; // Fetch more for fusion
 

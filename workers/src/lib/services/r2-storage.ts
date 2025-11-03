@@ -60,12 +60,6 @@ export function buildResourceSourceUrl(resourceId: string, extension: string = '
   return r2KeyToUrl(buildResourceSourceKey(resourceId, extension));
 }
 
-/**
- * Build URL for an attachment (deprecated - use r2KeyToUrl instead)
- */
-export function buildAttachmentUrl(resourceId: string, attachmentId: string, ext: string): string {
-  return r2KeyToUrl(buildAttachmentKey(resourceId, attachmentId, ext));
-}
 
 /**
  * Extract file extension from R2 key or filename
@@ -415,7 +409,7 @@ export function normalizeAttachmentUrl(
   }
   const ext = extMatch[1].toLowerCase();
   const attachmentId = filename.replace(/\.[^.]+$/, '');
-  return buildAttachmentUrl(resourceId, attachmentId, ext);
+  return r2KeyToUrl(buildAttachmentKey(resourceId, attachmentId, ext));
 }
 
 /**

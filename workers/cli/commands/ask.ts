@@ -1,10 +1,10 @@
 import { getApiUrl } from '../utils';
+import { streamSSE, collectTextFromSSE } from '../utils/sse-stream';
 
 export async function askCommand() {
   const args = process.argv.slice(3);
 
   // Parse flags
-  const showTiming = args.includes('--timing');
   const showVerbose = args.includes('--verbose');
 
   // Remove all flags from args
@@ -19,14 +19,12 @@ export async function askCommand() {
     console.error('<game> can be either a game ID or slug');
     console.error('');
     console.error('Options:');
-    console.error('  --timing     Show performance metrics (duration, tokens, tool calls)');
-    console.error('  --verbose    Show detailed execution trace (use with --timing)');
+    console.error('  --verbose    Show detailed execution trace (events, timing, tool calls, performance metrics)');
     console.error('');
     console.error('Examples:');
     console.error('  pnpm cli ask arcs "How do I setup the game?"');
     console.error('  pnpm cli ask arcs "How many players?"');
-    console.error('  pnpm cli ask arcs "How many players?" --timing');
-    console.error('  pnpm cli ask arcs "How many players?" --timing --verbose');
+    console.error('  pnpm cli ask arcs "How many players?" --verbose');
     console.error('');
     process.exit(1);
   }
@@ -54,7 +52,15 @@ export async function askCommand() {
   console.log(`Prompt: ${prompt}`);
   console.log('---\n');
 
+  // Track timing for HTTP operations
+  const httpStartTime = Date.now();
+  let fetchStartTime = 0;
+  let fetchEndTime = 0;
+  let firstByteTime = 0;
+  let streamEndTime = 0;
+
   try {
+    fetchStartTime = Date.now();
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -76,60 +82,59 @@ export async function askCommand() {
       }),
     });
 
+    fetchEndTime = Date.now();
+    firstByteTime = fetchEndTime;
+
     if (!response.ok) {
       const error = await response.text();
       console.error(`\nError ${response.status}:`, error);
       process.exit(1);
     }
 
-    // Log rate limit headers
-    const rateLimit = response.headers.get('X-RateLimit-Limit');
-    const remaining = response.headers.get('X-RateLimit-Remaining');
-    const reset = response.headers.get('X-RateLimit-Reset');
+    // Stream SSE events as they arrive
+    let eventCount = 0;
+    const sseStream = streamSSE(response);
 
-    if (rateLimit) {
-      console.log(
-        `[Rate Limit: ${remaining}/${rateLimit}, resets at ${new Date(parseInt(reset!) * 1000).toLocaleTimeString()}]\n`
-      );
-    }
+    const { text: answerText, metadata: messageMetadata } = await collectTextFromSSE(
+      sseStream,
+      (event) => {
+        eventCount++;
 
-    // Get response text (SSE stream)
-    const fullResponse = await response.text();
-
-    // Parse SSE stream
-    let messageMetadata: any = null;
-    let answerText = '';
-
-    const lines = fullResponse.split('\n');
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6); // Remove 'data: ' prefix
-
-        if (data === '[DONE]') {
-          break;
+        if (showVerbose) {
+          console.log(`[DEBUG] Event ${eventCount}:`, event.type, event.data.textDelta ? `(${event.data.textDelta.length} chars)` : '');
         }
 
-        try {
-          const event = JSON.parse(data);
-
-          // Collect text deltas to build the answer
-          if (event.type === 'text-delta' && event.textDelta) {
-            answerText += event.textDelta;
+        // Show progress for tool calls
+        if (event.type === 'tool-call-start') {
+          if (showVerbose) {
+            // Verbose: show args
+            const argsStr = event.data.args ? JSON.stringify(event.data.args) : '';
+            console.log(`  🔧 ${event.data.toolName}(${argsStr})`);
+          } else {
+            // Default: simple progress
+            console.log(`  🔧 Calling tool: ${event.data.toolName}...`);
           }
+        }
 
-          // Capture metadata from finish event
-          if (event.type === 'finish' && event.messageMetadata) {
-            messageMetadata = event.messageMetadata;
+        if (event.type === 'tool-call-end') {
+          if (showVerbose) {
+            // Verbose: show timing and args
+            const duration = event.data.durationMs || 0;
+            const argsStr = event.data.args ? JSON.stringify(event.data.args) : '';
+            console.log(`  ✓ ${event.data.toolName}(${argsStr}) → ${duration}ms`);
+          } else {
+            // Default: simple completion
+            console.log(`  ✓ Tool completed: ${event.data.toolName}`);
           }
-
-          // For backward compatibility, also check message-metadata events
-          if (event.type === 'message-metadata' && event.messageMetadata) {
-            messageMetadata = event.messageMetadata;
-          }
-        } catch (err) {
-          // Ignore parse errors for individual events
         }
       }
+    );
+
+    streamEndTime = Date.now();
+
+    if (showVerbose) {
+      console.log('[DEBUG] Total events received:', eventCount);
+      console.log('[DEBUG] Collected answer text length:', answerText.length);
     }
 
     console.log('');
@@ -201,8 +206,23 @@ export async function askCommand() {
         console.log('');
       }
 
-      // Display performance metrics if --timing flag is set
-      if (showTiming && messageMetadata?.performance) {
+      // Display timing and metrics if --verbose flag is set
+      if (showVerbose) {
+        const totalHttpTime = streamEndTime - httpStartTime;
+        const requestTime = fetchEndTime - fetchStartTime;
+        const streamTime = streamEndTime - fetchEndTime;
+
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('🌐 HTTP TIMING');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log(`Total HTTP Time:    ${totalHttpTime}ms`);
+        console.log(`  Request/Response: ${requestTime}ms (connection + first byte)`);
+        console.log(`  Stream Processing: ${streamTime}ms (receiving and parsing SSE stream)`);
+        console.log('');
+      }
+
+      // Display performance metrics if available and --verbose flag is set
+      if (showVerbose && messageMetadata?.performance) {
         const perf = messageMetadata.performance;
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('⚡ PERFORMANCE METRICS');
@@ -223,20 +243,18 @@ export async function askCommand() {
         }
         console.log(`  Total:      ${perf.totalTokens.total.toLocaleString()}`);
 
-        if (showVerbose) {
-          console.log('');
-          console.log('Per-Step Breakdown:');
-          perf.steps.forEach((step: any) => {
-            console.log(
-              `  Step ${step.stepNumber}: ${step.stepDurationMs}ms, ` +
-              `${step.toolCalls.length} tools, ${step.tokenUsage.totalTokens} tokens`
-            );
-            step.toolCalls.forEach((tool: any) => {
-              const error = tool.error ? ` ❌ ${tool.error}` : '';
-              console.log(`    - ${tool.name}: ${tool.durationMs.toFixed(0)}ms${error}`);
-            });
+        console.log('');
+        console.log('Per-Step Breakdown:');
+        perf.steps.forEach((step: any) => {
+          console.log(
+            `  Step ${step.stepNumber}: ${step.stepDurationMs}ms, ` +
+            `${step.toolCalls.length} tools, ${step.tokenUsage.totalTokens} tokens`
+          );
+          step.toolCalls.forEach((tool: any) => {
+            const error = tool.error ? ` ❌ ${tool.error}` : '';
+            console.log(`    - ${tool.name}: ${tool.durationMs.toFixed(0)}ms${error}`);
           });
-        }
+        });
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('');
       }
@@ -244,8 +262,8 @@ export async function askCommand() {
       console.error('⚠️  Failed to parse response');
       console.error(error instanceof Error ? error.message : String(error));
       if (showVerbose) {
-        console.error('\nRaw response:');
-        console.error(fullResponse || '(empty response)');
+        console.error('\nRaw answer text:');
+        console.error(answerText || '(empty response)');
       }
       process.exit(1);
     }

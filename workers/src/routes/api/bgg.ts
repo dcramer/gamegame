@@ -28,10 +28,21 @@ bggRouter.get(
   async (c) => {
     const { q } = c.req.valid('query');
 
+    // Check if BGG API key is configured
+    if (!c.env.BGG_API_KEY) {
+      console.warn('BGG_API_KEY not configured, BGG search unavailable');
+      return c.json({
+        error: 'BGG_API_KEY_MISSING',
+        message: 'BoardGameGeek API key is not configured. Please add games manually or configure BGG_API_KEY.',
+        results: []
+      }, 503);
+    }
+
     try {
       // Disable thumbnail fetching for now - it's too slow with rate limiting
       const results = await searchBGGGames(q, c.env.DB, c.env.RATE_LIMIT_KV, {
         fetchThumbnails: false,
+        apiKey: c.env.BGG_API_KEY,
       });
 
       // Check which games are already imported
@@ -78,11 +89,20 @@ bggRouter.get(
   async (c) => {
     const { bggId } = c.req.param();
 
+    // Check if BGG API key is configured
+    if (!c.env.BGG_API_KEY) {
+      return c.json({
+        error: 'BGG_API_KEY_MISSING',
+        message: 'BoardGameGeek API key is not configured.'
+      }, 503);
+    }
+
     try {
       const details = await getBGGGameDetails(
         bggId,
         c.env.DB,
-        c.env.RATE_LIMIT_KV
+        c.env.RATE_LIMIT_KV,
+        { apiKey: c.env.BGG_API_KEY }
       );
 
       return c.json(details);
@@ -101,12 +121,21 @@ bggRouter.post(
     const { bggId } = c.req.param();
     let uploadedImageUrl: string | null = null;
 
+    // Check if BGG API key is configured
+    if (!c.env.BGG_API_KEY) {
+      return c.json({
+        error: 'BGG_API_KEY_MISSING',
+        message: 'BoardGameGeek API key is not configured.'
+      }, 503);
+    }
+
     try {
       // Fetch game details from BGG
       const details = await getBGGGameDetails(
         bggId,
         c.env.DB,
-        c.env.RATE_LIMIT_KV
+        c.env.RATE_LIMIT_KV,
+        { apiKey: c.env.BGG_API_KEY }
       );
 
       // Download and upload image if available

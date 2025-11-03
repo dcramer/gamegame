@@ -1,7 +1,7 @@
 import type { Env, QueueMessage } from '@/types';
 import { nanoid } from 'nanoid';
 import { getDb, resources, fragments, attachments } from '../db';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { extractTextFromDocument, rebuildMarkdownFromPages, replaceImageReferences } from '../pdf';
 import { getExtensionFromKey } from '../services/r2-storage';
 import { getMimeTypeForExtension } from '../file-types';
@@ -262,8 +262,7 @@ export async function runIngestStage(task: QueueMessage, env: Env): Promise<Queu
     throw new Error('Missing MISTRAL_API_KEY secret');
   }
 
-  // Check if this stage is already done OR if another job is processing
-  // (optimistic locking via currentJobId)
+  // Fetch resource metadata and job ownership info
   const [resourceRow] = await db
     .select({
       metadata: resources.processingMetadata,
@@ -277,17 +276,8 @@ export async function runIngestStage(task: QueueMessage, env: Env): Promise<Queu
     throw new Error(`Resource ${task.resourceId} was deleted during processing`);
   }
 
-  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
-
-  // If ingest already completed, skip to next stage
-  if (metadata.stages.ingest) {
-    console.log(`[Ingest Stage] Resource ${task.resourceId} already ingested, skipping`);
-    const hasImages = await checkHasImages(env, task.resourceId);
-    return { ...task, type: hasImages ? 'VISION' : 'CLEANUP', url: undefined, sourceKey: undefined };
-  }
-
-  // Optimistic locking: If another job is processing this resource, abort
-  // This handles the case where a reprocess was triggered while this job was retrying
+  // CRITICAL: Check job ownership FIRST before checking stage completion
+  // This prevents race conditions where two jobs work on the same resource
   if (resourceRow.currentJobId && resourceRow.currentJobId !== task.jobId) {
     console.warn(
       `[Ingest Stage] Resource ${task.resourceId} is being processed by a different job ` +
@@ -295,6 +285,16 @@ export async function runIngestStage(task: QueueMessage, env: Env): Promise<Queu
       `This job will stop. The active job will continue processing.`
     );
     return null; // Don't queue next task - another job is handling it
+  }
+
+  // Parse metadata and check stage completion
+  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
+
+  // If ingest already completed, skip to next stage
+  if (metadata.stages.ingest) {
+    console.log(`[Ingest Stage] Resource ${task.resourceId} already ingested, skipping`);
+    const hasImages = await checkHasImages(env, task.resourceId);
+    return { ...task, type: hasImages ? 'VISION' : 'CLEANUP', url: undefined, sourceKey: undefined };
   }
 
   const { buffer, mimeType } = await fetchDocumentBuffer(task, env);
@@ -349,6 +349,8 @@ export async function runVisionStage(task: QueueMessage, env: Env): Promise<Queu
   if (!env.OPENAI_API_KEY) {
     throw new Error('Missing OPENAI_API_KEY secret');
   }
+
+  // Fetch resource metadata and job ownership info
   const [resourceRow] = await db
     .select({
       metadata: resources.processingMetadata,
@@ -358,22 +360,25 @@ export async function runVisionStage(task: QueueMessage, env: Env): Promise<Queu
     .where(eq(resources.id, task.resourceId))
     .limit(1);
 
-  // Check if resource exists
   if (!resourceRow) {
     throw new Error(`Resource ${task.resourceId} was deleted during processing`);
   }
 
-  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
-
-  // Check if this stage is already done OR if another job is processing
-  // (optimistic locking via currentJobId)
-  if (metadata.stages.vision) {
-    return { ...task, type: 'CLEANUP' };
+  // CRITICAL: Check job ownership FIRST before checking stage completion
+  if (resourceRow.currentJobId && resourceRow.currentJobId !== task.jobId) {
+    console.warn(
+      `[Vision Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, ` +
+      `this job (${task.jobId}) will stop`
+    );
+    return null; // Don't queue next task - another job is handling it
   }
 
-  if (resourceRow.currentJobId && resourceRow.currentJobId !== task.jobId) {
-    console.warn(`[Vision Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, skipping`);
-    return null; // Don't queue next task - another job is handling it
+  // Parse metadata and check stage completion
+  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
+
+  if (metadata.stages.vision) {
+    console.log(`[Vision Stage] Resource ${task.resourceId} vision already completed, skipping`);
+    return { ...task, type: 'CLEANUP' };
   }
 
   const structured = await loadStructured(env, task.resourceId);
@@ -441,6 +446,8 @@ export async function runCleanupStage(task: QueueMessage, env: Env): Promise<Que
   if (!env.OPENAI_API_KEY) {
     throw new Error('Missing OPENAI_API_KEY secret');
   }
+
+  // Fetch resource metadata and job ownership info
   const [resourceRow] = await db
     .select({
       metadata: resources.processingMetadata,
@@ -454,16 +461,21 @@ export async function runCleanupStage(task: QueueMessage, env: Env): Promise<Que
     throw new Error(`Resource ${task.resourceId} was deleted during processing`);
   }
 
-  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
-
-  // Check if this stage is already done OR if another job is processing
-  if (metadata.stages.cleanup) {
-    return { ...task, type: 'METADATA' };
+  // CRITICAL: Check job ownership FIRST before checking stage completion
+  if (resourceRow.currentJobId && resourceRow.currentJobId !== task.jobId) {
+    console.warn(
+      `[Cleanup Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, ` +
+      `this job (${task.jobId}) will stop`
+    );
+    return null;
   }
 
-  if (resourceRow.currentJobId && resourceRow.currentJobId !== task.jobId) {
-    console.warn(`[Cleanup Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, skipping`);
-    return null;
+  // Parse metadata and check stage completion
+  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
+
+  if (metadata.stages.cleanup) {
+    console.log(`[Cleanup Stage] Resource ${task.resourceId} cleanup already completed, skipping`);
+    return { ...task, type: 'METADATA' };
   }
 
   const structured = await loadStructured(env, task.resourceId);
@@ -517,6 +529,7 @@ export async function runMetadataStage(task: QueueMessage, env: Env): Promise<Qu
     throw new Error('Missing OPENAI_API_KEY secret');
   }
 
+  // Fetch resource metadata and job ownership info
   const [resourceRow] = await db
     .select({
       metadata: resources.processingMetadata,
@@ -533,16 +546,21 @@ export async function runMetadataStage(task: QueueMessage, env: Env): Promise<Qu
     throw new Error(`Resource ${task.resourceId} was deleted during processing`);
   }
 
-  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
-
-  // Check if this stage is already done OR if another job is processing
-  if (metadata.stages.metadata) {
-    return { ...task, type: 'EMBED' };
+  // CRITICAL: Check job ownership FIRST before checking stage completion
+  if (resourceRow.currentJobId && resourceRow.currentJobId !== task.jobId) {
+    console.warn(
+      `[Metadata Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, ` +
+      `this job (${task.jobId}) will stop`
+    );
+    return null;
   }
 
-  if (resourceRow.currentJobId && resourceRow.currentJobId !== task.jobId) {
-    console.warn(`[Metadata Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, skipping`);
-    return null;
+  // Parse metadata and check stage completion
+  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
+
+  if (metadata.stages.metadata) {
+    console.log(`[Metadata Stage] Resource ${task.resourceId} metadata already generated, skipping`);
+    return { ...task, type: 'EMBED' };
   }
 
   const structured = await loadStructured(env, task.resourceId);
@@ -656,6 +674,8 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
   if (!env.VECTORIZE) {
     throw new Error('Missing VECTORIZE binding');
   }
+
+  // Fetch resource metadata and job ownership info
   const [resourceRow] = await db
     .select({
       metadata: resources.processingMetadata,
@@ -673,16 +693,21 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
     throw new Error(`Resource ${task.resourceId} was deleted during processing`);
   }
 
-  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
-
-  // Check if this stage is already done OR if another job is processing
-  if (metadata.stages.embed) {
-    return { ...task, type: 'FINALIZE' };
+  // CRITICAL: Check job ownership FIRST before checking stage completion
+  if (resourceRow.currentJobId && resourceRow.currentJobId !== task.jobId) {
+    console.warn(
+      `[Embed Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, ` +
+      `this job (${task.jobId}) will stop`
+    );
+    return null;
   }
 
-  if (resourceRow.currentJobId && resourceRow.currentJobId !== task.jobId) {
-    console.warn(`[Embed Stage] Resource ${task.resourceId} is being processed by job ${resourceRow.currentJobId}, skipping`);
-    return null;
+  // Parse metadata and check stage completion
+  const metadata = parseMetadata(task.resourceId, resourceRow.metadata);
+
+  if (metadata.stages.embed) {
+    console.log(`[Embed Stage] Resource ${task.resourceId} embeddings already generated, skipping`);
+    return { ...task, type: 'FINALIZE' };
   }
 
   const structured = await loadStructured(env, task.resourceId);
@@ -1096,6 +1121,9 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
     }
 
     // Step 7: Insert embeddings to Vectorize with rollback on failure
+    // Track inserted fragment IDs for potential rollback
+    const insertedFragmentIds = fragmentRecords.map(f => f.id);
+
     // Create vectors for both content and questions
     const vectorizeEntries = embeddingMap.map((mapping, embeddingIndex) => {
       const fragment = fragmentRecords[mapping.fragmentIndex];
@@ -1138,13 +1166,22 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
     try {
       await insertEmbeddings(env.VECTORIZE!, vectorizeEntries);
     } catch (vectorizeError) {
-      // Rollback: Delete the fragments we just inserted since Vectorize failed
-      console.error(`[Embed Stage] Vectorize insert failed, rolling back D1 fragments:`, vectorizeError);
+      // Rollback: Delete ONLY the specific fragments we just inserted
+      // This prevents accidentally deleting fragments from concurrent jobs
+      console.error(
+        `[Embed Stage] Vectorize insert failed, rolling back ${insertedFragmentIds.length} fragments from D1:`,
+        vectorizeError
+      );
       try {
-        await db.delete(fragments).where(eq(fragments.resourceId, task.resourceId));
-        console.log(`[Embed Stage] Successfully rolled back ${fragmentRecords.length} fragments from D1`);
+        await db.delete(fragments).where(inArray(fragments.id, insertedFragmentIds));
+        console.log(`[Embed Stage] Successfully rolled back ${insertedFragmentIds.length} fragments from D1`);
       } catch (rollbackError) {
-        console.error(`[Embed Stage] Rollback failed - orphaned fragments in D1:`, rollbackError);
+        console.error(
+          `[Embed Stage] Rollback failed - ${insertedFragmentIds.length} orphaned fragments in D1:`,
+          rollbackError
+        );
+        // Log fragment IDs for manual cleanup if needed
+        console.error(`[Embed Stage] Orphaned fragment IDs:`, insertedFragmentIds.join(', '));
       }
       throw vectorizeError; // Re-throw to mark job as failed
     }

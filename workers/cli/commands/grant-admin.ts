@@ -8,16 +8,16 @@ function escapeSql(value: string): string {
 }
 
 export async function grantAdminCommand() {
-  const args = process.argv.slice(3);
+  const args = process.argv.slice(4);
   const email = args[0];
   const isRemote = args.includes('--remote');
 
   if (!email || email.startsWith('--')) {
-    console.error('Usage: pnpm cli grant-admin <email> [--remote]');
+    console.error('Usage: pnpm cli users grant-admin <email> [--remote]');
     console.error('');
     console.error('Examples:');
-    console.error('  pnpm cli grant-admin user@example.com          # Local database');
-    console.error('  pnpm cli grant-admin user@example.com --remote # Production database');
+    console.error('  pnpm cli users grant-admin user@example.com          # Local database');
+    console.error('  pnpm cli users grant-admin user@example.com --remote # Production database');
     process.exit(1);
   }
 

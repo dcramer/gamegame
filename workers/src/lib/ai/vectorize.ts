@@ -8,6 +8,49 @@ export interface VectorEmbedding {
 }
 
 /**
+ * Retry a function with exponential backoff
+ * @param fn Function to retry
+ * @param maxRetries Maximum number of retry attempts (default: 3)
+ * @param baseDelayMs Base delay in milliseconds (default: 1000)
+ * @returns Result of the function
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  options: {
+    maxRetries?: number;
+    baseDelayMs?: number;
+    operation?: string;
+  } = {}
+): Promise<T> {
+  const { maxRetries = 3, baseDelayMs = 1000, operation = 'operation' } = options;
+  let lastError: Error | unknown;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+
+      if (attempt < maxRetries) {
+        const delayMs = baseDelayMs * Math.pow(2, attempt);
+        console.warn(
+          `[Vectorize] ${operation} failed (attempt ${attempt + 1}/${maxRetries + 1}), ` +
+          `retrying in ${delayMs}ms...`,
+          error instanceof Error ? error.message : String(error)
+        );
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
+  throw new Error(
+    `[Vectorize] ${operation} failed after ${maxRetries + 1} attempts: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`
+  );
+}
+
+/**
  * Validate and sanitize metadata to fit within Vectorize's 10KB limit
  * Vectorize has a 10KB limit per vector's metadata
  */
@@ -54,6 +97,7 @@ function validateMetadata(embedding: VectorEmbedding): VectorEmbedding {
  * Insert embeddings into Vectorize index
  * Batches automatically (max 100 vectors per request)
  * Validates metadata size to prevent silent failures
+ * Retries with exponential backoff on failure
  */
 export async function insertEmbeddings(
   index: VectorizeIndex,
@@ -66,12 +110,25 @@ export async function insertEmbeddings(
 
   for (let i = 0; i < sanitizedEmbeddings.length; i += BATCH_SIZE) {
     const batch = sanitizedEmbeddings.slice(i, i + BATCH_SIZE);
-    await index.upsert(batch);
+    const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+    const totalBatches = Math.ceil(sanitizedEmbeddings.length / BATCH_SIZE);
+
+    await retryWithBackoff(
+      async () => {
+        await index.upsert(batch);
+      },
+      {
+        maxRetries: 3,
+        baseDelayMs: 1000,
+        operation: `insert embeddings batch ${batchNumber}/${totalBatches} (${batch.length} vectors)`,
+      }
+    );
   }
 }
 
 /**
  * Delete embeddings from Vectorize index in safe batches
+ * Retries with exponential backoff on failure
  */
 export async function deleteEmbeddings(
   index: VectorizeIndex,
@@ -84,7 +141,19 @@ export async function deleteEmbeddings(
   const BATCH_SIZE = 100;
   for (let i = 0; i < embeddingIds.length; i += BATCH_SIZE) {
     const batch = embeddingIds.slice(i, i + BATCH_SIZE);
-    await index.deleteByIds(batch);
+    const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+    const totalBatches = Math.ceil(embeddingIds.length / BATCH_SIZE);
+
+    await retryWithBackoff(
+      async () => {
+        await index.deleteByIds(batch);
+      },
+      {
+        maxRetries: 3,
+        baseDelayMs: 1000,
+        operation: `delete embeddings batch ${batchNumber}/${totalBatches} (${batch.length} vectors)`,
+      }
+    );
   }
 }
 

@@ -1,8 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useChat, type UIMessage } from '@ai-sdk/react';
-import { DefaultChatTransport } from 'ai';
 import Markdown from 'react-markdown';
 import { Link } from 'react-router';
 import { Button } from './ui/button';
@@ -16,8 +14,12 @@ import {
   ImageIcon,
   MessageCircle,
   MessageCircleQuestion,
+  Search,
+  FileText,
+  Brain,
 } from 'lucide-react';
 import { apiClient } from '../../load-context';
+import { useAgentChat, type ChatMessage, type ToolCall, type ThinkingMessage } from '../hooks/useAgentChat';
 
 interface ParsedMessage {
   answer?: string;
@@ -37,8 +39,8 @@ interface ParsedMessage {
   }>;
 }
 
-// Component to render citation pill badge with tooltip
-const CitationPill = ({
+// Component to render inline citation link with tooltip
+const CitationLink = ({
   number,
   citation
 }: {
@@ -66,13 +68,13 @@ const CitationPill = ({
       <TooltipTrigger asChild>
         <a
           href={`#cite-${number}`}
-          className="inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-1.5 py-0.5 rounded no-underline transition-colors mx-0.5"
+          className="text-blue-400 hover:text-blue-300 no-underline hover:underline transition-colors cursor-pointer"
           onClick={(e) => {
             e.preventDefault();
             document.getElementById(`cite-${number}`)?.scrollIntoView({ behavior: 'smooth' });
           }}
         >
-          {number}
+          [{number}]
         </a>
       </TooltipTrigger>
       {tooltipContent && (
@@ -84,7 +86,7 @@ const CitationPill = ({
   );
 };
 
-// Component to render answer with inline citation pills
+// Component to render answer with inline citation links
 const AnswerWithCitations = ({
   answer,
   citations
@@ -92,20 +94,163 @@ const AnswerWithCitations = ({
   answer: string;
   citations?: ParsedMessage['citations'];
 }) => {
-  // Parse [1], [2], etc. and replace with citation pills
-  const parts = answer.split(/(\[\d+\])/g);
+  // Custom text renderer that handles citation links inline
+  const components = {
+    // Override text rendering to handle citations
+    p: ({ children, ...props }: any) => {
+      // Process children to replace citation patterns
+      const processChildren = (child: any): any => {
+        if (typeof child === 'string') {
+          // Split on citation patterns
+          const parts = child.split(/(\[\d+\])/g);
+          return parts.map((part, idx) => {
+            const match = part.match(/^\[(\d+)\]$/);
+            if (match) {
+              const citationNumber = parseInt(match[1], 10);
+              const citation = citations?.[citationNumber - 1];
+              return <CitationLink key={`cite-${idx}`} number={citationNumber} citation={citation} />;
+            }
+            return part;
+          });
+        }
+        return child;
+      };
+
+      // Process all children recursively
+      const processedChildren = Array.isArray(children)
+        ? children.map(processChildren)
+        : processChildren(children);
+
+      return <p {...props}>{processedChildren}</p>;
+    },
+  };
 
   return (
     <div className="prose prose-invert lg:prose-base prose-sm">
-      {parts.map((part, index) => {
-        const match = part.match(/^\[(\d+)\]$/);
-        if (match) {
-          const citationNumber = parseInt(match[1], 10);
-          const citation = citations?.[citationNumber - 1]; // Array is 0-indexed
-          return <CitationPill key={index} number={citationNumber} citation={citation} />;
+      <Markdown components={components}>{answer}</Markdown>
+    </div>
+  );
+};
+
+// Component to show tool call activity log (both active and completed)
+const ToolActivityLog = ({
+  completedToolCalls,
+  activeToolCalls,
+  isThinking
+}: {
+  completedToolCalls: ToolCall[];
+  activeToolCalls: ToolCall[];
+  isThinking: boolean;
+}) => {
+  // Combine all tool calls and sort chronologically
+  const allToolCalls = [...completedToolCalls, ...activeToolCalls].sort((a, b) => a.startTime - b.startTime);
+
+  const hasActivity = allToolCalls.length > 0 || isThinking;
+
+  if (!hasActivity) return null;
+
+  const getToolIcon = (name: string, isActive: boolean) => {
+    if (isActive) {
+      return <Spinner size="sm" className="w-3 h-3" />;
+    }
+    // Use lucide icons for tools
+    if (name === 'search_resources') return <Search className="w-3 h-3" />;
+    if (name === 'search_media') return <ImageIcon className="w-3 h-3" />;
+    if (name === 'listResources') return <FileText className="w-3 h-3" />;
+    if (name === 'getAttachment') return <ImageIcon className="w-3 h-3" />;
+    // Generic completed icon
+    return <span className="w-3 h-3 text-green-500">✓</span>;
+  };
+
+  const getToolLabel = (name: string) => {
+    if (name === 'search_resources') return 'Searching rulebook';
+    if (name === 'search_media') return 'Searching for images';
+    if (name === 'listResources') return 'Checking available resources';
+    if (name === 'getAttachment') return 'Loading image';
+    return name;
+  };
+
+  const getToolParams = (toolCall: ToolCall): string | null => {
+    const { name, args } = toolCall;
+
+    if (!args) return null;
+
+    // Format search queries
+    if (name === 'search_resources' || name === 'search_media') {
+      return args.query ? `"${args.query}"` : null;
+    }
+
+    // Format attachment ID
+    if (name === 'getAttachment') {
+      return args.attachmentId ? `#${args.attachmentId.slice(0, 8)}` : null;
+    }
+
+    // No params for listResources
+    return null;
+  };
+
+  return (
+    <div className="flex flex-col gap-3 text-xs mb-3">
+      {/* Show generic thinking indicator if no tool calls */}
+      {isThinking && allToolCalls.length === 0 && (
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Brain className="w-3 h-3 animate-pulse" />
+          <span>Thinking...</span>
+        </div>
+      )}
+
+      {/* Show all tool calls in chronological order */}
+      {allToolCalls.map((toolCall) => {
+        const isActive = !toolCall.endTime;
+        const duration = toolCall.durationMs || (toolCall.endTime ? toolCall.endTime - toolCall.startTime : null);
+
+        // Special rendering for share_thinking tool
+        if (toolCall.name === 'share_thinking') {
+          const thought = toolCall.args?.thought;
+          if (!thought) return null;
+
+          return (
+            <div
+              key={toolCall.id}
+              className="flex flex-col gap-1 p-2 bg-muted/30 rounded border border-muted text-muted-foreground"
+            >
+              <div className="flex items-center gap-1.5">
+                <Brain className="w-3 h-3 shrink-0" />
+                <span className="font-medium text-[10px] uppercase tracking-wide">Thinking</span>
+                {duration && (
+                  <span className="text-muted-foreground/50 text-[10px] ml-auto">
+                    {duration}ms
+                  </span>
+                )}
+              </div>
+              <p className="text-xs leading-relaxed">{thought}</p>
+            </div>
+          );
         }
-        // Render markdown for non-citation parts
-        return <Markdown key={index}>{part}</Markdown>;
+
+        // Regular tool rendering
+        const toolParams = getToolParams(toolCall);
+
+        return (
+          <div
+            key={toolCall.id}
+            className={`flex items-center gap-2 py-0.5 ${isActive ? 'text-muted-foreground' : 'text-muted-foreground/70'}`}
+          >
+            {getToolIcon(toolCall.name, isActive)}
+            <span className="text-xs">{getToolLabel(toolCall.name)}</span>
+            {toolParams && (
+              <span className="text-muted-foreground/60 text-[10px]">
+                {toolParams}
+              </span>
+            )}
+            {duration && (
+              <span className="text-muted-foreground/50 text-[10px] ml-auto">
+                {duration}ms
+              </span>
+            )}
+            {isActive && !duration && <span className="text-muted-foreground/50 text-[10px] ml-auto">...</span>}
+          </div>
+        );
       })}
     </div>
   );
@@ -113,25 +258,18 @@ const AnswerWithCitations = ({
 
 const SystemMessage = ({
   message,
-  isStreaming,
   isCurrent,
   onFollowUp,
   onResourceClick,
 }: {
-  message: UIMessage;
-  isStreaming: boolean;
+  message: ChatMessage;
   isCurrent: boolean;
   onFollowUp: (followUp: string) => void;
   onResourceClick: (resourceId: string) => void;
 }) => {
-  // Extract text content from message parts
-  const textContent = message.parts
-    ?.filter((part: any) => part.type === "text")
-    .map((part: any) => (part.type === "text" ? part.text : ""))
-    .join("");
+  const textContent = message.content;
 
   if (!textContent) {
-    if (isStreaming) return null;
     console.error("no text content in message", message);
     return (
       <div className="bg-destructive text-destructive-foreground font-bold p-2 lg:p-3 rounded mb-4">
@@ -144,7 +282,6 @@ const SystemMessage = ({
   try {
     parsed = JSON.parse(textContent);
   } catch (err) {
-    if (isStreaming) return null;
     console.error("invalid payload", message);
     return (
       <div className="bg-destructive text-destructive-foreground font-bold p-2 lg:p-3 rounded mb-4">
@@ -258,8 +395,8 @@ const SystemMessage = ({
                   id={`cite-${index + 1}`}
                   className="flex flex-row gap-2 items-start scroll-mt-4"
                 >
-                  <span className="inline-flex items-center justify-center bg-blue-600 text-white text-xs font-medium px-1.5 py-0.5 rounded min-w-[1.5rem] h-5">
-                    {index + 1}
+                  <span className="text-blue-400 text-sm font-medium shrink-0">
+                    [{index + 1}]
                   </span>
                   <div className="flex flex-col gap-1 flex-1">
                     <Button
@@ -316,17 +453,11 @@ const SystemMessage = ({
   );
 };
 
-const UserMessage = ({ message }: { message: UIMessage }) => {
-  // Extract text from message parts
-  const textContent = message.parts
-    ?.filter((part: any) => part.type === "text")
-    .map((part: any) => (part.type === "text" ? part.text : ""))
-    .join("");
-
+const UserMessage = ({ message }: { message: ChatMessage }) => {
   return (
     <div className="font-semibold rounded bg-muted text-muted-foreground self-end p-2 lg:p-3">
       <div className="prose prose-invert lg:prose-base prose-sm">
-        <Markdown>{textContent}</Markdown>
+        <Markdown>{message.content}</Markdown>
       </div>
     </div>
   );
@@ -359,29 +490,24 @@ export function Chat({
 
   const {
     messages,
+    toolCalls,
+    activeToolCalls,
+    isThinking,
     error,
     sendMessage,
-    status,
-  } = useChat({
-    transport: new DefaultChatTransport({
-      api: `/api/games/${game.id}/chat`,
-    }),
+    isLoading,
+  } = useAgentChat({
+    api: `/api/games/${game.id}/chat`,
+    onError: (err) => {
+      console.error('Chat error:', err);
+    },
   });
 
   const ref = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const isLoading = status === "streaming" || status === "submitted";
-
-  const visibleMessages = messages.filter(
-    (m, index) => {
-      const hasContent = m.parts && m.parts.length > 0;
-      return (
-        hasContent &&
-        (index !== messages.length - 1 || !isLoading || m.role === "user")
-      );
-    }
-  );
+  // All messages are visible with the new format
+  const visibleMessages = messages;
 
   useEffect(() => {
     setTimeout(() => ref.current?.scrollIntoView());
@@ -446,25 +572,47 @@ export function Chat({
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto mb-4 gap-6 flex flex-col">
+        <div className="flex-1 overflow-y-auto mb-4 gap-y-6 flex flex-col">
           {visibleMessages.length > 0 ? (
-            visibleMessages.map((m, index) => (
-              <div key={m.id} className="flex flex-col gap-0">
-                {m.role === 'user' ? (
-                  <UserMessage message={m} />
-                ) : (
-                  <SystemMessage
-                    message={m}
-                    isStreaming={index === visibleMessages.length - 1 && isLoading}
-                    isCurrent={index === visibleMessages.length - 1}
-                    onFollowUp={(followUp) => {
-                      sendMessage({ text: followUp });
-                    }}
-                    onResourceClick={openResource}
+            <>
+              {visibleMessages.map((m, index) => (
+                <div key={m.id} className="flex flex-col gap-0">
+                  {m.role === 'user' ? (
+                    <UserMessage message={m} />
+                  ) : (
+                    <>
+                      {/* Show tool activity BEFORE assistant response */}
+                      {m.toolCalls?.length && (
+                        <ToolActivityLog
+                          completedToolCalls={m.toolCalls}
+                          activeToolCalls={[]}
+                          isThinking={false}
+                        />
+                      )}
+                      <SystemMessage
+                        message={m}
+                        isCurrent={index === visibleMessages.length - 1}
+                        onFollowUp={(followUp) => {
+                          sendMessage(followUp);
+                        }}
+                        onResourceClick={openResource}
+                      />
+                    </>
+                  )}
+                </div>
+              ))}
+
+              {/* Show CURRENT streaming activity (only while loading) */}
+              {isLoading && (toolCalls.length > 0 || activeToolCalls.length > 0 || isThinking) && (
+                <div className="flex flex-col gap-2">
+                  <ToolActivityLog
+                    completedToolCalls={toolCalls}
+                    activeToolCalls={activeToolCalls}
+                    isThinking={isThinking}
                   />
-                )}
-              </div>
-            ))
+                </div>
+              )}
+            </>
           ) : (
             <div className="flex-1 flex flex-col gap-6 items-center justify-center text-muted-foreground lg:text-lg">
               <Dices className="w-24 h-24" />
@@ -476,7 +624,7 @@ export function Chat({
                       size="sm"
                       className="whitespace-normal text-left py-2 block h-auto"
                       onClick={() => {
-                        sendMessage({ text: question });
+                        sendMessage(question);
                       }}
                     >
                       {question}
@@ -502,7 +650,7 @@ export function Chat({
           onSubmit={(e) => {
             e.preventDefault();
             if (input.trim()) {
-              sendMessage({ text: input });
+              sendMessage(input);
               setInput("");
             }
           }}
@@ -563,7 +711,7 @@ export function Chat({
                 size="sm"
                 variant="link"
                 onClick={() => {
-                  sendMessage({ text: 'What resources are you using?' });
+                  sendMessage('What resources are you using?');
                 }}
               >
                 What are they?
