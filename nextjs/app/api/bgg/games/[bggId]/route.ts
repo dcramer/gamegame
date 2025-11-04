@@ -13,7 +13,7 @@ import { getBGGGameDetails } from '@/lib/services/bgg';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { bggId: string } }
+  props: { params: Promise<{ bggId: string }> }
 ) {
   try {
     // TODO: Add admin authentication check
@@ -22,6 +22,7 @@ export async function GET(
     //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     // }
 
+    const params = await props.params;
     const { bggId } = params;
 
     // Check if BGG API key is configured

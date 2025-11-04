@@ -27,7 +27,7 @@ function generateSlug(name: string, year?: number | null): string {
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { bggId: string } }
+  props: { params: Promise<{ bggId: string }> }
 ) {
   let uploadedImageKey: string | null = null;
 
@@ -35,6 +35,7 @@ export async function POST(
     // Require admin authentication
     await requireAdmin();
 
+    const params = await props.params;
     const { bggId } = params;
 
     // Check if BGG API key is configured

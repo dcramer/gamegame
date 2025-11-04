@@ -1,4 +1,6 @@
-import Footer from "./footer";
+'use client';
+
+import Footer from "./footer-client";
 import Header from "./header";
 
 export default function Layout({ children }: { children: React.ReactNode }) {

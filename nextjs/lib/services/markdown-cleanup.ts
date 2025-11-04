@@ -1,6 +1,6 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateText } from 'ai';
-import { getModelForTask } from '@/lib/config/models';
+import { getModel } from '@/lib/config/models';
 
 /**
  * Preprocess LaTeX formatting that commonly appears in OCR output
@@ -65,7 +65,7 @@ export async function cleanupMarkdown(
 
   try {
     const openai = createOpenAI({ apiKey: openaiApiKey });
-    const model = getModelForTask('cleanup');
+    const model = getModel('reasoning');
 
     const response = await generateText({
       model: openai(model),

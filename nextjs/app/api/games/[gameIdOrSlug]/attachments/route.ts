@@ -14,9 +14,10 @@ import { eq, or, asc } from 'drizzle-orm';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { gameIdOrSlug: string } }
+  props: { params: Promise<{ gameIdOrSlug: string }> }
 ) {
   try {
+    const params = await props.params;
     const { gameIdOrSlug } = params;
 
     // Get game to ensure it exists and get its ID
@@ -92,7 +93,7 @@ export async function GET(
       ...attachment,
       url: attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null,
       bbox: parseBbox(attachment.bbox),
-      isGoodQuality: attachment.isGoodQuality === 1 ? true : attachment.isGoodQuality === 0 ? false : null,
+      isGoodQuality: attachment.isGoodQuality === 'good' ? true : attachment.isGoodQuality === 'bad' ? false : null,
     }));
 
     return NextResponse.json(parsed);

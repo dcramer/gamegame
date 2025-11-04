@@ -14,9 +14,10 @@ import { eq, asc } from 'drizzle-orm';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { resourceId: string } }
+  props: { params: Promise<{ resourceId: string }> }
 ) {
   try {
+    const params = await props.params;
     const { resourceId } = params;
 
     const attachmentList = await db

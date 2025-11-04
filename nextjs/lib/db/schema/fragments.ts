@@ -43,6 +43,9 @@ export const fragments = pgTable(
     // HyDE: Synthetic questions (JSON array of strings)
     syntheticQuestions: jsonb('synthetic_questions').$type<string[]>(),
 
+    // Answer type classification for improved retrieval
+    answerTypes: jsonb('answer_types').$type<string[]>(),
+
     // Denormalized resource metadata for faster search context
     resourceName: text('resource_name'),
     resourceDescription: text('resource_description'),

@@ -17,9 +17,10 @@ import { requireAdmin } from '@/lib/auth/helpers';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { gameIdOrSlug: string } }
+  props: { params: Promise<{ gameIdOrSlug: string }> }
 ) {
   try {
+    const params = await props.params;
     const { gameIdOrSlug } = params;
 
     // Get game to ensure it exists and get its ID
@@ -83,12 +84,13 @@ export async function GET(
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { gameIdOrSlug: string } }
+  props: { params: Promise<{ gameIdOrSlug: string }> }
 ) {
   try {
     // Require admin authentication
     await requireAdmin();
 
+    const params = await props.params;
     const { gameIdOrSlug } = params;
 
     // Get game
@@ -139,22 +141,13 @@ export async function POST(
       id: resourceId,
       gameId: game.id,
       name,
-      description: null,
-      url: url ?? null,
-      originalFilename: file?.name ?? null,
+      url: url || sourceKey || '',
+      originalFilename: file?.name || undefined,
       status: 'pending',
       processingStage: 'pending',
-      currentJobId: null,
-      processingMetadata: null,
-      content: null,
-      version: null,
-      pdfExtractor: null,
-      processedAt: null,
-      pageCount: null,
-      imageCount: 0,
-      wordCount: 0,
+      currentJobId: undefined,
+      processingMetadata: undefined,
       resourceType: 'rulebook',
-      edition: null,
     });
 
     // Trigger processing workflow

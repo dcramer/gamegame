@@ -18,9 +18,10 @@ import { requireAdmin } from '@/lib/auth/helpers';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { resourceId: string } }
+  props: { params: Promise<{ resourceId: string }> }
 ) {
   try {
+    const params = await props.params;
     const { resourceId } = params;
 
     const [resource] = await db
@@ -87,12 +88,13 @@ const updateResourceSchema = z.object({
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { resourceId: string } }
+  props: { params: Promise<{ resourceId: string }> }
 ) {
   try {
     // Require admin authentication
     await requireAdmin();
 
+    const params = await props.params;
     const { resourceId } = params;
     const body = await request.json();
     const data = updateResourceSchema.parse(body);
@@ -125,7 +127,7 @@ export async function PATCH(
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Validation error', details: error.errors },
+        { error: 'Validation error', details: error.issues },
         { status: 400 }
       );
     }
@@ -144,12 +146,13 @@ export async function PATCH(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { resourceId: string } }
+  props: { params: Promise<{ resourceId: string }> }
 ) {
   try {
     // Require admin authentication
     await requireAdmin();
 
+    const params = await props.params;
     const { resourceId } = params;
 
     // Collect data for cleanup before deletion

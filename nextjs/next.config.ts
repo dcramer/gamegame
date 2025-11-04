@@ -1,8 +1,8 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  cacheComponents: true, // Partial prerendering (moved from experimental)
   experimental: {
-    ppr: true, // Partial prerendering
     serverActions: {
       bodySizeLimit: '10mb', // For file uploads
     },

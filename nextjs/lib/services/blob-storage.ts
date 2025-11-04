@@ -284,7 +284,7 @@ async function deleteFromStorage(blobKey: string): Promise<void> {
 /**
  * List files with prefix
  */
-async function listFiles(prefix: string): Promise<string[]> {
+export async function listFiles(prefix: string): Promise<string[]> {
   const backend = getStorageBackend();
 
   if (backend === 'vercel-blob') {

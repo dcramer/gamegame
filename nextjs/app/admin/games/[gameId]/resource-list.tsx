@@ -10,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Spinner } from "@/components/ui/spinner";
 import {
   deleteResource,
   createResource,
@@ -18,7 +19,7 @@ import {
 import { nanoid } from "@/lib/utils";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { upload } from "@/lib/uploads/client";
 import { useFlashMessages } from "@/components/flashMessages";
 import { useProcessing } from "@/components/processing-provider";
@@ -41,6 +42,9 @@ type ActiveResource = {
   hasContent: boolean;
   pdfExtractor?: string | null;
   processedAt?: number | null;
+  status?: string | null;
+  processingStage?: string | null;
+  currentJobId?: string | null;
   stats?: {
     fragmentCount: number;
     pageCount: number | null;
@@ -64,6 +68,9 @@ export default function ResourceList({
     hasContent: boolean;
     pdfExtractor?: string | null;
     processedAt?: number | null;
+    status?: string | null;
+    processingStage?: string | null;
+    currentJobId?: string | null;
     stats?: {
       fragmentCount: number;
       pageCount: number | null;
@@ -73,10 +80,15 @@ export default function ResourceList({
   }[];
 }) {
   const router = useRouter();
+  const { flash } = useFlashMessages();
+  const { runTask } = useProcessing();
 
   const [allResources, setAllResources] = useState<AnyResource[]>(
     resourceList.map((r) => ({ ...r, pending: false, error: null }))
   );
+
+  // Track resources that need polling (status is "processing")
+  const [processingResources, setProcessingResources] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setAllResources((prevResources) => {
@@ -94,44 +106,116 @@ export default function ResourceList({
         ...pendingResources,
       ];
     });
+
+    // Update processing resources set
+    const processingIds = new Set(
+      resourceList
+        .filter((r) => r.status === "processing" || r.status === "queued")
+        .map((r) => r.id)
+    );
+    setProcessingResources(processingIds);
   }, [resourceList]);
 
+  // Poll for resource status updates
+  const checkResourceStatus = useCallback(async (resourceId: string) => {
+    try {
+      const response = await fetch(`/api/resources/${resourceId}`);
+      if (!response.ok) {
+        console.error(`Failed to check status for resource ${resourceId}`);
+        return null;
+      }
+      return await response.json();
+    } catch (error) {
+      console.error(`Error checking resource status ${resourceId}:`, error);
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (processingResources.size === 0) return;
+
+    const interval = setInterval(async () => {
+      const updates: { resourceId: string; shouldRemove: boolean; shouldRefresh: boolean }[] = [];
+
+      for (const resourceId of processingResources) {
+        const resource = await checkResourceStatus(resourceId);
+
+        if (!resource) continue;
+
+        if (resource.status === "ready" || resource.status === "completed") {
+          updates.push({ resourceId, shouldRemove: true, shouldRefresh: true });
+          flash(`Resource processed successfully!`, "success", { removeAfter: 5000 });
+        } else if (resource.status === "failed") {
+          updates.push({ resourceId, shouldRemove: true, shouldRefresh: false });
+          flash(`Resource processing failed`, "error", { removeAfter: 8000 });
+        }
+      }
+
+      if (updates.length > 0) {
+        // Remove completed/failed resources from processing set
+        setProcessingResources((prev) => {
+          const next = new Set(prev);
+          updates.forEach(({ resourceId, shouldRemove }) => {
+            if (shouldRemove) next.delete(resourceId);
+          });
+          return next;
+        });
+
+        // Refresh the page to show updated data
+        if (updates.some(({ shouldRefresh }) => shouldRefresh)) {
+          router.refresh();
+        }
+      }
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [processingResources, checkResourceStatus, flash, router]);
+
   const handleAddResource = async (resource: PendingResource) => {
-    const message = flash(`Processing resource ${resource.name}...`, "info", {
+    const message = flash(`Uploading resource ${resource.name}...`, "info", {
       removeAfter: null,
     });
 
-    const newBlob = await upload(resource.file.name, resource.file, {
-      access: "public",
-      handleUploadUrl: "/api/resources/upload",
-      clientPayload: JSON.stringify({
-        gameId,
-        resourceId: resource.id,
-        name: resource.name,
-      }),
-    });
-
     try {
-      const newResource = await runTask(
-        `Processing ${resource.name}`,
-        createResource({
-          id: resource.id,
-          name: resource.name,
+      const newBlob = await upload(resource.file.name, resource.file, {
+        access: "public",
+        handleUploadUrl: "/api/resources/upload",
+        clientPayload: JSON.stringify({
           gameId,
-          url: newBlob.url,
-        })
-      );
-
-      setAllResources((prev) =>
-        prev.map((r) =>
-          r.id === resource.id
-            ? { ...newResource, pending: false, error: null }
-            : r
-        )
-      );
-      message.update(`Resource ${resource.name} saved.`, "success", {
-        removeAfter: 8000,
+          resourceId: resource.id,
+          name: resource.name,
+        }),
       });
+
+      const result = await createResource({
+        id: resource.id,
+        name: resource.name,
+        gameId,
+        url: newBlob.url,
+      });
+
+      if (result.status === "processing") {
+        // Add to processing set for polling
+        setProcessingResources((prev) => new Set(prev).add(result.id));
+
+        message.update(
+          `Resource ${resource.name} queued for processing. This may take a few minutes...`,
+          "info",
+          { removeAfter: 8000 }
+        );
+
+        // Remove from pending list and refresh to show processing status
+        setAllResources((prev) => prev.filter((r) => r.id !== resource.id));
+        router.refresh();
+      } else {
+        // Unexpected immediate completion (shouldn't happen but handle it)
+        message.update(`Resource ${resource.name} processed successfully.`, "success", {
+          removeAfter: 5000,
+        });
+
+        setAllResources((prev) => prev.filter((r) => r.id !== resource.id));
+        router.refresh();
+      }
     } catch (err: unknown) {
       setAllResources((prev) =>
         prev.map((r) =>
@@ -143,9 +227,6 @@ export default function ResourceList({
       });
     }
   };
-
-  const { flash } = useFlashMessages();
-  const { runTask } = useProcessing();
 
   const handleFiles = (files: File[]) => {
     const newResources: PendingResource[] = files.map((r) => ({
@@ -240,11 +321,21 @@ export default function ResourceList({
                       </>
                     ) : resource.pending ? (
                       <em>Pending</em>
+                    ) : !resource.pending && (resource.status === "processing" || resource.status === "queued") ? (
+                      <div className="flex items-center gap-2 text-sm text-blue-500">
+                        <Spinner size="sm" />
+                        <span>
+                          Processing...
+                          {resource.processingStage && resource.processingStage !== "ready" &&
+                            ` (${resource.processingStage})`
+                          }
+                        </span>
+                      </div>
                     ) : null}
-                    {!resource.hasContent ? (
+                    {!resource.hasContent && !resource.pending && resource.status !== "processing" && resource.status !== "queued" ? (
                       <div className="text-red-400">Missing Content</div>
                     ) : null}
-                    {!resource.pending && resource.pdfExtractor && (
+                    {!resource.pending && resource.pdfExtractor && resource.status !== "processing" && resource.status !== "queued" && (
                       <div className="text-xs text-muted-foreground mt-1">
                         Processed with {resource.pdfExtractor}
                         {stats && ` - ${stats}`}
@@ -264,7 +355,7 @@ export default function ResourceList({
                     <Button
                       size="sm"
                       variant="secondary"
-                      disabled={resource.pending}
+                      disabled={resource.pending || (!resource.pending && (resource.status === "processing" || resource.status === "queued"))}
                       onClick={async (e) => {
                         e.stopPropagation();
 
@@ -273,41 +364,38 @@ export default function ResourceList({
                           "info",
                           { removeAfter: null }
                         );
-                        let newResource;
+
                         try {
-                          newResource = await runTask(
-                            `Reprocessing ${resource.name}`,
-                            reprocessResource(resource.id)
-                          );
-                          // TODO: where the hell is the error???? a 504 timeout in prod
-                          // seems to just fail silently here
-                          if (!newResource) {
-                            throw new Error("Failed to reprocess resource");
+                          const result = await reprocessResource(resource.id);
+
+                          if (result.status === "processing") {
+                            // Add to processing set for polling
+                            setProcessingResources((prev) => new Set(prev).add(result.id));
+
+                            message.update(
+                              `Resource ${resource.name} queued for reprocessing. This may take a few minutes...`,
+                              "info",
+                              { removeAfter: 8000 }
+                            );
+
+                            // Refresh to show processing status
+                            router.refresh();
+                          } else {
+                            // Unexpected immediate completion
+                            message.update(
+                              `Resource ${resource.name} reprocessed successfully.`,
+                              "success",
+                              { removeAfter: 5000 }
+                            );
+                            router.refresh();
                           }
                         } catch (err: unknown) {
                           message.update(
                             `Error reprocessing ${resource.name}.`,
                             "error",
-                            {
-                              removeAfter: 8000,
-                            }
+                            { removeAfter: 8000 }
                           );
-                          throw err;
                         }
-                        setAllResources((prev) =>
-                          prev.map((r) =>
-                            r.id === resource.id
-                              ? { ...newResource, error: null, pending: false }
-                              : r
-                          )
-                        );
-                        message.update(
-                          `Resource ${resource.name} updated.`,
-                          "success",
-                          {
-                            removeAfter: 8000,
-                          }
-                        );
                       }}
                     >
                       Reprocess

@@ -46,9 +46,10 @@ function parseBbox(bboxValue: any): number[] | undefined {
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { attachmentId: string } }
+  props: { params: Promise<{ attachmentId: string }> }
 ) {
   try {
+    const params = await props.params;
     const { attachmentId } = params;
 
     const [attachment] = await db
@@ -106,12 +107,13 @@ const updateAttachmentSchema = z.object({
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { attachmentId: string } }
+  props: { params: Promise<{ attachmentId: string }> }
 ) {
   try {
     // Require admin authentication
     await requireAdmin();
 
+    const params = await props.params;
     const { attachmentId } = params;
     const body = await request.json();
     const data = updateAttachmentSchema.parse(body);
@@ -150,7 +152,7 @@ export async function PATCH(
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Validation error', details: error.errors },
+        { error: 'Validation error', details: error.issues },
         { status: 400 }
       );
     }

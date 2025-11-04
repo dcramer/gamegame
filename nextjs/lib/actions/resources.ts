@@ -26,6 +26,7 @@ import path from "node:path";
 import { env } from "../env.mjs";
 import type { PDFImage } from "../types/pdf";
 import { logger, logTiming } from "../logger";
+import { nanoid } from "nanoid";
 
 /**
  * Fetch file content, handling both absolute URLs and relative paths
@@ -55,13 +56,12 @@ export const createResource = async (input: {
   name: string;
   url: string;
 }) => {
-  const endTimer = logTiming("resource-processing");
   const log = logger.child({
     operation: "createResource",
     resourceName: input.name,
     gameId: input.gameId
   });
-  log.info("Starting resource processing");
+  log.info("Starting async resource processing");
 
   await requireAdmin();
 
@@ -71,138 +71,82 @@ export const createResource = async (input: {
     throw new Error(`Unable to determine file type for "${input.name}". Please ensure the file has a valid extension (e.g., .pdf).`);
   }
 
-  const content = await fetchFileContent(input.url);
-
-  let extractionResult;
-  switch (mimeType) {
-    case "application/pdf":
-      extractionResult = await extractTextFromPdf(content);
-      break;
-    default:
-      throw new Error(`Unsupported mime type: ${mimeType}. Only PDF files are currently supported.`);
+  if (mimeType !== "application/pdf") {
+    throw new Error(`Unsupported mime type: ${mimeType}. Only PDF files are currently supported.`);
   }
 
-  let newContent = extractionResult.text;
-  const structured = extractionResult.structured;
+  // Generate resource ID
+  const resourceId = input.id ?? nanoid();
 
-  // Enrich images with vision analysis (descriptions and quality assessment)
-  if (structured) {
-    // Fetch game name for context
-    const [game] = await db
-      .select({ name: games.name })
-      .from(games)
-      .where(eq(games.id, input.gameId))
-      .limit(1);
+  // Fetch game name for workflow context
+  const [game] = await db
+    .select({ name: games.name })
+    .from(games)
+    .where(eq(games.id, input.gameId))
+    .limit(1);
 
-    log.info("Starting vision analysis for extracted images");
-    await enrichPDFImagesWithVision(structured, game?.name);
-    log.info("Vision analysis completed");
-
-    // Rebuild markdown text after vision analysis (may have removed bad images)
-    const { rebuildMarkdownFromPages } = await import("../pdf");
-    newContent = rebuildMarkdownFromPages(structured);
-    log.debug("Rebuilt markdown text from structured pages");
+  if (!game) {
+    throw new Error(`Game ${input.gameId} not found`);
   }
 
-  const parsedInput = insertResourceSchema.parse({
-    ...input,
+  // Create resource record with 'processing' status
+  await db.insert(resources).values({
+    id: resourceId,
+    gameId: input.gameId,
+    name: input.name,
+    url: input.url,
+    content: "",
     version: 0,
-    content: newContent,
+    status: "processing",
+    processingStage: "ingest",
   });
 
-  // Step 1: Upload images to blob storage BEFORE transaction to avoid leaks
-  const uploadedBlobs = await uploadResourceImages(structured, input.id || 'temp');
+  // Trigger Vercel Workflow asynchronously via API route
+  const workflowUrl = `${env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/workflows/process-resource`;
 
-  // Step 2: Start transaction and create DB records
-  let resource;
   try {
-    resource = await db.transaction(async (tx) => {
-      // Set transaction timeout to prevent long-running locks
-      await tx.execute(sql`SET LOCAL statement_timeout = '60s'`);
-
-      // Create resource first to get ID
-      const now = Date.now();
-      const [resource] = await tx
-        .insert(resources)
-        .values({
-          ...parsedInput,
-          version: 0, // Will update after embeddings
-          pdfExtractor: "mistral",
-          processedAt: now,
-        })
-        .returning();
-
-      if (!resource) {
-        throw new Error("Failed to create resource");
-      }
-
-      // Process content: attachments, embeddings, and fragments
-      const { finalContent, embeddings, version } = await processResourceContent(
-        newContent,
-        structured,
-        uploadedBlobs,
-        input.gameId,
-        resource.id,
-        tx
-      );
-
-      // Calculate stats from structured content
-      const stats = calculateResourceStats(newContent, structured);
-
-      // Update resource with correct version, stats, and final content with database IDs
-      const [updatedResource] = await tx
-        .update(resources)
-        .set({
-          content: finalContent,
-          version,
-          ...stats,
-        })
-        .where(eq(resources.id, resource.id))
-        .returning({
-          id: resources.id,
-          name: resources.name,
-          url: resources.url,
-          version: resources.version,
-          pdfExtractor: resources.pdfExtractor,
-          processedAt: resources.processedAt,
-          pageCount: resources.pageCount,
-          imageCount: resources.imageCount,
-          wordCount: resources.wordCount,
-        });
-
-      return [updatedResource, embeddings.length] as const;
+    const response = await fetch(workflowUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        resourceId,
+        gameId: input.gameId,
+        gameName: game.name,
+        name: input.name,
+        url: input.url,
+      }),
     });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(`Failed to start workflow: ${response.status} ${error.error || response.statusText}`);
+    }
+
+    const result = await response.json();
+    log.info({ jobId: result.jobId }, "Workflow started successfully");
+
+    return {
+      id: resourceId,
+      name: input.name,
+      url: input.url,
+      status: "processing" as const,
+      jobId: result.jobId,
+    };
   } catch (error) {
-    // If transaction failed, clean up orphaned blob files
-    await cleanupBlobsOnError(uploadedBlobs, 'Resource');
+    // If workflow failed to start, mark resource as failed
+    await db
+      .update(resources)
+      .set({
+        status: "failed",
+        processingStage: "failed",
+      })
+      .where(eq(resources.id, resourceId));
+
+    log.error({ err: error }, "Failed to start workflow");
     throw error;
   }
-
-  const [newResource, fragmentCount] = resource;
-
-  endTimer({
-    fragmentCount,
-    pageCount: newResource.pageCount || 0,
-    imageCount: newResource.imageCount || 0,
-    wordCount: newResource.wordCount || 0,
-    success: true,
-  });
-
-  return {
-    id: newResource.id,
-    name: newResource.name,
-    url: newResource.url,
-    version: newResource.version,
-    pdfExtractor: newResource.pdfExtractor,
-    processedAt: newResource.processedAt,
-    hasContent: true,
-    stats: {
-      fragmentCount,
-      pageCount: newResource.pageCount,
-      imageCount: newResource.imageCount ?? 0,
-      wordCount: newResource.wordCount ?? 0,
-    },
-  };
 };
 
 export async function getResource(
@@ -283,6 +227,9 @@ export const getAllResourcesForGame = async (gameId: string) => {
       imageCount: resources.imageCount,
       wordCount: resources.wordCount,
       fragmentCount: sql<number>`count(${fragmentsTable.id})`,
+      status: resources.status,
+      processingStage: resources.processingStage,
+      currentJobId: resources.currentJobId,
     })
     .from(resources)
     .leftJoin(fragmentsTable, eq(resources.id, fragmentsTable.resourceId))
@@ -298,6 +245,9 @@ export const getAllResourcesForGame = async (gameId: string) => {
     pdfExtractor: resource.pdfExtractor,
     processedAt: resource.processedAt,
     hasContent: resource.hasContent,
+    status: resource.status,
+    processingStage: resource.processingStage,
+    currentJobId: resource.currentJobId,
     stats: {
       fragmentCount: Number(resource.fragmentCount),
       pageCount: resource.pageCount,
@@ -450,14 +400,13 @@ export const reprocessResource = async (resourceId: string) => {
     throw new Error("Resource not found");
   }
 
-  const endTimer = logTiming("resource-reprocessing");
   const log = logger.child({
     operation: "reprocessResource",
     resourceId,
     resourceName: resource.name,
     gameId: resource.gameId,
   });
-  log.info("Starting resource reprocessing");
+  log.info("Starting async resource reprocessing");
 
   const mimeType = mime.getType(resource.name);
 
@@ -465,143 +414,101 @@ export const reprocessResource = async (resourceId: string) => {
     throw new Error(`Unable to determine file type for "${resource.name}". Please ensure the file has a valid extension (e.g., .pdf).`);
   }
 
-  const content = await fetchFileContent(resource.url);
-
-  let extractionResult;
-  switch (mimeType) {
-    case "application/pdf":
-      extractionResult = await extractTextFromPdf(content);
-      break;
-    default:
-      throw new Error(`Unsupported mime type: ${mimeType}. Only PDF files are currently supported.`);
+  if (mimeType !== "application/pdf") {
+    throw new Error(`Unsupported mime type: ${mimeType}. Only PDF files are currently supported.`);
   }
 
-  let newContent = extractionResult.text;
-  const structured = extractionResult.structured;
+  // Fetch game name for workflow context
+  const [game] = await db
+    .select({ name: games.name })
+    .from(games)
+    .where(eq(games.id, resource.gameId))
+    .limit(1);
 
-  // Enrich images with vision analysis (descriptions and quality assessment)
-  if (structured) {
-    // Fetch game name for context
-    const [game] = await db
-      .select({ name: games.name })
-      .from(games)
-      .where(eq(games.id, resource.gameId))
-      .limit(1);
-
-    log.info("Starting vision analysis for extracted images");
-    await enrichPDFImagesWithVision(structured, game?.name);
-    log.info("Vision analysis completed");
-
-    // Rebuild markdown text after vision analysis (may have removed bad images)
-    const { rebuildMarkdownFromPages } = await import("../pdf");
-    newContent = rebuildMarkdownFromPages(structured);
-    log.debug("Rebuilt markdown text from structured pages");
+  if (!game) {
+    throw new Error(`Game ${resource.gameId} not found`);
   }
 
-  // Step 1: Get old attachments for cleanup (before transaction)
-  const oldAttachments = await db
-    .select({ id: attachments.id, url: attachments.url })
-    .from(attachments)
-    .where(eq(attachments.resourceId, resource.id));
+  // Delete old fragments and attachments before starting reprocess
+  // This ensures we don't have duplicate data during processing
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(fragmentsTable)
+      .where(eq(fragmentsTable.resourceId, resourceId));
 
-  // Step 2: Upload new images to blob storage BEFORE transaction
-  const uploadedBlobs = await uploadResourceImages(structured, resource.id);
+    const oldAttachments = await tx
+      .select({ url: attachments.url })
+      .from(attachments)
+      .where(eq(attachments.resourceId, resourceId));
 
-  // Step 3: Transaction - update DB
-  let result;
-  try {
-    result = await db.transaction(async (tx) => {
-      // Set transaction timeout to prevent long-running locks
-      await tx.execute(sql`SET LOCAL statement_timeout = '60s'`);
-
-      // Delete old attachments (CASCADE will not work here since we're updating, not deleting resource)
-      if (oldAttachments.length > 0) {
-        await tx
-          .delete(attachments)
-          .where(eq(attachments.resourceId, resource.id));
-      }
-
-      // Delete old fragments
+    if (oldAttachments.length > 0) {
       await tx
-        .delete(fragmentsTable)
-        .where(eq(fragmentsTable.resourceId, resource.id));
+        .delete(attachments)
+        .where(eq(attachments.resourceId, resourceId));
 
-      // Process content: attachments, embeddings, and fragments
-      const { finalContent, embeddings, version } = await processResourceContent(
-        newContent,
-        structured,
-        uploadedBlobs,
-        resource.gameId,
-        resource.id,
-        tx
-      );
-
-      // Calculate stats from structured content
-      const stats = calculateResourceStats(newContent, structured);
-
-      const now = Date.now();
-      const [newResource] = await tx
-        .update(resources)
-        .set({
-          content: finalContent,
-          version,
-          pdfExtractor: "mistral",
-          processedAt: now,
-          updatedAt: now,
-          ...stats,
-        })
-        .where(eq(resources.id, resourceId))
-        .returning({
-          id: resources.id,
-          name: resources.name,
-          url: resources.url,
-          version: resources.version,
-          pdfExtractor: resources.pdfExtractor,
-          processedAt: resources.processedAt,
-          pageCount: resources.pageCount,
-          imageCount: resources.imageCount,
-          wordCount: resources.wordCount,
-        });
-
-      return [newResource, embeddings.length] as const;
-    });
-  } catch (error) {
-    // If transaction failed, clean up newly uploaded blob files
-    await cleanupBlobsOnError(uploadedBlobs, 'Reprocess');
-    throw error;
-  }
-
-  // Step 4: Delete old blob files after successful transaction
-  const [newResource, embeddingCount] = result;
-  if (oldAttachments.length > 0) {
-    const oldBlobUrls = oldAttachments.map((a) => a.url);
-    await deleteImages(oldBlobUrls).catch((cleanupError) => {
-      log.error({ err: cleanupError }, "Failed to cleanup old blobs");
-      // Don't fail the operation if cleanup fails
-    });
-  }
-
-  endTimer({
-    fragmentCount: embeddingCount,
-    pageCount: newResource.pageCount || 0,
-    imageCount: newResource.imageCount || 0,
-    wordCount: newResource.wordCount || 0,
-    success: true,
+      // Clean up old blob files in background
+      const oldBlobUrls = oldAttachments.map((a) => a.url);
+      deleteImages(oldBlobUrls).catch((cleanupError) => {
+        log.error({ err: cleanupError }, "Failed to cleanup old blobs");
+      });
+    }
   });
 
-  return {
-    id: newResource.id,
-    name: newResource.name,
-    url: newResource.url,
-    version: newResource.version,
-    pdfExtractor: newResource.pdfExtractor,
-    processedAt: newResource.processedAt,
-    hasContent: true,
-    stats: {
-      fragmentCount: embeddingCount,
-      pageCount: newResource.pageCount,
-      imageCount: newResource.imageCount ?? 0,
-      wordCount: newResource.wordCount ?? 0,
-    },
-  };
+  // Update resource status to 'processing'
+  await db
+    .update(resources)
+    .set({
+      status: "processing",
+      processingStage: "ingest",
+      content: "",
+      version: 0,
+    })
+    .where(eq(resources.id, resourceId));
+
+  // Trigger Vercel Workflow asynchronously via API route
+  const workflowUrl = `${env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/workflows/process-resource`;
+
+  try {
+    const response = await fetch(workflowUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        resourceId,
+        gameId: resource.gameId,
+        gameName: game.name,
+        name: resource.name,
+        url: resource.url,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(`Failed to start workflow: ${response.status} ${error.error || response.statusText}`);
+    }
+
+    const result = await response.json();
+    log.info({ jobId: result.jobId }, "Reprocessing workflow started successfully");
+
+    return {
+      id: resourceId,
+      name: resource.name,
+      url: resource.url,
+      status: "processing" as const,
+      jobId: result.jobId,
+    };
+  } catch (error) {
+    // If workflow failed to start, mark resource as failed
+    await db
+      .update(resources)
+      .set({
+        status: "failed",
+        processingStage: "failed",
+      })
+      .where(eq(resources.id, resourceId));
+
+    log.error({ err: error }, "Failed to start reprocessing workflow");
+    throw error;
+  }
 };

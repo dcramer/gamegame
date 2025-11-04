@@ -1,5 +1,4 @@
 CREATE EXTENSION IF NOT EXISTS vector;--> statement-breakpoint
-CREATE EXTENSION IF NOT EXISTS postgis;--> statement-breakpoint
 CREATE TABLE "attachments" (
 	"id" varchar(191) PRIMARY KEY NOT NULL,
 	"game_id" varchar(191) NOT NULL,

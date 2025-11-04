@@ -1,7 +1,7 @@
 import { embed, embedMany } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 
-export const CURRENT_INDEX_VERSION = 4; // Incremented for chunk size increase (1000 → 2500)
+export const CURRENT_INDEX_VERSION = 5; // Incremented for HyDE question embeddings and answer type classification
 
 const getEmbeddingModel = (apiKey: string) => {
   if (!apiKey) {

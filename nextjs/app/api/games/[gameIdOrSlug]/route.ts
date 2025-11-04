@@ -26,9 +26,10 @@ const updateGameSchema = z.object({
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { gameIdOrSlug: string } }
+  props: { params: Promise<{ gameIdOrSlug: string }> }
 ) {
   try {
+    const params = await props.params;
     const { gameIdOrSlug } = params;
 
     // Support both slug and ID lookups
@@ -80,12 +81,13 @@ export async function GET(
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { gameIdOrSlug: string } }
+  props: { params: Promise<{ gameIdOrSlug: string }> }
 ) {
   try {
     // Require admin authentication
     await requireAdmin();
 
+    const params = await props.params;
     const { gameIdOrSlug } = params;
     const body = await request.json();
     const data = updateGameSchema.parse(body);
@@ -143,7 +145,7 @@ export async function PATCH(
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Validation error', details: error.errors },
+        { error: 'Validation error', details: error.issues },
         { status: 400 }
       );
     }
@@ -162,12 +164,13 @@ export async function PATCH(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { gameIdOrSlug: string } }
+  props: { params: Promise<{ gameIdOrSlug: string }> }
 ) {
   try {
     // Require admin authentication
     await requireAdmin();
 
+    const params = await props.params;
     const { gameIdOrSlug } = params;
 
     // Check if game exists

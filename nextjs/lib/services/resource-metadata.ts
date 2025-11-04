@@ -1,6 +1,6 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateText } from 'ai';
-import { getModelForTask } from '@/lib/config/models';
+import { getModel } from '@/lib/config/models';
 
 export interface ResourceMetadataOptions {
   readonly existingName?: string | null;
@@ -47,7 +47,7 @@ export async function generateResourceMetadata(
 
   try {
     const openai = createOpenAI({ apiKey: openaiApiKey });
-    const model = getModelForTask('metadata');
+    const model = getModel('reasoning');
     const promptText = buildPrompt(truncated, options);
 
     console.log(
