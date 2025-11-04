@@ -1,3 +1,4 @@
+import { withWorkflow } from 'workflow/next';
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
@@ -29,4 +30,9 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// NOTE: Workflow bundler has issues with Node.js built-ins in development
+// See WORKFLOW_SETUP_NOTES.md for details
+// Workflows will work in production on Vercel without this wrapper in dev
+export default process.env.ENABLE_WORKFLOWS === 'true'
+  ? withWorkflow(nextConfig)
+  : nextConfig;
