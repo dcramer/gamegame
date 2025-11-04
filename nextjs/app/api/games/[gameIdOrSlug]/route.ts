@@ -10,6 +10,7 @@ import { db } from '@/lib/db';
 import { games, resources, fragments, attachments, embeddings } from '@/lib/db/schema';
 import { eq, or, inArray } from 'drizzle-orm';
 import { z } from 'zod';
+import { requireAdmin } from '@/lib/auth/helpers';
 
 // Schema for updating a game
 const updateGameSchema = z.object({
@@ -82,11 +83,8 @@ export async function PATCH(
   { params }: { params: { gameIdOrSlug: string } }
 ) {
   try {
-    // TODO: Add admin authentication check
-    // const session = await getServerSession();
-    // if (!session?.user?.isAdmin) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    // Require admin authentication
+    await requireAdmin();
 
     const { gameIdOrSlug } = params;
     const body = await request.json();
@@ -167,11 +165,8 @@ export async function DELETE(
   { params }: { params: { gameIdOrSlug: string } }
 ) {
   try {
-    // TODO: Add admin authentication check
-    // const session = await getServerSession();
-    // if (!session?.user?.isAdmin) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    // Require admin authentication
+    await requireAdmin();
 
     const { gameIdOrSlug } = params;
 

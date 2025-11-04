@@ -129,8 +129,8 @@ async function markJobFailed(jobId: string, resourceId: string, error: string) {
     .update(jobs)
     .set({
       status: 'failed',
-      error,
-      completedAt: BigInt(Date.now()),
+      error: { message: error },
+      completedAt: Date.now(),
     })
     .where(eq(jobs.id, jobId));
 
@@ -142,7 +142,7 @@ async function markJobFailed(jobId: string, resourceId: string, error: string) {
       processingStage: 'failed',
       processingMetadata: null,
       currentJobId: null,
-      updatedAt: new Date(),
+      updatedAt: Date.now(),
     })
     .where(eq(resources.id, resourceId));
 }
@@ -267,7 +267,7 @@ async function runIngestStage(input: ProcessResourceInput) {
         processingStage: 'vision',
         processingMetadata: serializeMetadata(metadata),
         currentJobId: input.jobId,
-        updatedAt: new Date(),
+        updatedAt: Date.now(),
       })
       .where(eq(resources.id, input.resourceId));
 
@@ -347,7 +347,7 @@ async function runVisionStage(input: ProcessResourceInput) {
         .set({
           processingStage: 'cleanup',
           processingMetadata: serializeMetadata(metadata),
-          updatedAt: new Date(),
+          updatedAt: Date.now(),
         })
         .where(eq(resources.id, input.resourceId));
 
@@ -365,21 +365,15 @@ async function runVisionStage(input: ProcessResourceInput) {
       }));
 
     const analysisResults = await analyzeImagesBatch(
-      imagesToAnalyze,
-      input.gameName,
-      OPENAI_API_KEY,
-      {
-        onProgress: async (processed, total) => {
-          const progressPercent = 25 + Math.floor((processed / total) * 10);
-          await db
-            .update(jobs)
-            .set({
-              currentStep: `Vision analysis: ${processed}/${total} images`,
-              progress: progressPercent,
-            })
-            .where(eq(jobs.id, input.jobId));
+      imagesToAnalyze.map(img => ({
+        buffer: Buffer.from(img.base64, 'base64'),
+        context: {
+          gameName: input.gameName,
+          pageNumber: img.pageNumber,
         },
-      }
+      })),
+      OPENAI_API_KEY,
+      {}
     );
 
     // Update structured data with vision results
@@ -390,7 +384,7 @@ async function runVisionStage(input: ProcessResourceInput) {
           const result = analysisResults[analysisIndex];
           image.description = result.description;
           image.isGoodQuality = result.quality;
-          image.caption = result.caption || image.caption;
+          // Note: ImageAnalysisResult doesn't have caption field
           analysisIndex++;
         }
       }
@@ -405,7 +399,7 @@ async function runVisionStage(input: ProcessResourceInput) {
       .set({
         processingStage: 'cleanup',
         processingMetadata: serializeMetadata(metadata),
-        updatedAt: new Date(),
+        updatedAt: Date.now(),
       })
       .where(eq(resources.id, input.resourceId));
 
@@ -513,7 +507,7 @@ async function runCleanupStage(input: ProcessResourceInput) {
       .set({
         processingStage: 'metadata',
         processingMetadata: serializeMetadata(metadata),
-        updatedAt: new Date(),
+        updatedAt: Date.now(),
       })
       .where(eq(resources.id, input.resourceId));
 
@@ -608,7 +602,7 @@ async function runMetadataStage(input: ProcessResourceInput) {
         description: resolvedDescription,
         processingStage: 'embed',
         processingMetadata: serializeMetadata(metadata),
-        updatedAt: new Date(),
+        updatedAt: Date.now(),
       })
       .where(eq(resources.id, input.resourceId));
 
@@ -692,7 +686,7 @@ async function runEmbedStage(input: ProcessResourceInput) {
       .set({
         processingStage: 'finalize',
         processingMetadata: serializeMetadata(metadata),
-        updatedAt: new Date(),
+        updatedAt: Date.now(),
       })
       .where(eq(resources.id, input.resourceId));
 
@@ -727,7 +721,7 @@ async function runFinalizeStage(input: ProcessResourceInput) {
         processingStage: 'ready',
         processingMetadata: null,
         currentJobId: null,
-        updatedAt: new Date(),
+        updatedAt: Date.now(),
       })
       .where(eq(resources.id, input.resourceId));
 
@@ -737,7 +731,7 @@ async function runFinalizeStage(input: ProcessResourceInput) {
         status: 'completed',
         currentStep: 'Processing complete',
         progress: 100,
-        completedAt: BigInt(Date.now()),
+        completedAt: Date.now(),
       })
       .where(eq(jobs.id, input.jobId));
 

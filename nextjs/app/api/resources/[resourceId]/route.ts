@@ -10,6 +10,7 @@ import { db } from '@/lib/db';
 import { resources, fragments, attachments } from '@/lib/db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { requireAdmin } from '@/lib/auth/helpers';
 
 /**
  * GET /api/resources/:resourceId
@@ -89,11 +90,8 @@ export async function PATCH(
   { params }: { params: { resourceId: string } }
 ) {
   try {
-    // TODO: Add admin authentication check
-    // const session = await getServerSession();
-    // if (!session?.user?.isAdmin) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    // Require admin authentication
+    await requireAdmin();
 
     const { resourceId } = params;
     const body = await request.json();
@@ -149,11 +147,8 @@ export async function DELETE(
   { params }: { params: { resourceId: string } }
 ) {
   try {
-    // TODO: Add admin authentication check
-    // const session = await getServerSession();
-    // if (!session?.user?.isAdmin) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    // Require admin authentication
+    await requireAdmin();
 
     const { resourceId } = params;
 

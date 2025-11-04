@@ -1,4 +1,4 @@
-import { pgTable, varchar, integer, text, bigint, index, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, integer, text, bigint, index, jsonb, vector } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { games } from './games';
@@ -28,6 +28,7 @@ export const fragments = pgTable(
       .notNull()
       .references(() => resources.id, { onDelete: 'cascade' }),
     content: text('content').notNull(),
+    embedding: vector('embedding', { dimensions: 1536 }).notNull(),
     version: integer('version').notNull().default(0),
 
     // Fragment type discrimination
@@ -72,6 +73,8 @@ export const fragments = pgTable(
     attachmentIdx: index('idx_fragments_attachment_id').on(table.attachmentId),
     // GIN index for full-text search
     searchVectorIdx: index('idx_fragments_search_vector').using('gin', sql`search_vector`),
+    // HNSW index for vector similarity search (inner product for OpenAI embeddings)
+    embeddingIdx: index('idx_fragments_embedding').using('hnsw', table.embedding.op('vector_ip_ops')),
   })
 );
 

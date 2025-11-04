@@ -58,6 +58,9 @@ export const openAI = {
     return {
       ok: true,
       status: 200,
+      headers: new Headers({
+        'content-type': 'application/json',
+      }),
       json: async () => responseData,
       text: async () => JSON.stringify(responseData),
     };
@@ -84,6 +87,9 @@ export const openAI = {
     return {
       ok: true,
       status: 200,
+      headers: new Headers({
+        'content-type': 'application/json',
+      }),
       json: async () => responseData,
       text: async () => JSON.stringify(responseData),
     };
@@ -319,6 +325,9 @@ export const openAI = {
       ok: false,
       status,
       statusText: message,
+      headers: new Headers({
+        'content-type': 'application/json',
+      }),
       text: async () => JSON.stringify({ error: { message } }),
       json: async () => ({ error: { message } }),
     };

@@ -10,6 +10,7 @@ import { games, resources } from '@/lib/db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
+import { requireAdmin } from '@/lib/auth/helpers';
 
 // Schema for creating a game
 const createGameSchema = z.object({
@@ -59,11 +60,8 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   try {
-    // TODO: Add admin authentication check
-    // const session = await getServerSession();
-    // if (!session?.user?.isAdmin) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    // Require admin authentication
+    await requireAdmin();
 
     const body = await request.json();
     const data = createGameSchema.parse(body);

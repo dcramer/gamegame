@@ -9,6 +9,8 @@ import { games } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { getBGGGameDetails, downloadImage } from '@/lib/services/bgg';
 import { nanoid } from 'nanoid';
+import { requireAdmin } from '@/lib/auth/helpers';
+import { uploadBlob, blobKeyToUrl, bulkDelete } from '@/lib/services/blob-storage';
 
 function generateSlug(name: string, year?: number | null): string {
   const slug = name
@@ -30,11 +32,8 @@ export async function POST(
   let uploadedImageKey: string | null = null;
 
   try {
-    // TODO: Add admin authentication check
-    // const session = await getServerSession();
-    // if (!session?.user?.isAdmin) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    // Require admin authentication
+    await requireAdmin();
 
     const { bggId } = params;
 
@@ -50,18 +49,14 @@ export async function POST(
     }
 
     // Fetch game details from BGG
-    const details = await getBGGGameDetails(
-      bggId,
-      db,
-      null,
-      { apiKey: process.env.BGG_API_KEY }
-    );
+    const details = await getBGGGameDetails(bggId, {
+      apiKey: process.env.BGG_API_KEY,
+    });
 
     // Download and upload image if available
     let imageUrl: string | null = null;
     if (details.imageUrl) {
       try {
-        const { uploadBlob } = await import('@/lib/services/blob-storage');
         const imageBuffer = await downloadImage(details.imageUrl);
 
         // Detect image type from buffer
@@ -85,8 +80,7 @@ export async function POST(
         await uploadBlob(uploadedImageKey, imageBuffer, contentType);
 
         // Get the public URL
-        const { getPublicUrl } = await import('@/lib/services/blob-storage');
-        imageUrl = getPublicUrl(uploadedImageKey);
+        imageUrl = blobKeyToUrl(uploadedImageKey);
       } catch (imageError) {
         console.error('[POST /api/bgg/games/:bggId/import] Image processing failed:', imageError);
         // Continue without image - user can upload manually
@@ -119,8 +113,7 @@ export async function POST(
     // Clean up uploaded image if game creation failed
     if (uploadedImageKey) {
       try {
-        const { deleteBlob } = await import('@/lib/services/blob-storage');
-        await deleteBlob(uploadedImageKey);
+        await bulkDelete([uploadedImageKey]);
       } catch (cleanupError) {
         console.error('[POST /api/bgg/games/:bggId/import] Failed to cleanup image after error:', cleanupError);
       }

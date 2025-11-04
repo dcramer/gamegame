@@ -9,6 +9,7 @@ import { db } from '@/lib/db';
 import { attachments } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { requireAdmin } from '@/lib/auth/helpers';
 
 /**
  * Helper to safely parse bbox JSON
@@ -108,11 +109,8 @@ export async function PATCH(
   { params }: { params: { attachmentId: string } }
 ) {
   try {
-    // TODO: Add admin authentication check
-    // const session = await getServerSession();
-    // if (!session?.user?.isAdmin) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    // Require admin authentication
+    await requireAdmin();
 
     const { attachmentId } = params;
     const body = await request.json();

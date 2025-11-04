@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Search BGG (without thumbnail fetching for now - too slow with rate limiting)
-    const results = await searchBGGGames(query, db, null, {
+    const results = await searchBGGGames(query, {
       fetchThumbnails: false,
       apiKey: process.env.BGG_API_KEY,
     });

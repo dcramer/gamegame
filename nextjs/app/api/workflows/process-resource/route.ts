@@ -20,9 +20,13 @@ import { db } from '@/lib/db';
 import { resources, jobs } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { requireAdmin } from '@/lib/auth/helpers';
 
 export async function POST(request: NextRequest) {
   try {
+    // Require admin authentication (internal workflow endpoint)
+    await requireAdmin();
+
     const body = await request.json();
 
     // Validate required fields
@@ -60,13 +64,12 @@ export async function POST(request: NextRequest) {
     const jobId = nanoid();
     await db.insert(jobs).values({
       id: jobId,
+      type: 'process-resource',
+      gameId,
       resourceId,
       status: 'pending',
       currentStep: 'Queued for processing',
       progress: 0,
-      createdAt: BigInt(Date.now()),
-      completedAt: null,
-      error: null,
     });
 
     // Update resource status
@@ -76,7 +79,7 @@ export async function POST(request: NextRequest) {
         status: 'processing',
         processingStage: 'ingest',
         currentJobId: jobId,
-        updatedAt: new Date(),
+        updatedAt: Date.now(),
       })
       .where(eq(resources.id, resourceId));
 
@@ -98,8 +101,11 @@ export async function POST(request: NextRequest) {
       db.update(jobs)
         .set({
           status: 'failed',
-          error: error instanceof Error ? error.message : String(error),
-          completedAt: BigInt(Date.now()),
+          error: {
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          },
+          completedAt: Date.now(),
         })
         .where(eq(jobs.id, jobId))
         .catch((err) => console.error('[Workflow] Failed to update job:', err));

@@ -9,6 +9,7 @@ import { db } from '@/lib/db';
 import { games, resources, fragments } from '@/lib/db/schema';
 import { eq, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { requireAdmin } from '@/lib/auth/helpers';
 
 /**
  * GET /api/games/:gameIdOrSlug/resources
@@ -51,6 +52,8 @@ export async function GET(
         pageCount: resources.pageCount,
         imageCount: resources.imageCount,
         wordCount: resources.wordCount,
+        resourceType: resources.resourceType,
+        edition: resources.edition,
         fragmentCount: sql<number>`COUNT(${fragments.id})`.mapWith(Number),
         createdAt: resources.createdAt,
         updatedAt: resources.updatedAt,
@@ -61,13 +64,8 @@ export async function GET(
       .groupBy(resources.id)
       .orderBy(resources.createdAt);
 
-    // Convert Date objects to ISO strings for proper JSON serialization
-    const parsed = resourceList.map((resource) => ({
-      ...resource,
-      processedAt: resource.processedAt ? resource.processedAt.toISOString() : null,
-      createdAt: resource.createdAt.toISOString(),
-      updatedAt: resource.updatedAt.toISOString(),
-    }));
+    // Resources already have bigint timestamps, no conversion needed
+    const parsed = resourceList;
 
     return NextResponse.json(parsed);
   } catch (error) {
@@ -88,11 +86,8 @@ export async function POST(
   { params }: { params: { gameIdOrSlug: string } }
 ) {
   try {
-    // TODO: Add admin authentication check
-    // const session = await getServerSession();
-    // if (!session?.user?.isAdmin) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    // Require admin authentication
+    await requireAdmin();
 
     const { gameIdOrSlug } = params;
 

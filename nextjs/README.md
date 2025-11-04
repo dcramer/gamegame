@@ -127,6 +127,9 @@ Using Vercel Workflows (Beta) instead of Cloudflare Queues:
 ### 4. Storage: Vercel Blob + KV
 
 - **Vercel Blob**: PDFs, images (replaces R2)
+  - **Local Development**: Falls back to `public/uploads/` if `BLOB_READ_WRITE_TOKEN` is not set
+  - **Production**: Uses Vercel Blob when token is available
+  - Files stored at: `resources/{resourceId}/attachments/{attachmentId}.{ext}`
 - **Vercel KV**: Rate limiting (replaces Cloudflare KV)
 - **PostgreSQL**: Job status (replaces KV)
 
@@ -170,7 +173,7 @@ Key requirements:
 - `DATABASE_URL` - PostgreSQL connection string (with pgvector extension)
 - `OPENAI_API_KEY` - For embeddings and chat
 - `MISTRAL_API_KEY` - For PDF extraction
-- `BLOB_READ_WRITE_TOKEN` - Vercel Blob storage
+- `BLOB_READ_WRITE_TOKEN` - Vercel Blob storage (optional for local dev, falls back to `public/uploads/`)
 - `AUTH_SECRET` - NextAuth secret
 - `AUTH_RESEND_KEY` - Resend API for magic links
 

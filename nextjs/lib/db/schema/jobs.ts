@@ -19,7 +19,7 @@ export type JobError = {
 export const jobs = pgTable(
   'jobs',
   {
-    id: varchar('id', { length: 191 }).primaryKey().$defaultFn(() => nanoid()),
+    id: varchar('id', { length: 191 }).primaryKey(),
     type: varchar('type', { length: 50 }).notNull(),
     resourceId: varchar('resource_id', { length: 191 }).notNull(),
     gameId: varchar('game_id', { length: 191 }).notNull(),

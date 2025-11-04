@@ -26,11 +26,14 @@ vi.mock('@/lib/services/bgg', () => ({
   }),
 }));
 
-describe('BGG API', () => {
+describe.sequential('BGG API', () => {
   beforeEach(async () => {
     // Clean up test data
     await db.delete(games).where(eq(games.bggId, '224517'));
     await db.delete(games).where(eq(games.bggId, '12345'));
+    // Also clean up by slug to avoid conflicts
+    await db.delete(games).where(eq(games.slug, 'test-game-2020'));
+    await db.delete(games).where(eq(games.slug, 'brass-birmingham'));
   });
 
   describe('GET /api/bgg/extract-id', () => {

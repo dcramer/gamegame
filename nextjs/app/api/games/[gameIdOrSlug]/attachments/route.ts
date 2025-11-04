@@ -41,7 +41,6 @@ export async function GET(
         resourceName: resources.name,
         type: attachments.type,
         blobKey: attachments.blobKey,
-        url: attachments.url,
         mimeType: attachments.mimeType,
         originalFilename: attachments.originalFilename,
         pageNumber: attachments.pageNumber,
@@ -59,25 +58,41 @@ export async function GET(
       .orderBy(asc(resources.name), asc(attachments.pageNumber), asc(attachments.createdAt));
 
     // Helper to parse bbox JSON safely
-    function parseBbox(bboxValue: string | null | undefined): number[] | undefined {
+    function parseBbox(bboxValue: any): number[] | undefined {
       if (!bboxValue) return undefined;
-      try {
-        const parsed = JSON.parse(typeof bboxValue === 'string' ? bboxValue : String(bboxValue));
-        if (Array.isArray(parsed) && parsed.every((v) => typeof v === 'number')) {
-          return parsed;
+
+      // If it's already an array, return it
+      if (Array.isArray(bboxValue)) {
+        if (bboxValue.every((v) => typeof v === 'number')) {
+          return bboxValue;
         }
         return undefined;
-      } catch {
-        return undefined;
       }
+
+      // If it's a string, try to parse it
+      if (typeof bboxValue === 'string') {
+        try {
+          const parsed = JSON.parse(bboxValue);
+          if (Array.isArray(parsed) && parsed.every((v) => typeof v === 'number')) {
+            return parsed;
+          }
+        } catch {
+          return undefined;
+        }
+      }
+
+      return undefined;
     }
+
+    // Get public URLs for attachments
+    const { blobKeyToUrl } = await import('@/lib/services/blob-storage');
 
     // Convert to proper format
     const parsed = attachmentsList.map((attachment) => ({
       ...attachment,
+      url: attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null,
       bbox: parseBbox(attachment.bbox),
       isGoodQuality: attachment.isGoodQuality === 1 ? true : attachment.isGoodQuality === 0 ? false : null,
-      createdAt: attachment.createdAt ? attachment.createdAt.toISOString() : new Date().toISOString(),
     }));
 
     return NextResponse.json(parsed);

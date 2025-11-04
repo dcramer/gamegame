@@ -1,4 +1,6 @@
 import { pgTable, varchar, integer, text, timestamp, index, bigint } from 'drizzle-orm/pg-core';
+import { createInsertSchema } from 'drizzle-zod';
+import { z } from 'zod';
 import { nanoid } from 'nanoid';
 
 export const games = pgTable(
@@ -26,3 +28,29 @@ export const games = pgTable(
 
 export type Game = typeof games.$inferSelect;
 export type NewGame = typeof games.$inferInsert;
+
+// Zod schema for creating/inserting games
+const baseInsertGameSchema = createInsertSchema(games);
+
+export const insertGameSchema = baseInsertGameSchema
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+    slug: true, // Generated from name
+  })
+  .extend({
+    // Accept absolute URLs (https://...) or relative paths (/uploads/...)
+    imageUrl: z
+      .string()
+      .trim()
+      .refine(
+        (val) => val.startsWith('/') || val.startsWith('http://') || val.startsWith('https://'),
+        'Must be a valid URL or path'
+      )
+      .nullable()
+      .optional(),
+    bggUrl: z.string().trim().url().nullable().optional(),
+  }) as z.ZodType<Omit<NewGame, 'id' | 'createdAt' | 'updatedAt' | 'slug'>>;
+
+export type NewGameParams = z.infer<typeof insertGameSchema>;

@@ -35,12 +35,9 @@ export async function GET(
       );
     }
 
-    const details = await getBGGGameDetails(
-      bggId,
-      db,
-      null,
-      { apiKey: process.env.BGG_API_KEY }
-    );
+    const details = await getBGGGameDetails(bggId, {
+      apiKey: process.env.BGG_API_KEY,
+    });
 
     return NextResponse.json(details);
   } catch (error) {

@@ -260,23 +260,24 @@ export async function findRelevantContent(
   if (enableFTS) {
     const ftsQuery = prepareSearchQuery(userQuery);
 
-    // Build FTS query
-    let ftsQueryBuilder = db
-      .select({
-        id: fragments.id,
-        rank: sql<number>`ts_rank_cd(${fragments.searchVector}, websearch_to_tsquery('english', ${ftsQuery}))`,
-      })
-      .from(fragments)
-      .where(
-        sql`${fragments.gameId} = ${gameId} AND ${fragments.searchVector} @@ websearch_to_tsquery('english', ${ftsQuery})`
-      );
+    // Build FTS where conditions
+    const ftsConditions = [
+      sql`${fragments.gameId} = ${gameId}`,
+      sql`${fragments.searchVector} @@ websearch_to_tsquery('english', ${ftsQuery})`
+    ];
 
     if (options.fragmentType) {
-      ftsQueryBuilder = ftsQueryBuilder.where(eq(fragments.type, options.fragmentType)) as any;
+      ftsConditions.push(eq(fragments.type, options.fragmentType));
     }
 
     searches.push(
-      ftsQueryBuilder
+      db
+        .select({
+          id: fragments.id,
+          rank: sql<number>`ts_rank_cd(${fragments.searchVector}, websearch_to_tsquery('english', ${ftsQuery}))`,
+        })
+        .from(fragments)
+        .where(sql.join(ftsConditions, sql` AND `))
         .orderBy(sql`ts_rank_cd(${fragments.searchVector}, websearch_to_tsquery('english', ${ftsQuery})) DESC`)
         .limit(candidateCount)
     );
@@ -316,13 +317,13 @@ export async function findRelevantContent(
   const ftsWeight = 1.0;
 
   // Build rank maps
-  const contentRanks = new Map(
+  const contentRanks = new Map<string, number>(
     contentMatches.map((r: any, index: number) => [r.fragmentId, index])
   );
-  const questionRanks = new Map(
+  const questionRanks = new Map<string, number>(
     questionMatches.map((r: any, index: number) => [r.fragmentId, index])
   );
-  const ftsRanks = new Map(
+  const ftsRanks = new Map<string, number>(
     ftsMatches.map((r: any, index: number) => [r.id, index])
   );
 

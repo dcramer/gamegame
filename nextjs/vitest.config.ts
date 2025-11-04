@@ -9,7 +9,7 @@ export default defineConfig({
     exclude: ['node_modules', 'dist', '.next'],
     globals: true,
     environment: 'node',
-    setupFiles: ['./tests/setup.ts'],
+    setupFiles: ['./tests/mocks/next-server-mock.ts', './tests/setup.ts'],
     fileParallelism: false, // Run test files sequentially to avoid DB conflicts
     env: {
       DATABASE_URL: 'postgresql://postgres:postgres@localhost:5433/test_gamegame',

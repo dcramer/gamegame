@@ -19,6 +19,7 @@ export const attachments = pgTable(
     type: varchar('type', { length: 50 }).notNull().default('image'),
     mimeType: varchar('mime_type', { length: 100 }).notNull(),
     blobKey: text('blob_key').notNull(), // Vercel Blob or R2 key
+    url: text('url').notNull(), // Public URL to access the attachment
     originalFilename: text('original_filename'),
     pageNumber: integer('page_number'),
     bbox: jsonb('bbox').$type<[number, number, number, number]>(), // [x1, y1, x2, y2]
@@ -26,7 +27,7 @@ export const attachments = pgTable(
     width: integer('width'),
     height: integer('height'),
     description: text('description'), // AI-generated description
-    isGoodQuality: integer('is_good_quality'), // 1 = good, 0 = bad, null = unknown
+    isGoodQuality: varchar('is_good_quality', { length: 10 }).$type<'good' | 'bad' | null>(),
 
     // Image analysis fields
     isRelevant: integer('is_relevant'), // 1 = useful, 0 = decorative, null = unknown

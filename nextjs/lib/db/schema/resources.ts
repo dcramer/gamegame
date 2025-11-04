@@ -1,4 +1,6 @@
 import { pgTable, varchar, integer, text, bigint, index } from 'drizzle-orm/pg-core';
+import { createInsertSchema } from 'drizzle-zod';
+import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { games } from './games';
 
@@ -11,7 +13,7 @@ export type ResourceType = (typeof RESOURCE_TYPES)[number];
 export const resources = pgTable(
   'resources',
   {
-    id: varchar('id', { length: 191 }).primaryKey().$defaultFn(() => nanoid()),
+    id: varchar('id', { length: 191 }).primaryKey(),
     gameId: varchar('game_id', { length: 191 })
       .notNull()
       .references(() => games.id, { onDelete: 'cascade' }),
@@ -58,3 +60,10 @@ export const resources = pgTable(
 
 export type Resource = typeof resources.$inferSelect;
 export type NewResource = typeof resources.$inferInsert;
+
+// Zod schema for insert validation
+export const insertResourceSchema = createInsertSchema(resources)
+  .omit({
+    createdAt: true,
+    updatedAt: true,
+  });

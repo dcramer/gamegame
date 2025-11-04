@@ -290,8 +290,8 @@ export async function getBGGGameDetails(
         playingTime: game.playingTime,
         imageUrl: game.imageUrl,
         thumbnailUrl: game.thumbnailUrl,
-        publishers: game.publishers ? JSON.parse(game.publishers) : [],
-        designers: game.designers ? JSON.parse(game.designers) : [],
+        publishers: game.publishers ?? [],
+        designers: game.designers ?? [],
       };
     }
   } else {
@@ -412,8 +412,8 @@ export async function getBGGGameDetails(
         playingTime: details.playingTime,
         imageUrl: details.imageUrl,
         thumbnailUrl: details.thumbnailUrl,
-        publishers: JSON.stringify(details.publishers),
-        designers: JSON.stringify(details.designers),
+        publishers: details.publishers,
+        designers: details.designers,
       })
       .onConflictDoUpdate({
         target: bggGames.id,
@@ -426,9 +426,9 @@ export async function getBGGGameDetails(
           playingTime: details.playingTime,
           imageUrl: details.imageUrl,
           thumbnailUrl: details.thumbnailUrl,
-          publishers: JSON.stringify(details.publishers),
-          designers: JSON.stringify(details.designers),
-          cachedAt: new Date(),
+          publishers: details.publishers,
+          designers: details.designers,
+          cachedAt: Date.now(),
         },
       });
     console.log('BGG game cached to database');
