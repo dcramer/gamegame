@@ -915,6 +915,38 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
     })
   );
 
+  // Generate answer type classifications for text chunks (in batches)
+  await updateJob(env.JOB_STATUS_KV, task.jobId, {
+    currentStep: 'Classifying answer types',
+    progress: 72,
+  });
+
+  const { classifyFragmentsAnswerTypes } = await import('../services/answer-type-classification');
+
+  const answerTypesArrays = await classifyFragmentsAnswerTypes(
+    pdfChunks.map((chunk) => ({
+      content: chunk.content,
+      section: chunk.section,
+      pageNumber: chunk.pageNumber,
+    })),
+    resourceInfo,
+    env.OPENAI_API_KEY,
+    {
+      batchSize: 10,
+      environment: env.ENVIRONMENT,
+    }
+  );
+
+  console.log(
+    JSON.stringify({
+      module: 'pdf-processor',
+      stage: 'embed',
+      event: 'answer_types_classified',
+      resourceId: task.resourceId,
+      totalClassifications: answerTypesArrays.reduce((sum, arr) => sum + arr.length, 0),
+    })
+  );
+
   // Step 2: Generate IMAGE FRAGMENTS for relevant images
   const { buildImageSearchableContent } = await import('../services/searchable-content');
 
@@ -974,6 +1006,7 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
       content: item.chunk.content,
       searchableContent: item.searchableContent,
       syntheticQuestions: syntheticQuestionsArrays[index] || [],
+      answerTypes: answerTypesArrays[index] || [],
       pageNumber: item.chunk.pageNumber,
       pageRange: item.chunk.pageRange,
       section: item.chunk.section,
@@ -985,6 +1018,7 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
       content: item.attachment.description || '',
       searchableContent: item.searchableContent,
       syntheticQuestions: [] as string[], // Images don't get HyDE questions (for now)
+      answerTypes: [] as string[], // Images don't get answer type classification (for now)
       pageNumber: item.page.pageNumber,
       pageRange: null,
       section: item.page.sections.length > 0
@@ -1081,6 +1115,9 @@ export async function runEmbedStage(task: QueueMessage, env: Env): Promise<Queue
     searchableContent: item.searchableContent, // Enriched content (what was embedded)
     syntheticQuestions: item.syntheticQuestions.length > 0
       ? JSON.stringify(item.syntheticQuestions)
+      : null,
+    answerTypes: item.answerTypes.length > 0
+      ? JSON.stringify(item.answerTypes)
       : null,
     resourceName: resourceInfo.name,
     resourceDescription: resourceInfo.description,

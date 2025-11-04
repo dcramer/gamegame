@@ -117,6 +117,23 @@ export const requireAuth = createMiddleware<{ Bindings: Env; Variables: Variable
  */
 export const requireAdmin = createMiddleware<{ Bindings: Env; Variables: Variables }>(
   async (c, next) => {
+    // Development bypass: allow localhost requests when ENVIRONMENT=development
+    if (c.env.ENVIRONMENT === 'development') {
+      const origin = c.req.header('origin') || '';
+      const host = c.req.header('host') || '';
+      if (origin.includes('localhost') || host.includes('localhost')) {
+        // Set a mock admin user for development
+        c.set('user', {
+          id: 'dev-admin',
+          email: 'dev@localhost',
+          name: 'Dev Admin',
+          isAdmin: true,
+        });
+        await next();
+        return;
+      }
+    }
+
     const user = c.get('user');
 
     if (!user) {

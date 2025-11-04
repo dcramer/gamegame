@@ -16,6 +16,8 @@ export interface ModelConfig {
   reasoning: string;
   /** Model for synthetic question generation (HyDE) */
   hyde: string;
+  /** Model for answer type classification */
+  classification: string;
   /** Model for search result reranking */
   reranking: string;
   /** Model for embeddings */
@@ -30,6 +32,7 @@ const DEV_MODELS: ModelConfig = {
   vision: 'gpt-5-mini',
   reasoning: 'gpt-5-mini',
   hyde: 'gpt-5-mini',
+  classification: 'gpt-5-mini',
   reranking: 'gpt-5-mini',
   embedding: 'text-embedding-3-small',
 };
@@ -42,6 +45,7 @@ const PROD_MODELS: ModelConfig = {
   vision: 'gpt-5',
   reasoning: 'gpt-5',
   hyde: 'gpt-5',
+  classification: 'gpt-5-mini', // Classification is simpler, mini is sufficient
   reranking: 'gpt-5-mini',
   embedding: 'text-embedding-3-small',
 };

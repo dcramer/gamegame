@@ -19,8 +19,27 @@ import {
 } from 'lucide-react';
 import { useAgentChat, type ChatMessage } from '../hooks/useAgentChat';
 
+// Content block types for mixed media responses
+type TextBlock = {
+  type: 'text';
+  text: string;
+};
+
+type ImageBlock = {
+  type: 'image';
+  id: string;
+  source: {
+    url: string;
+    r2Key: string | null;
+  };
+  caption: string | null;
+  pageNumber: number | null;
+};
+
+type ContentBlock = TextBlock | ImageBlock;
+
 interface ParsedMessage {
-  answer?: string;
+  content?: ContentBlock[];
   followUps?: string[] | Array<{ question: string; category?: string }>;
   resources?: Array<{ name: string; id: string }>;
   questionType?: 'gameplay' | 'knowledge' | 'external' | 'gamegame';
@@ -141,11 +160,15 @@ const ToolCallMessage = ({ message }: { message: Extract<ChatMessage, { type: 't
     return <span className="w-3 h-3 text-green-500">✓</span>;
   };
 
-  const getToolLabel = (name: string) => {
+  const getToolLabel = (name: string, args?: any) => {
     if (name === 'search_resources') return 'Searching rulebook';
     if (name === 'search_media') return 'Searching for images';
     if (name === 'list_resources') return 'Checking available resources';
-    if (name === 'get_attachment') return 'Loading image';
+    if (name === 'get_attachment') {
+      // Include attachment ID in the label to differentiate multiple image loads
+      const id = args?.attachmentId ? `#${args.attachmentId.slice(0, 8)}` : '';
+      return `Loading image ${id}`;
+    }
     return name;
   };
 
@@ -157,11 +180,7 @@ const ToolCallMessage = ({ message }: { message: Extract<ChatMessage, { type: 't
       return args.query ? `"${args.query}"` : null;
     }
 
-    // Format attachment ID
-    if (name === 'get_attachment') {
-      return args.attachmentId ? `#${args.attachmentId.slice(0, 8)}` : null;
-    }
-
+    // Don't show params for get_attachment since ID is now in label
     // No params for list_resources
     return null;
   };
@@ -182,7 +201,7 @@ const ToolCallMessage = ({ message }: { message: Extract<ChatMessage, { type: 't
       <div className="flex-1 flex flex-col gap-1">
         {/* First line: tool name and duration */}
         <div className="flex items-center gap-2">
-          <span className="text-xs">{getToolLabel(message.name)}</span>
+          <span className="text-xs">{getToolLabel(message.name, message.args)}</span>
           {duration && (
             <span className="text-muted-foreground/50 text-xs ml-auto">
               {duration}ms
@@ -234,10 +253,10 @@ const SystemMessage = ({
     );
   }
 
-  const { answer, followUps, confidence, ambiguities, citations } = parsed;
+  const { content, followUps, confidence, ambiguities, citations } = parsed;
 
-  if (!answer) {
-    console.error("no answer in JSON payload", message);
+  if (!content || content.length === 0) {
+    console.error("no content in JSON payload", message);
     return (
       <div className="bg-destructive text-destructive-foreground font-bold p-2 lg:p-3 rounded mb-4">
         There was an error processing your request. Please try again.
@@ -245,23 +264,48 @@ const SystemMessage = ({
     );
   }
 
-  // Extract attachments from markdown images
-  const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
-  const attachments: Array<{ url: string; alt: string }> = [];
-  let match;
-
-  while ((match = imageRegex.exec(answer)) !== null) {
-    const alt = match[1];
-    const url = match[2];
-    if (url.includes('/attachments/') || url.includes('/uploads/')) {
-      attachments.push({ url, alt });
-    }
-  }
+  // Separate content blocks by type for rendering
+  const imageBlocks = content.filter((block): block is ImageBlock => block.type === 'image');
 
   return (
     <TooltipProvider>
       <div className="flex flex-col">
-        <AnswerWithCitations answer={answer} citations={citations} />
+        {/* Render content blocks in sequence */}
+        <div className="flex flex-col gap-3">
+          {content.map((block, index) => {
+            if (block.type === 'text') {
+              return (
+                <div key={index}>
+                  <AnswerWithCitations answer={block.text} citations={citations} />
+                </div>
+              );
+            } else if (block.type === 'image') {
+              return (
+                <div key={index} className="my-2">
+                  <a
+                    href={block.source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block border border-border rounded overflow-hidden hover:border-primary transition-colors max-w-full"
+                  >
+                    <img
+                      src={block.source.url}
+                      alt={block.caption || 'Diagram'}
+                      className="max-w-2xl max-h-96 object-contain"
+                    />
+                    {block.caption && (
+                      <div className="text-xs text-muted-foreground p-2 bg-muted/30">
+                        {block.caption}
+                        {block.pageNumber && ` (page ${block.pageNumber})`}
+                      </div>
+                    )}
+                  </a>
+                </div>
+              );
+            }
+            return null;
+          })}
+        </div>
       {confidence && confidence !== 'high' && (
         <div className="mt-3 text-sm text-yellow-400 bg-yellow-950/30 border border-yellow-900/50 rounded p-2">
           ⚠️ Confidence: {confidence}
@@ -279,25 +323,25 @@ const SystemMessage = ({
           </ul>
         </div>
       )}
-      {!!attachments.length && (
+      {!!imageBlocks.length && (
         <div className="mt-4 flex flex-col gap-2 text-sm">
           <h4 className="text-xs font-bold uppercase tracking-tight text-muted-foreground inline-flex items-center gap-1.5">
             <ImageIcon className="w-3 h-3" />
-            Attachments
+            Attachments ({imageBlocks.length})
           </h4>
           <div className="flex flex-row gap-2 flex-wrap">
-            {attachments.map((attachment, index) => (
+            {imageBlocks.map((block, index) => (
               <a
-                key={`${attachment.url}-${index}`}
-                href={attachment.url}
+                key={`${block.id}-${index}`}
+                href={block.source.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="relative w-24 h-24 border border-border rounded overflow-hidden hover:border-primary transition-colors"
-                title={attachment.alt || 'Attachment'}
+                title={block.caption || 'Attachment'}
               >
                 <img
-                  src={attachment.url}
-                  alt={attachment.alt || 'Attachment'}
+                  src={block.source.url}
+                  alt={block.caption || 'Attachment'}
                   className="w-full h-full object-cover"
                 />
               </a>

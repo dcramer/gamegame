@@ -85,8 +85,7 @@ export function getAgentTools(
   openaiApiKey: string,
   baseUrl: string,
   environment?: string,
-  onToolComplete?: (metrics: ToolMetrics) => void,
-  enableFullTextSearch?: boolean
+  onToolComplete?: (metrics: ToolMetrics) => void
 ) {
   return [
     tool({
@@ -118,7 +117,6 @@ export function getAgentTools(
               limit,
               environment,
               enableReranking: false, // Temporarily disabled - gpt-5-mini API errors
-              enableFullTextSearch, // Pass through FTS toggle
             }),
             TOOL_TIMEOUT_MS,
             "search_resources"
@@ -130,7 +128,7 @@ export function getAgentTools(
     tool({
       name: "search_media",
       description:
-        "Find diagrams, setup photos, component images, and visual aids from rulebooks. Use when the user wants to SEE something, understand layout visually, identify components, or when text alone is not sufficient.",
+        "Find diagrams, setup photos, component images, and visual aids from rulebooks. Returns image content blocks that can be directly included in your response. Use when the user wants to SEE something, understand layout visually, identify components, or when text alone is not sufficient.",
       parameters: z.object({
         query: z
           .string()
@@ -142,12 +140,42 @@ export function getAgentTools(
         "search_media",
         async ({ query }) =>
           withTimeout(
-            findRelevantContent(db, vectorIndex, gameId, query, openaiApiKey, {
-              fragmentType: "image",
-              limit: 5, // Fewer images
-              environment,
-              enableReranking: false, // Temporarily disabled - gpt-5-mini API errors
-            }),
+            (async () => {
+              const searchResults = await findRelevantContent(db, vectorIndex, gameId, query, openaiApiKey, {
+                fragmentType: "image",
+                limit: 5, // Fewer images
+                environment,
+                enableReranking: false, // Temporarily disabled - gpt-5-mini API errors
+              });
+
+              // Transform SearchResults into image content blocks
+              const imageBlocks = [];
+              for (const result of searchResults) {
+                if (result.images) {
+                  for (const image of result.images) {
+                    // Extract r2Key from URL if present
+                    const urlMatch = image.url.match(/\/api\/r2\/([^?]+)/);
+                    const r2Key = urlMatch ? urlMatch[1] : undefined;
+
+                    imageBlocks.push({
+                      type: "image",
+                      id: image.id,
+                      source: {
+                        url: image.url,
+                        r2Key: r2Key ?? null,
+                      },
+                      caption: image.caption ?? null,
+                      pageNumber: result.pageNumber ?? null,
+                      // Include resource metadata for context
+                      resourceId: result.resourceId,
+                      resourceName: result.resourceName,
+                    });
+                  }
+                }
+              }
+
+              return imageBlocks;
+            })(),
             TOOL_TIMEOUT_MS,
             "search_media"
           ),

@@ -88,6 +88,9 @@ export const fragments = sqliteTable('fragments', {
   // HyDE: Synthetic questions (JSON array of strings)
   syntheticQuestions: text('synthetic_questions'),
 
+  // Answer Type Classification: Question types this chunk can answer (JSON array of strings)
+  answerTypes: text('answer_types'),
+
   // Denormalized resource metadata for faster search context
   resourceName: text('resource_name'),
   resourceDescription: text('resource_description'),

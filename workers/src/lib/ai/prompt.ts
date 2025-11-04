@@ -2,8 +2,30 @@ import { z } from "zod";
 
 const GITHUB_URL = "https://github.com/dcramer/gamegame";
 
+// Content block types for mixed media responses
+const TextBlockSchema = z.object({
+  type: z.literal("text"),
+  text: z.string().describe("Text content using markdown formatting"),
+});
+
+const ImageBlockSchema = z.object({
+  type: z.literal("image"),
+  id: z.string().describe("Attachment ID"),
+  source: z.object({
+    url: z.string().describe("Image URL"),
+    r2Key: z.string().nullable().describe("R2 storage key"),
+  }),
+  caption: z.string().nullable().describe("Image caption or description"),
+  pageNumber: z.number().nullable().describe("Page number from source document"),
+});
+
+const ContentBlockSchema = z.discriminatedUnion("type", [
+  TextBlockSchema,
+  ImageBlockSchema,
+]);
+
 export const AnswerSchema = z.object({
-  answer: z.string().describe("The answer using markdown formatting"),
+  content: z.array(ContentBlockSchema).describe("Response content as array of typed blocks (text and images)"),
   questionType: z
     .enum(["gameplay", "knowledge", "external", "gamegame"])
     .nullable()
@@ -96,7 +118,10 @@ CRITICAL: After using tools to gather information, you MUST generate your final 
 Your final response must ALWAYS be valid JSON in exactly this format:
 
 {
-  "answer": "your answer, using markdown formatting",
+  "content": [
+    { "type": "text", "text": "your answer text, using markdown formatting" },
+    { "type": "image", "id": "img-id", "source": { "url": "https://...", "r2Key": "..." }, "caption": "description", "pageNumber": 5 }
+  ],
   "questionType": "gameplay" | "knowledge" | "external" | "gamegame",
   "citations": [
     {
@@ -126,8 +151,15 @@ Your final response must ALWAYS be valid JSON in exactly this format:
 - Mark relevance as "primary" (main source), "supporting" (additional context), or "related" (tangentially related)
 - Include a direct quote if you're citing a specific rule or passage
 
-**Inline Citation References**:
-- When citing sources in your answer, use numbered references: [1], [2], [3], etc.
+**Content Field**:
+- Your response must be an array of content blocks with explicit types
+- Text blocks: { "type": "text", "text": "markdown text..." }
+- Image blocks: { "type": "image", "id": "...", "source": { "url": "...", "r2Key": "..." }, "caption": "...", "pageNumber": 5 }
+- You can have multiple text and image blocks in sequence
+- Keep text blocks concise - split into multiple blocks if mixing text and images
+
+**Inline Citation References** (in text blocks):
+- When citing sources in text content, use numbered references: [1], [2], [3], etc.
 - Place the reference immediately after the statement it supports
 - Example: "You can trade during another player's turn[1], but only with the active player[2]."
 - The numbers should correspond to the order in the citations array (first citation = [1], second = [2], etc.)
@@ -161,13 +193,14 @@ Your final response must ALWAYS be valid JSON in exactly this format:
 **CRITICAL**: Make EXACTLY ONE search_resources call. After you get the results, immediately generate your JSON response. DO NOT make additional searches.
 
 **Answer Style - ALWAYS BE BRIEF**:
-- ALL answers must be concise and scannable
-- Simple questions: 1-2 sentences maximum
+- ALL text content must be concise and scannable
+- Simple questions: 1-2 sentences maximum in a single text block
 - Complex questions: Short summary (2-4 sentences) highlighting only the most essential information
 - Prefer bullet points over paragraphs when listing steps or options
 - NEVER write lengthy explanations - use followUps to let users ask for more details
+- Break content into multiple text blocks if mixing text and images
 
-If you are unable to answer the question given the relevant information in the tool calls your "answer" should be "Sorry, I can't help with that.", and explain why. If you looked up any sources, include them in the "citations" field with appropriate relevance markers. Set confidence to "low" when you cannot answer definitively.
+If you are unable to answer the question given the relevant information in the tool calls, your content should be a single text block: { "type": "text", "text": "Sorry, I can't help with that." }, and explain why. If you looked up any sources, include them in the "citations" field with appropriate relevance markers. Set confidence to "low" when you cannot answer definitively.
 
 ### Gameplay Questions
 
@@ -175,12 +208,33 @@ If you are unable to answer the question given the relevant information in the t
 
 Use search_resources with appropriate limit: 2-3 for simple factual questions, 5 for complex questions.
 
-**Attachments (Images/Diagrams)**:
-- When search results contain "attachment://{id}" references, these are images or diagrams from the rulebook
-- Use the "get_attachment" tool to retrieve the attachment URL
-- Include helpful images in your response by replacing attachment:// URLs with the actual URLs returned from the tool
-- Only include images that directly help answer the user's question - don't include every image
-- Add descriptive alt text that explains what the image shows
+**Two Ways to Include Images**:
+
+**1. Standalone Images (from search_media):**
+- When the user wants to SEE something (setup photos, diagrams, component images), use the "search_media" tool
+- search_media returns image content block objects that you can directly insert into your content array
+- Each image block has: { type: "image", id: "...", source: { url: "...", r2Key: "..." }, caption: "...", pageNumber: ... }
+- You can return ONLY images (no text), or mix images with text blocks
+- Insert image blocks wherever they make sense in the response
+
+**Example - returning only images:**
+"content": [
+  { "type": "image", "id": "xyz", "source": { "url": "https://...", "r2Key": "..." }, "caption": "Player board setup", "pageNumber": 3 },
+  { "type": "image", "id": "abc", "source": { "url": "https://...", "r2Key": "..." }, "caption": "Component overview", "pageNumber": 5 }
+]
+
+**Example - mixing text and images:**
+"content": [
+  { "type": "text", "text": "Here's the player board setup:[1]" },
+  { "type": "image", "id": "xyz", "source": { "url": "https://...", "r2Key": "..." }, "caption": "Player board with starting resources", "pageNumber": 3 },
+  { "type": "text", "text": "Place your starting pieces as shown in the diagram." }
+]
+
+**2. Inline Images in Text (from search_resources with attachment:// references):**
+- When search_resources returns text with "attachment://{id}" references, these are inline images
+- Use the "get_attachment" tool to resolve the attachment ID to a URL
+- Replace the attachment:// reference with the actual URL in your markdown text
+- Example: "![diagram](attachment://xyz)" → call get_attachment("xyz") → "![diagram](https://actual-url.com/image.png)"
 
 If the rule appears ambiguous, respond with the rule text, explain that it is ambiguous in the "ambiguities" field, and cite the specific page and section in the "citations" field. Set confidence to "medium" or "low" depending on how unclear the rule is.
 

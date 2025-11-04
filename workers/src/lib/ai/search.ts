@@ -4,6 +4,7 @@ import { getDb, fragments, resources } from '../db';
 import { generateEmbedding } from './embeddings';
 import { searchVectorize } from './vectorize';
 import { getModel } from '../config/models';
+import { ANSWER_TYPES, type AnswerType } from '../services/answer-type-classification';
 
 export interface SearchResult {
   resourceId: string;
@@ -54,6 +55,108 @@ function diversifyResults<T extends { pageNumber?: number | null; resourceId: st
   }
 
   return diversified;
+}
+
+/**
+ * Detect question types from user query using LLM classification
+ * Returns array of answer types that match the query intent
+ *
+ * Uses same classification approach as fragment classification for consistency
+ */
+async function detectQueryType(
+  query: string,
+  openaiApiKey: string,
+  environment?: string
+): Promise<AnswerType[]> {
+  const model = getModel('classification', environment);
+
+  const prompt = `Analyze this board game question and classify what types of answers it needs.
+
+Question: ${query}
+
+Available answer type categories:
+
+**Metadata:**
+- player_count: Number of players supported
+- play_time: How long the game takes
+- age_rating: Recommended age
+- game_overview: High-level game description
+- publisher_info: Publisher, designer, edition info
+
+**Rules:**
+- setup_instructions: How to set up the game
+- turn_structure: How turns work
+- win_conditions: How to win
+- end_game: When/how the game ends
+- scoring: How points are calculated
+
+**Components:**
+- component_list: What pieces are included
+- card_types: Types of cards in the game
+- resource_types: Types of resources/tokens
+- board_layout: Board setup and areas
+- token_types: Types of tokens/markers
+
+**Gameplay:**
+- action_options: Actions players can take
+- combat_rules: How combat/conflict works
+- movement_rules: How to move pieces
+- trading_rules: How trading/exchange works
+- special_abilities: Special powers or abilities
+
+**Clarifications:**
+- edge_case: Unusual situations
+- example: Example of gameplay
+- faq: Frequently asked question
+- timing: When something happens
+- rule_clarification: Clarifying a specific rule
+
+Select 1-3 answer types that best match what this question is asking for.
+Be specific and conservative - only select types that clearly match the question intent.
+
+Return ONLY a JSON object with an "answerTypes" array, nothing else.
+Format: { "answerTypes": ["type1", "type2", ...] }`;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' },
+        temperature: 0.2, // Very low for consistent classification
+        max_completion_tokens: 100,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Query type detection API error:', response.status, response.statusText);
+      return []; // Fail gracefully
+    }
+
+    const data = await response.json() as { choices: Array<{ message: { content: string } }> };
+    const result = JSON.parse(data.choices[0].message.content);
+
+    if (!Array.isArray(result.answerTypes)) {
+      return [];
+    }
+
+    // Filter to only valid answer types
+    const detectedTypes = result.answerTypes.filter((type: unknown): type is AnswerType =>
+      typeof type === 'string' && ANSWER_TYPES.includes(type as AnswerType)
+    );
+
+    console.log(`[Search] Detected query types for "${query.slice(0, 50)}...": ${detectedTypes.join(', ')}`);
+
+    return detectedTypes;
+  } catch (error) {
+    console.error('Error detecting query type:', error);
+    return []; // Fail gracefully
+  }
 }
 
 /**
@@ -277,9 +380,12 @@ export async function findRelevantContent(
 
   console.log(`[Search] Starting search for "${userQuery.slice(0, 50)}..." (limit=${limit}, enableReranking=${options.enableReranking ?? true})`);
 
-  // Step 1: Generate embedding for user query
+  // Step 1: Generate embedding for user query and detect query type in parallel
   const embeddingStart = Date.now();
-  const [queryEmbedding] = await generateEmbedding(userQuery, openaiApiKey);
+  const [[queryEmbedding], queryTypes] = await Promise.all([
+    generateEmbedding(userQuery, openaiApiKey),
+    detectQueryType(userQuery, openaiApiKey, options.environment)
+  ]);
   console.log(`[Search] Embedding generated in ${Date.now() - embeddingStart}ms`);
 
   // Step 2: Execute 3 searches in parallel with graceful degradation
@@ -367,7 +473,7 @@ export async function findRelevantContent(
   ]);
 
   // Calculate RRF scores
-  const rrfScores: Array<{ fragmentId: string; score: number }> = [];
+  const rrfScores = new Map<string, number>();
   for (const fragmentId of allFragmentIds) {
     const contentRank = contentRanks.get(fragmentId);
     const questionRank = questionRanks.get(fragmentId);
@@ -383,17 +489,15 @@ export async function findRelevantContent(
       ? ftsWeight / (rrfK + ftsRank)
       : 0;
 
-    rrfScores.push({
-      fragmentId,
-      score: contentScore + questionScore + ftsScore
-    });
+    rrfScores.set(fragmentId, contentScore + questionScore + ftsScore);
   }
 
   // Sort by RRF score and take top candidates for diversification
-  rrfScores.sort((a, b) => b.score - a.score);
-  const candidateIds = rrfScores
+  const sortedScores = Array.from(rrfScores.entries())
+    .sort((a, b) => b[1] - a[1]);
+  const candidateIds = sortedScores
     .slice(0, (limit + offset) * 3) // Get 3x candidates for diversification
-    .map(r => r.fragmentId);
+    .map(r => r[0]);
 
   if (candidateIds.length === 0) {
     return [];
@@ -414,6 +518,7 @@ export async function findRelevantContent(
     pageNumber: fragments.pageNumber,
     section: fragments.section,
     images: fragments.images,
+    answerTypes: fragments.answerTypes,
   };
 
   // Only fetch searchableContent if reranking is enabled
@@ -429,6 +534,7 @@ export async function findRelevantContent(
     pageNumber: number | null;
     section: string | null;
     images: string | null;
+    answerTypes: string | null;
     searchableContent?: string | null;
   };
 
@@ -441,12 +547,40 @@ export async function findRelevantContent(
 
   console.log(`[Search] Fetched ${fragmentData.length} fragments from DB in ${Date.now() - dbStart}ms`);
 
-  // Create fragment map and re-sort by RRF score
+  // Apply answer type boosting to RRF scores
+  if (queryTypes.length > 0) {
+    let boostCount = 0;
+    for (const fragment of fragmentData) {
+      if (fragment.answerTypes) {
+        try {
+          const fragmentAnswerTypes: AnswerType[] = JSON.parse(fragment.answerTypes);
+          const hasMatch = queryTypes.some(qt => fragmentAnswerTypes.includes(qt));
+
+          if (hasMatch) {
+            const currentScore = rrfScores.get(fragment.fragmentId) || 0;
+            rrfScores.set(fragment.fragmentId, currentScore * 1.3); // 30% boost for matching answer types
+            boostCount++;
+          }
+        } catch (error) {
+          // Ignore parsing errors, fragment just won't get boost
+        }
+      }
+    }
+    console.log(`[Search] Boosted ${boostCount} fragments matching query types: ${queryTypes.join(', ')}`);
+  }
+
+  // Create fragment map and re-sort by boosted RRF scores
   const fragmentMap = new Map(fragmentData.map(f => [f.fragmentId, f]));
 
   const candidatesWithData = candidateIds
     .map(id => fragmentMap.get(id))
-    .filter((f): f is NonNullable<typeof f> => f !== undefined);
+    .filter((f): f is NonNullable<typeof f> => f !== undefined)
+    // Re-sort by potentially boosted RRF scores
+    .sort((a, b) => {
+      const scoreA = rrfScores.get(a.fragmentId) || 0;
+      const scoreB = rrfScores.get(b.fragmentId) || 0;
+      return scoreB - scoreA;
+    });
 
   // Step 5: Cross-encoder reranking (optional, enabled by default)
   let rerankedCandidates;
