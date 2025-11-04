@@ -105,7 +105,7 @@ export function parseResourceSourceKey(blobKey: string): { resourceId: string; e
 /**
  * Simple mime type detection from buffer header
  */
-function detectMimeType(buffer: Buffer): string {
+export function detectMimeType(buffer: Buffer): string {
   // Check PNG signature
   if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
     return 'image/png';
@@ -118,8 +118,12 @@ function detectMimeType(buffer: Buffer): string {
   if (buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
     return 'image/webp';
   }
-  // Default to PNG
-  return 'image/png';
+  // Check PDF signature
+  if (buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46) {
+    return 'application/pdf';
+  }
+  // Default to octet-stream
+  return 'application/octet-stream';
 }
 
 /**
@@ -395,4 +399,53 @@ export async function deleteAttachmentsByUrls(urls: string[]): Promise<number> {
 
   await bulkDelete(keys);
   return keys.length;
+}
+
+/**
+ * Get blob data from storage
+ */
+export async function getBlob(blobKey: string): Promise<Buffer | null> {
+  const backend = getStorageBackend();
+
+  if (backend === 'vercel-blob') {
+    // For Vercel Blob, construct URL and fetch
+    const url = blobKeyToUrl(blobKey);
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        if (response.status === 404) {
+          return null;
+        }
+        throw new Error(`Failed to fetch blob: ${response.status} ${response.statusText}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    } catch (error) {
+      console.error(`Failed to get blob ${blobKey}:`, error);
+      return null;
+    }
+  } else {
+    // Read from local filesystem
+    const filePath = path.join(LOCAL_STORAGE_DIR, blobKey);
+    try {
+      return await fs.readFile(filePath);
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    }
+  }
+}
+
+/**
+ * Upload blob data to storage
+ */
+export async function uploadBlob(
+  blobKey: string,
+  data: Buffer,
+  contentType?: string
+): Promise<string> {
+  const mimeType = contentType || detectMimeType(data);
+  return uploadToStorage(blobKey, data, mimeType);
 }

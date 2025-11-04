@@ -190,7 +190,7 @@ async function searchVectorEmbeddings(
       score: sql<number>`1 - (${embeddings.embedding} <#> ${JSON.stringify(queryVector)}::vector)`,
     })
     .from(embeddings)
-    .where(sql`${sql.join(conditions, sql` AND `))}`)
+    .where(sql.join(conditions, sql` AND `))
     .orderBy(sql`${embeddings.embedding} <#> ${JSON.stringify(queryVector)}::vector`)
     .limit(limit);
 

@@ -4,6 +4,7 @@ import { nanoid } from 'nanoid';
 import { games } from './games';
 import { resources } from './resources';
 import { attachments } from './attachments';
+import { tsvector } from '../columns/tsvector';
 
 export const FRAGMENT_TYPES = ['text', 'image', 'table'] as const;
 export type FragmentType = (typeof FRAGMENT_TYPES)[number];
@@ -53,7 +54,7 @@ export const fragments = pgTable(
     images: jsonb('images').$type<ImageMetadata[]>(),
 
     // Full-text search vector (PostgreSQL tsvector)
-    searchVector: sql`tsvector`,
+    searchVector: tsvector('search_vector'),
 
     createdAt: bigint('created_at', { mode: 'number' })
       .notNull()

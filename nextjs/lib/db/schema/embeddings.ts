@@ -1,6 +1,5 @@
-import { pgTable, varchar, integer, text, bigint, index } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, integer, text, bigint, index, vector } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { vector } from 'pgvector/drizzle-orm';
 import { nanoid } from 'nanoid';
 import { games } from './games';
 import { resources } from './resources';

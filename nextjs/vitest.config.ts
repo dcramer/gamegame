@@ -10,6 +10,15 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     setupFiles: ['./tests/setup.ts'],
+    fileParallelism: false, // Run test files sequentially to avoid DB conflicts
+    env: {
+      DATABASE_URL: 'postgresql://postgres:postgres@localhost:5433/test_gamegame',
+      OPENAI_API_KEY: 'test-openai-key',
+      MISTRAL_API_KEY: 'test-mistral-key',
+      AUTH_SECRET: 'test-auth-secret',
+      AUTH_RESEND_KEY: 'test-resend-key',
+      NODE_ENV: 'test',
+    },
   },
   resolve: {
     alias: {
