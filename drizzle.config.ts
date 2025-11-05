@@ -1,13 +1,12 @@
-import type { Config } from "drizzle-kit";
-import { env } from "@/lib/env.mjs";
+import type { Config } from 'drizzle-kit';
 
 export default {
-  schema: "./lib/db/schema",
-  dialect: "postgresql",
-  out: "./lib/db/migrations",
+  schema: './lib/db/schema/*.ts',
+  out: './drizzle',
+  dialect: 'postgresql',
   dbCredentials: {
-    url:
-      env.DATABASE_URL ||
-      "postgres://postgres:postgres@localhost:5433/postgres",
+    url: process.env.DATABASE_URL!,
   },
+  verbose: true,
+  strict: true,
 } satisfies Config;

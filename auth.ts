@@ -1,39 +1,37 @@
-import NextAuth from "next-auth";
-import Resend from "next-auth/providers/resend";
-import { DrizzleAdapter } from "@auth/drizzle-adapter";
-import { db } from "./lib/db";
-import {
-  accounts,
-  sessions,
-  users,
-  verificationTokens,
-} from "./lib/db/schema/auth";
+import NextAuth from 'next-auth';
+import type { NextAuthConfig } from 'next-auth';
+import Resend from 'next-auth/providers/resend';
+import { DrizzleAdapter } from '@auth/drizzle-adapter';
+import { db } from '@/lib/db';
+import { users, accounts, sessions, verificationTokens } from '@/lib/db/schema';
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const authConfig = {
   adapter: DrizzleAdapter(db, {
-    // i dont fucking have a clue what i'm doing
-    usersTable: users as any,
-    accountsTable: accounts as any,
-    sessionsTable: sessions as any,
-    verificationTokensTable: verificationTokens as any,
+    usersTable: users,
+    accountsTable: accounts,
+    sessionsTable: sessions,
+    verificationTokensTable: verificationTokens,
   }),
-
   providers: [
     Resend({
-      from: "no-reply@gamegame.ai",
+      apiKey: process.env.AUTH_RESEND_KEY,
+      from: process.env.AUTH_EMAIL_FROM || 'noreply@gamegame.ai',
     }),
   ],
   callbacks: {
-    authorized: async ({ request, auth }) => {
-      if (
-        !auth &&
-        request.nextUrl.pathname !== "/login" &&
-        request.nextUrl.pathname !== "/"
-      ) {
-        const newUrl = new URL("/login", request.nextUrl.origin);
-        return Response.redirect(newUrl);
+    session({ session, user }) {
+      if (session.user) {
+        session.user.id = user.id;
+        session.user.isAdmin = (user as any).isAdmin === 1;
       }
-      return true;
+      return session;
     },
   },
-});
+  pages: {
+    signIn: '/auth/signin',
+    verifyRequest: '/auth/verify',
+    error: '/auth/error',
+  },
+} satisfies NextAuthConfig;
+
+export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
