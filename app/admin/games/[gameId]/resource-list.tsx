@@ -1,6 +1,6 @@
 "use client";
 
-import ResourceDropzone from "@/components/resource-dropzone";
+import { FileUpload } from "@/components/file-upload";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -242,43 +242,27 @@ export default function ResourceList({
     }
   };
 
-  const triggerFileInput = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".pdf";
-    input.multiple = true;
-    input.onchange = (e) => {
-      const files = Array.from(
-        (e.target as HTMLInputElement).files || []
-      );
-      handleFiles(files);
-    };
-    input.click();
-  };
-
   return (
-    <ResourceDropzone onAddFiles={handleFiles}>
+    <>
       {allResources.length === 0 ? (
-        <div
-          className="flex flex-1 flex-col gap-6 items-center justify-center rounded-lg border border-dashed shadow-sm p-6 bg-muted min-h-64 cursor-pointer hover:bg-muted/80 transition-colors"
-          onClick={triggerFileInput}
-        >
-          <div className="flex flex-col items-center gap-1 text-center">
-            <h3 className="text-2xl font-bold tracking-tight">
-              There are no resources
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              Drag a PDF file of a rulebook here, or click to browse files.
-            </p>
-          </div>
-        </div>
+        <FileUpload
+          accept=".pdf"
+          multiple
+          onFilesSelected={handleFiles}
+          buttonText="Add Resource"
+          dropzoneText="Drop PDF files here or click to browse"
+          variant="dropzone"
+        />
       ) : (
         <div className="flex flex-col gap-4">
           <div className="flex justify-end">
-            <Button onClick={triggerFileInput}>
-              Add Resource
-            </Button>
+            <FileUpload
+              accept=".pdf"
+              multiple
+              onFilesSelected={handleFiles}
+              buttonText="Add Resource"
+              variant="button"
+            />
           </div>
           <Table>
           <TableHeader>
@@ -322,7 +306,7 @@ export default function ResourceList({
                     ) : resource.pending ? (
                       <em>Pending</em>
                     ) : !resource.pending && (resource.status === "processing" || resource.status === "queued") ? (
-                      <div className="flex items-center gap-2 text-sm text-blue-500">
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
                         <Spinner size="sm" />
                         <span>
                           Processing...
@@ -425,6 +409,6 @@ export default function ResourceList({
         </Table>
         </div>
       )}
-    </ResourceDropzone>
+    </>
   );
 }

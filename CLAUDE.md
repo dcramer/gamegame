@@ -43,12 +43,52 @@ The system uses the **Mistral OCR API** for PDF extraction:
 - Cost: $0.001/page
 - Requires: `MISTRAL_API_KEY`
 
-### Testing
+## Testing
+
+See `docs/testing.md` for comprehensive testing guidelines.
+
+**Philosophy**: Only mock external APIs (OpenAI, Mistral, BGG, Resend). Use real local services (PostgreSQL, Vercel KV, Blob storage).
+
+**Quick start**:
 ```bash
-pnpm test                    # Run Vitest test suite
+pnpm test              # Watch mode
+pnpm test:run          # CI mode
+pnpm test:ui           # Visual UI
 ```
 
-The test suite includes LLM prompt quality tests that validate responses using a secondary LLM to verify accuracy. Tests require connection to production datastores or local replicas.
+**Test patterns**:
+- Unit tests: Next to code (e.g., `lib/pdf.test.ts`)
+- Integration tests: In `tests/` directory
+- Use fixtures from `tests/fixtures.ts`
+- Mock external APIs with `tests/api-mocks.ts`
+- Clean database with `afterEach(cleanupTestDb)`
+
+**Test database setup**:
+```bash
+# Already configured in docker-compose.yml
+docker-compose up -d
+
+# Run migrations on test database
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/test_gamegame pnpm db:migrate
+```
+
+**Example test**:
+```typescript
+import { createTestGame, createTestResource } from '@/tests/fixtures';
+import { cleanupTestDb } from '@/tests/db-helpers';
+import { createMockFetch, openAI } from '@/tests/api-mocks';
+
+const mockFetch = createMockFetch();
+
+afterEach(cleanupTestDb);
+
+it('should process resource', async () => {
+  const game = await createTestGame({ name: 'Arcs' });
+  mockFetch.mockResolvedValueOnce(openAI.embeddings(['chunk1']));
+
+  // Test your code here
+});
+```
 
 ## Architecture
 
@@ -309,6 +349,7 @@ Required:
 Optional:
 - `BLOB_READ_WRITE_TOKEN`: Vercel Blob storage (falls back to local `./public/uploads`)
 - `KV_URL`, `KV_REST_API_URL`, `KV_REST_API_TOKEN`: Vercel KV for rate limiting
+- `CRON_SECRET`: Secret for Vercel Cron authentication (production only, generate via `openssl rand -base64 32`)
 
 ## Adding a New Game
 
@@ -329,6 +370,70 @@ Navigate to `/admin/add-game` and either:
 1. Create game entry in database via `/admin`
 2. Upload rulebook PDF as a resource
 3. System automatically chunks, embeds, and indexes content
+
+## Vercel Workflows
+
+GameGame uses Vercel Workflows for durable, long-running tasks. The workflow architecture strictly separates orchestration from execution:
+
+### Structure
+
+```
+lib/workflows/
+  shared/
+    types.ts           # Shared TypeScript types
+    helpers.ts         # Helper functions (for steps only!)
+
+  process-resource/
+    index.ts           # 'use workflow' - pure coordination, NO Node.js deps
+    steps/             # 'use step' - full Node.js runtime access
+      ingest.ts
+      vision.ts
+      cleanup.ts
+      metadata.ts
+      embed.ts
+      finalize.ts
+
+  cleanup-stalled-jobs/
+    index.ts
+    steps/
+      find-stalled-jobs.ts
+      mark-jobs-failed.ts
+
+  cleanup-orphaned-blobs/
+    index.ts
+    steps/
+      collect-db-references.ts
+      list-blobs.ts
+      identify-orphaned.ts
+      delete-orphaned.ts
+```
+
+### Critical Rules
+
+1. **NEVER mix `'use workflow'` and `'use step'` in the same file**
+2. **NEVER import Node.js modules (db, fs, APIs) in workflow files**
+3. **ALWAYS put I/O operations in step files**
+
+Workflows run in a sandboxed environment with no Node.js runtime access. Steps have full Node.js access.
+
+See `lib/workflows/AGENTS.md` for detailed architecture documentation and best practices.
+
+### Existing Workflows
+
+- **process-resource**: 6-stage PDF processing (ingest → vision → cleanup → metadata → embed → finalize)
+- **cleanup-stalled-jobs**: Marks jobs stuck in processing state (>30min) as failed (scheduled: every 10 minutes)
+- **cleanup-orphaned-blobs**: Removes blob storage files no longer referenced in database (scheduled: daily at 2 AM UTC)
+
+### Scheduled Execution
+
+The cleanup workflows are automated via Vercel Cron (configured in `vercel.json`):
+
+- **cleanup-stalled-jobs**: Runs every 10 minutes (`*/10 * * * *`)
+- **cleanup-orphaned-blobs**: Runs daily at 2 AM UTC (`0 2 * * *`)
+
+Both workflows can also be triggered manually by admin users via POST/GET requests to their respective endpoints. Authentication supports both Vercel Cron (via `CRON_SECRET` header) and admin session tokens.
+
+See `SCHEDULED_JOBS.md` for detailed documentation on monitoring, troubleshooting, and manual triggering.
 
 ## Important Notes
 

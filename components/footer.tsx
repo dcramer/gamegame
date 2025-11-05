@@ -1,12 +1,15 @@
-import { auth } from "@/auth";
+'use client';
+
 import { GITHUB_URL } from "@/constants";
 import { GitHubLogoIcon } from "@radix-ui/react-icons";
 import { Dices } from "lucide-react";
 import Link from "next/link";
 
-export default async function Footer() {
-  const session = await auth();
+interface FooterProps {
+  isAdmin?: boolean;
+}
 
+export default function Footer({ isAdmin }: FooterProps) {
   return (
     <footer className="container mx-auto px-4 py-8 text-center text-muted-foreground font-mono text-xs">
       <div className="flex justify-center items-center gap-4">
@@ -27,12 +30,12 @@ export default async function Footer() {
           <Dices className="w-4 h-4" />
           GameGame
         </Link>
-        {session?.user?.isAdmin && (
+        {isAdmin && (
           <>
             <span>&middot;</span>
             <Link
-              prefetch={false}
               href="/admin"
+              prefetch={false}
               className="flex items-center gap-1 hover:underline"
             >
               Admin

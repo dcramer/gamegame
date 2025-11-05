@@ -16,13 +16,13 @@ export async function loginUrlCommand() {
   }
 
   try {
-    // Verify user exists (optional - NextAuth will create user on first login)
+    // Verify user exists (optional - user will be created on first login)
     const user = await getUserByEmail(email);
     if (!user) {
       console.warn(`⚠️  Warning: User ${email} does not exist yet. They will be created on first login.\n`);
     }
 
-    // Generate verification token (same as NextAuth Resend provider)
+    // Generate verification token
     const token = randomBytes(32).toString('hex');
     const expires = Date.now() + 15 * 60 * 1000; // 15 minutes
 
@@ -33,9 +33,9 @@ export async function loginUrlCommand() {
       expires,
     });
 
-    // Generate callback URL (same as NextAuth uses)
+    // Generate magic link URL
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const callbackUrl = `${baseUrl}/api/auth/callback/resend?token=${token}&email=${encodeURIComponent(email)}`;
+    const callbackUrl = `${baseUrl}/api/auth/verify?token=${token}`;
 
     console.log(`\n🔗 Magic link for ${email}:\n`);
     console.log(callbackUrl);

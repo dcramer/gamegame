@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/workflows/cleanup-stalled-jobs",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/workflows/cleanup-orphaned-blobs",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}

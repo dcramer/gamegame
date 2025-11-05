@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { extractBGGId } from '@/lib/services/bgg';
+import { requireAdmin } from '@/lib/auth/helpers';
 
 /**
  * GET /api/bgg/extract-id
@@ -12,11 +13,8 @@ import { extractBGGId } from '@/lib/services/bgg';
  */
 export async function GET(request: NextRequest) {
   try {
-    // TODO: Add admin authentication check
-    // const session = await getServerSession();
-    // if (!session?.user?.isAdmin) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    // Require admin authentication
+    await requireAdmin();
 
     const { searchParams } = new URL(request.url);
     const url = searchParams.get('url');

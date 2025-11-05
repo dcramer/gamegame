@@ -1,15 +1,44 @@
 /**
  * Mock utilities for EXTERNAL API calls only
  *
- * Philosophy: Only mock network boundaries (OpenAI, Mistral, BGG, Resend)
- * All internal modules (DB, Vectorize, R2) use real implementations
+ * Philosophy: Only mock network boundaries (OpenAI, Mistral, BGG, Resend).
+ * All internal modules (DB, Blob storage, etc.) use real implementations.
+ *
+ * Why mock external APIs?
+ * - Cost: OpenAI/Mistral charge per request
+ * - Rate limits: BGG has strict rate limiting (5s between requests)
+ * - Speed: Network calls are slow, mocks are instant
+ * - Reliability: Tests shouldn't fail due to external service downtime
+ *
+ * Usage:
+ * @example
+ * import { createMockFetch, openAI, mistral, bgg } from '@/tests/api-mocks';
+ *
+ * const mockFetch = createMockFetch();
+ *
+ * // Single API call
+ * mockFetch.mockResolvedValueOnce(openAI.embeddings(['text']));
+ *
+ * // Multiple API calls (routing)
+ * routeAPICalls(mockFetch, {
+ *   'api.openai.com': openAI.embeddings(['text']),
+ *   'api.mistral.ai': mistral.ocrResponse([...]),
+ * });
  */
 
 import { vi } from 'vitest';
 
 /**
  * Create a mock fetch function for intercepting external API calls
- * Can be configured to route to real APIs for integration testing
+ *
+ * By default, replaces global fetch with a mock that you can configure.
+ * Can be configured to route to real APIs for integration testing.
+ *
+ * @param options.useRealAPIs - If true, passes through to real fetch (useful for E2E tests)
+ *
+ * @example
+ * const mockFetch = createMockFetch();
+ * mockFetch.mockResolvedValueOnce(openAI.chatCompletion('Answer'));
  */
 export function createMockFetch(options: { useRealAPIs?: boolean } = {}) {
   const mockFetch = vi.fn();
@@ -25,10 +54,30 @@ export function createMockFetch(options: { useRealAPIs?: boolean } = {}) {
 
 /**
  * OpenAI API Response Builders
+ *
+ * Build mock responses for OpenAI API endpoints.
+ * These match the actual OpenAI API response format.
+ *
+ * @example
+ * // Chat completion
+ * mockFetch.mockResolvedValueOnce(openAI.chatCompletion('The answer is...'));
+ *
+ * // Embeddings
+ * mockFetch.mockResolvedValueOnce(openAI.embeddings(['chunk1', 'chunk2']));
+ *
+ * // Error response
+ * mockFetch.mockResolvedValueOnce(openAI.error(500, 'Internal Server Error'));
  */
 export const openAI = {
   /**
    * Mock a successful chat completion response
+   *
+   * @param content - String content or object (will be JSON stringified)
+   *
+   * @example
+   * mockFetch.mockResolvedValueOnce(
+   *   openAI.chatCompletion({ answer: 'Setup requires 2-4 players' })
+   * );
    */
   chatCompletion(content: string | object) {
     const stringContent = typeof content === 'string' ? content : JSON.stringify(content);
@@ -336,10 +385,31 @@ export const openAI = {
 
 /**
  * Mistral API Response Builders
+ *
+ * Build mock responses for Mistral API endpoints.
+ * Currently supports OCR/PDF extraction API.
+ *
+ * @example
+ * mockFetch.mockResolvedValueOnce(
+ *   mistral.ocrResponse([
+ *     { markdown: '# Page 1\n\nSetup instructions' },
+ *     { markdown: '# Page 2\n\nGameplay rules' },
+ *   ])
+ * );
  */
 export const mistral = {
   /**
    * Mock OCR response for PDF extraction
+   *
+   * @param pages - Array of pages with markdown content and optional images
+   *
+   * @example
+   * mistral.ocrResponse([
+   *   {
+   *     markdown: '# Setup\n\nPlace board in center',
+   *     images: [{ base64: '...', bbox: [0, 0, 100, 100] }]
+   *   }
+   * ]);
    */
   ocrResponse(pages: Array<{ markdown: string; images?: any[] }>) {
     return {
@@ -367,10 +437,40 @@ export const mistral = {
 
 /**
  * BoardGameGeek API Response Builders
+ *
+ * Build mock responses for BoardGameGeek XML API.
+ * BGG API returns XML, so these builders generate XML strings.
+ *
+ * @example
+ * // Search results
+ * mockFetch.mockResolvedValueOnce(
+ *   bgg.searchResults([
+ *     { id: '224517', name: 'Brass: Birmingham', year: 2018 }
+ *   ])
+ * );
+ *
+ * // Game details
+ * mockFetch.mockResolvedValueOnce(
+ *   bgg.gameDetails({
+ *     id: '224517',
+ *     name: 'Brass: Birmingham',
+ *     year: 2018,
+ *     minPlayers: 2,
+ *     maxPlayers: 4,
+ *   })
+ * );
  */
 export const bgg = {
   /**
    * Create BGG search results XML
+   *
+   * @param games - Array of games to include in search results
+   *
+   * @example
+   * bgg.searchResults([
+   *   { id: '224517', name: 'Brass: Birmingham', year: 2018 },
+   *   { id: '266192', name: 'Wingspan', year: 2019 }
+   * ]);
    */
   searchResults(games: Array<{ id: string; name: string; year: number }>) {
     const items = games
@@ -469,6 +569,12 @@ ${publisherLinks}
 
 /**
  * Resend API Response Builders
+ *
+ * Build mock responses for Resend email API.
+ * Used for testing email authentication flows.
+ *
+ * @example
+ * mockFetch.mockResolvedValueOnce(resend.success('email-123'));
  */
 export const resend = {
   success(messageId: string = 'test-email-id') {
@@ -496,13 +602,25 @@ export const resend = {
 /**
  * Helper to set up common API mocks for a test
  *
+ * Convenience function to set up multiple API mocks at once.
+ * Use this when you need basic mocks and don't need fine-grained control.
+ *
+ * @param config - Configuration object specifying which APIs to mock
+ * @returns Mock fetch function that you can further configure if needed
+ *
  * @example
  * const mockFetch = setupAPIMocks({
  *   openai: {
- *     embeddings: ['test content'],
+ *     embeddings: ['chunk1', 'chunk2'],
  *     chatCompletion: { questions: ['Q1', 'Q2'] }
+ *   },
+ *   mistral: {
+ *     ocr: [{ markdown: '# Page 1' }]
  *   }
  * });
+ *
+ * // Can still add more mocks if needed
+ * mockFetch.mockResolvedValueOnce(bgg.searchResults([...]));
  */
 export function setupAPIMocks(config: {
   openai?: {
@@ -541,18 +659,28 @@ export function setupAPIMocks(config: {
 
 /**
  * Configure fetch mock to route specific URLs to specific responses
- * Useful for tests that call multiple external APIs
+ *
+ * Useful for tests that call multiple external APIs in sequence.
+ * Routes based on URL pattern matching.
+ *
+ * @param mockFetch - The mock fetch function from createMockFetch()
+ * @param routes - Object mapping URL patterns to responses (or functions that return responses)
  *
  * @example
  * const mockFetch = createMockFetch();
  * routeAPICalls(mockFetch, {
+ *   // Static responses
  *   'api.openai.com/v1/embeddings': openAI.embeddings(['text']),
  *   'api.openai.com/v1/chat/completions': openAI.chatCompletion('response'),
- *   // Or use a function for dynamic routing:
+ *   'boardgamegeek.com/xmlapi2/search': bgg.searchResults([...]),
+ *
+ *   // Dynamic routing with function
  *   'api.openai.com/v1/chat/completions': (url, options) => {
- *     return options?.body?.stream ? streamingResponse : regularResponse;
+ *     const body = JSON.parse(options?.body || '{}');
+ *     return body.stream
+ *       ? openAI.streamingChatCompletion([...])
+ *       : openAI.chatCompletion('response');
  *   },
- *   'boardgamegeek.com/xmlapi2/search': bgg.searchResults([...])
  * });
  */
 export function routeAPICalls(

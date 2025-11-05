@@ -1,6 +1,6 @@
 "use client";
 
-import ResourceDropzone from "@/components/resource-dropzone";
+import { useFileInput } from "@/lib/hooks/useFileInput";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,18 @@ export default function Form({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(game.imageUrl);
   const [isLoading, setLoading] = useState(false);
+
+  const { triggerFileInput } = useFileInput({
+    accept: "image/*",
+    multiple: false,
+    onSelect: (files) => {
+      const file = files[0];
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      setImageUrl(url);
+      setImageFile(file);
+    },
+  });
 
   return (
     <form
@@ -73,54 +85,46 @@ export default function Form({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => {
-                const input = document.createElement("input");
-                input.type = "file";
-                input.accept = "image/*";
-                input.onchange = (e) => {
-                  const file = (e.target as HTMLInputElement).files?.[0];
-                  if (!file) return;
-                  const url = URL.createObjectURL(file);
-                  setImageUrl(url);
-                  setImageFile(file);
-                };
-                input.click();
-              }}
+              onClick={triggerFileInput}
             >
               Upload Image
             </Button>
           )}
         </div>
-        <ResourceDropzone
-          onAddFiles={(files) => {
-            const file = files[0];
-            if (!file) return;
-            const url = URL.createObjectURL(file);
-            setImageUrl(url);
-            setImageFile(file);
-          }}
+        <Card
+          className="relative max-h-96 max-w-96 cursor-pointer group"
+          onClick={!imageUrl ? triggerFileInput : undefined}
         >
-          <Card className="relative max-h-96 max-w-96" onClick={imageUrl ? (e) => e.stopPropagation() : undefined}>
-            <CardContent className="flex flex-col items-center" style={imageUrl ? { pointerEvents: 'none' } : undefined}>
-              {imageUrl ? (
-                <div className="w-full aspect-[3/2] overflow-hidden relative">
-                  <Image
-                    src={imageUrl}
-                    alt="Box Art"
-                    fill
-                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                    style={{
-                      objectFit: "cover",
-                      objectPosition: "top",
-                    }}
-                  />
+          <CardContent className="flex items-center justify-center min-h-64 p-6">
+            {imageUrl ? (
+              <div className="w-full aspect-[3/2] overflow-hidden relative">
+                <Image
+                  src={imageUrl}
+                  alt="Box Art"
+                  fill
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                  style={{
+                    objectFit: "cover",
+                    objectPosition: "top",
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="text-center">
+                <p className="text-lg font-medium">Click to upload an image</p>
+              </div>
+            )}
+
+            {/* Hover overlay */}
+            {!imageUrl && (
+              <div className="absolute inset-0 bg-primary/90 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                <div className="text-primary-foreground text-center">
+                  <div className="text-lg font-semibold">Click to upload</div>
                 </div>
-              ) : (
-                <div className="p-6">Drag an image to upload</div>
-              )}
-            </CardContent>
-          </Card>
-        </ResourceDropzone>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
       <Button type="submit" className="mr-auto" disabled={isLoading}>
         Update Game

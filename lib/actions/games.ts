@@ -14,7 +14,9 @@ export const getGame = async (input: string) => {
     .select({
       id: games.id,
       name: games.name,
+      slug: games.slug,
       imageUrl: games.imageUrl,
+      bggId: games.bggId,
       bggUrl: games.bggUrl,
     })
     .from(games)
@@ -62,7 +64,16 @@ export const createGame = async (input: NewGameParams) => {
 
   const parsedInput = insertGameSchema.parse(input);
 
-  const [game] = await db.insert(games).values(parsedInput).returning({
+  // Generate slug from name
+  const slug = parsedInput.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  const [game] = await db.insert(games).values({
+    ...parsedInput,
+    slug,
+  }).returning({
     id: games.id,
     name: games.name,
     imageUrl: games.imageUrl,
@@ -99,7 +110,12 @@ export const updateGame = async (
     throw new Error("Game not found");
   }
 
-  const parsedInput = insertGameSchema.partial().parse(input);
+  // Filter out undefined values
+  const parsedInput: Partial<NewGameParams> = {};
+  if (input.name !== undefined) parsedInput.name = input.name;
+  if (input.imageUrl !== undefined) parsedInput.imageUrl = input.imageUrl;
+  if (input.bggUrl !== undefined) parsedInput.bggUrl = input.bggUrl;
+
   if (Object.keys(parsedInput).length === 0) {
     return game;
   }

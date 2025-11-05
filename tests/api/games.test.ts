@@ -462,6 +462,7 @@ describe('Games API', () => {
         type: 'text',
         attachmentId: null,
         content: 'Test fragment',
+        embedding: new Array(1536).fill(0).map(() => Math.random()),
         searchableContent: 'Test fragment',
         syntheticQuestions: null,
         resourceName: 'Test Resource',
@@ -469,8 +470,7 @@ describe('Games API', () => {
         resourceType: 'rulebook',
         version: 1,
         pageNumber: 1,
-        pageRangeStart: null,
-        pageRangeEnd: null,
+        pageRange: null,
         section: null,
         images: null,
       });

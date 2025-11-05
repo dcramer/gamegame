@@ -1,5 +1,11 @@
 /**
  * Test setup file - runs before each test file
+ *
+ * This file configures the test environment for all tests:
+ * 1. Sets environment variables (DATABASE_URL, API keys, etc.)
+ * 2. Mocks NextAuth to bypass authentication
+ * 3. Sets up global test cleanup
+ *
  * IMPORTANT: Environment variables must be set BEFORE any other imports
  */
 
@@ -13,6 +19,7 @@ process.env.NODE_ENV = 'test';
 
 // Now import vitest after env vars are set
 import { beforeEach, afterEach, vi } from 'vitest';
+import { cleanupTestDb } from './db-helpers';
 
 // Mock NextAuth to avoid 'next/server' import issues in tests
 vi.mock('@/auth', () => ({
@@ -59,7 +66,17 @@ vi.mock('@/lib/auth/helpers', () => ({
   isAdmin: vi.fn(async () => true),
 }));
 
-// Clean up after each test
-afterEach(() => {
+/**
+ * Global cleanup after each test
+ *
+ * This ensures tests are isolated and don't affect each other.
+ * - Cleans database tables (fast DELETE FROM)
+ * - Restores all mocked functions
+ */
+afterEach(async () => {
+  // Clean database between tests for isolation
+  await cleanupTestDb();
+
+  // Restore all mocked functions
   vi.restoreAllMocks();
 });

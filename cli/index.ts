@@ -71,6 +71,13 @@ async function main() {
       console.error('  ask        - Ask questions about a game');
       process.exit(1);
   }
+
+  // Exit after successful command execution
+  // This ensures the process doesn't hang due to open database connections
+  process.exit(0);
 }
 
-main();
+main().catch((err) => {
+  console.error('Fatal error:', err);
+  process.exit(1);
+});

@@ -16,6 +16,21 @@ export type { BGGSearchResult, BGGGameDetails };
 const BGG_USER_AGENT = 'GameGame (https://gamegame.ai)';
 
 /**
+ * Cache freshness threshold in days
+ * Data older than this will be considered stale and re-fetched from BGG
+ */
+const CACHE_FRESHNESS_DAYS = 7;
+
+/**
+ * Check if cached data is stale (older than CACHE_FRESHNESS_DAYS)
+ */
+export function isCacheStale(cachedAt: number): boolean {
+  const ageMs = Date.now() - cachedAt;
+  const ageDays = ageMs / (1000 * 60 * 60 * 24);
+  return ageDays > CACHE_FRESHNESS_DAYS;
+}
+
+/**
  * Rate limiting queue for BGG API requests
  * Uses Vercel KV as a distributed lock to ensure
  * only one request happens every 5 seconds across all serverless functions.
@@ -155,7 +170,7 @@ async function withRetry<T>(
 
 /**
  * Search BoardGameGeek for games by name
- * Fetches thumbnails for top results to help with disambiguation
+ * Always fetches fresh results from BGG API, but uses cache for game details/images
  */
 export async function searchBGGGames(
   query: string,
@@ -229,7 +244,7 @@ export async function searchBGGGames(
 
   console.log(`BGG search completed: ${results.length} results`);
 
-  // Fetch thumbnails for top results to help with disambiguation
+  // Fetch thumbnails for top results to help with disambiguation (using cache)
   if (fetchThumbnails && results.length > 0) {
     const topResults = results.slice(0, Math.min(5, results.length));
     console.log(`Fetching thumbnails for ${topResults.length} top results`);
@@ -278,27 +293,33 @@ export async function getBGGGameDetails(
     const cachedGame = await db.select().from(bggGames).where(eq(bggGames.id, bggId)).limit(1);
 
     if (cachedGame.length > 0) {
-      console.log('BGG game found in database cache');
       const game = cachedGame[0];
-      return {
-        id: game.id,
-        name: game.name,
-        description: game.description || '',
-        yearPublished: game.yearPublished,
-        minPlayers: game.minPlayers,
-        maxPlayers: game.maxPlayers,
-        playingTime: game.playingTime,
-        imageUrl: game.imageUrl,
-        thumbnailUrl: game.thumbnailUrl,
-        publishers: game.publishers ?? [],
-        designers: game.designers ?? [],
-      };
+      const isStale = isCacheStale(game.cachedAt);
+
+      if (!isStale) {
+        console.log('BGG game found in database cache (fresh)');
+        return {
+          id: game.id,
+          name: game.name,
+          description: game.description || '',
+          yearPublished: game.yearPublished,
+          minPlayers: game.minPlayers,
+          maxPlayers: game.maxPlayers,
+          playingTime: game.playingTime,
+          imageUrl: game.imageUrl,
+          thumbnailUrl: game.thumbnailUrl,
+          publishers: game.publishers ?? [],
+          designers: game.designers ?? [],
+        };
+      } else {
+        console.log('BGG game found in cache but stale, fetching fresh data from API');
+      }
     }
   } else {
     console.log('Bypassing cache, fetching fresh data from BGG API');
   }
 
-  console.log('BGG game not in cache, fetching from API');
+  console.log('BGG game not in cache or stale, fetching from API');
 
   const requestQueue = new BGGRequestQueue(useKV);
   const details = await requestQueue.enqueue(async () => {

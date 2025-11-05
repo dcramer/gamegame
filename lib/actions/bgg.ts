@@ -28,7 +28,10 @@ export async function searchBGG(
   try {
     // Disable thumbnail fetching for now - it's too slow with rate limiting
     // Takes 25+ seconds to fetch 5 thumbnails (5 second delay between each)
-    return await searchBGGGames(query.trim(), { fetchThumbnails: false });
+    return await searchBGGGames(query.trim(), {
+      fetchThumbnails: false,
+      apiKey: process.env.BGG_API_KEY,
+    });
   } catch (error) {
     logger.error({ err: error, query }, "BGG search failed");
     throw new Error("Failed to search BoardGameGeek");
@@ -45,7 +48,9 @@ export async function fetchBGGGame(bggId: string): Promise<{
   await requireAdmin();
 
   try {
-    const details = await getBGGGameDetails(bggId);
+    const details = await getBGGGameDetails(bggId, {
+      apiKey: process.env.BGG_API_KEY,
+    });
 
     // Download and process the image if available
     let imageUrl: string | null = null;
@@ -113,6 +118,54 @@ export async function createGameFromBGG(bggId: string) {
     }
 
     throw new Error("Failed to create game from BoardGameGeek");
+  }
+}
+
+/**
+ * Update an existing game with data from BGG
+ * Fetches latest data from BGG and updates game name, year, and image
+ */
+export async function syncGameFromBGG(gameId: string) {
+  await requireAdmin();
+
+  let uploadedImageUrl: string | null = null;
+
+  try {
+    // First get the current game
+    const { getGame, updateGame } = await import("./games");
+    const game = await getGame(gameId);
+
+    if (!game.bggUrl) {
+      throw new Error("Game does not have a BGG URL");
+    }
+
+    // Extract BGG ID from URL
+    const bggId = extractBGGId(game.bggUrl);
+    if (!bggId) {
+      throw new Error("Invalid BGG URL");
+    }
+
+    // Fetch latest data from BGG (fetchBGGGame already passes the apiKey internally)
+    const { details, imageUrl } = await fetchBGGGame(bggId);
+    uploadedImageUrl = imageUrl;
+
+    // Update the game
+    const updatedGame = await updateGame(gameId, {
+      name: details.name,
+      imageUrl: imageUrl ?? game.imageUrl,
+    });
+
+    return updatedGame;
+  } catch (error) {
+    // Clean up uploaded image blob if update failed
+    if (uploadedImageUrl) {
+      await deleteImage(uploadedImageUrl).catch((cleanupError) => {
+        logger.error({ err: cleanupError, imageUrl: uploadedImageUrl }, "Failed to cleanup image blob after error");
+      });
+    }
+
+    logger.error({ err: error, gameId }, "Failed to sync game from BGG");
+    throw new Error("Failed to sync game from BoardGameGeek");
   }
 }
 

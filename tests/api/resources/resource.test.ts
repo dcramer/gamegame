@@ -168,6 +168,7 @@ describe.sequential('Resource Detail API', () => {
         type: 'text',
         attachmentId: null,
         content: 'Test fragment',
+        embedding: new Array(1536).fill(0).map(() => Math.random()),
         searchableContent: 'Test fragment',
         syntheticQuestions: null,
         resourceName: 'Test Resource Detail',
@@ -175,8 +176,7 @@ describe.sequential('Resource Detail API', () => {
         resourceType: 'rulebook',
         version: 1,
         pageNumber: 1,
-        pageRangeStart: null,
-        pageRangeEnd: null,
+        pageRange: null,
         section: null,
         images: null,
       });

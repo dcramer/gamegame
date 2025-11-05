@@ -11,12 +11,17 @@ import { eq, or, asc } from 'drizzle-orm';
 /**
  * GET /api/games/:gameIdOrSlug/attachments
  * List all attachments for a game with resource information
+ * Requires admin authentication
  */
 export async function GET(
   request: NextRequest,
   props: { params: Promise<{ gameIdOrSlug: string }> }
 ) {
   try {
+    // Require admin authentication
+    const { requireAdmin } = await import('@/lib/session');
+    await requireAdmin();
+
     const params = await props.params;
     const { gameIdOrSlug } = params;
 

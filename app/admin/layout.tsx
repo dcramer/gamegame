@@ -1,4 +1,4 @@
-import { auth } from '@/auth';
+import { getCurrentUser } from '@/lib/session';
 import { redirect } from 'next/navigation';
 
 export default async function Layout({
@@ -6,11 +6,13 @@ export default async function Layout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
-  if (!session?.user?.isAdmin) {
-    if (!session?.user) {
-      return redirect('/auth/signin');
-    }
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return redirect('/auth/signin');
+  }
+
+  if (!user.isAdmin) {
     return redirect('/');
   }
 

@@ -12,7 +12,7 @@ import {
 import Link from "next/link";
 import Image from "next/image";
 import { deleteGame } from "@/lib/actions/games";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 export default function GameList({
   gameList,
@@ -26,10 +26,6 @@ export default function GameList({
   }[];
 }) {
   const [activeGameList, setGameList] = useState(gameList);
-
-  useEffect(() => {
-    setGameList(gameList);
-  }, [gameList]);
 
   return activeGameList.length === 0 ? (
     <div className="flex flex-1 flex-col gap-6 items-center justify-center rounded-lg border border-dashed shadow-sm p-6 bg-muted min-h-64">

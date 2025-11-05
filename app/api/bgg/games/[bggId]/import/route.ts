@@ -11,6 +11,7 @@ import { getBGGGameDetails, downloadImage } from '@/lib/services/bgg';
 import { nanoid } from 'nanoid';
 import { requireAdmin } from '@/lib/auth/helpers';
 import { uploadBlob, blobKeyToUrl, bulkDelete } from '@/lib/services/blob-storage';
+import { withRateLimit } from '@/lib/utils/rate-limit-handler';
 
 function generateSlug(name: string, year?: number | null): string {
   const slug = name
@@ -29,11 +30,12 @@ export async function POST(
   request: NextRequest,
   props: { params: Promise<{ bggId: string }> }
 ) {
-  let uploadedImageKey: string | null = null;
+  return withRateLimit(request, 'bgg', async () => {
+    let uploadedImageKey: string | null = null;
 
-  try {
-    // Require admin authentication
-    await requireAdmin();
+    try {
+      // Require admin authentication
+      await requireAdmin();
 
     const params = await props.params;
     const { bggId } = params;
@@ -110,63 +112,64 @@ export async function POST(
       .limit(1);
 
     return NextResponse.json(game, { status: 201 });
-  } catch (error) {
-    // Clean up uploaded image if game creation failed
-    if (uploadedImageKey) {
-      try {
-        await bulkDelete([uploadedImageKey]);
-      } catch (cleanupError) {
-        console.error('[POST /api/bgg/games/:bggId/import] Failed to cleanup image after error:', cleanupError);
-      }
-    }
-
-    console.error('[POST /api/bgg/games/:bggId/import] Error:', error);
-
-    // Check if it's a duplicate error (PostgreSQL unique constraint violation)
-    if (error instanceof Error) {
-      const errorMessage = error.message.toLowerCase();
-      const errorCause = (error as any).cause;
-
-      // Check for PostgreSQL unique constraint errors
-      const isUniqueConstraintError =
-        errorMessage.includes('unique constraint') ||
-        errorMessage.includes('duplicate key') ||
-        (errorCause && (
-          errorCause.code === '23505' ||
-          errorCause.constraint_name?.includes('unique')
-        ));
-
-      if (isUniqueConstraintError) {
-        if (errorMessage.includes('slug') || errorCause?.constraint_name?.includes('slug')) {
-          return NextResponse.json(
-            { error: 'A game with this name and year already exists' },
-            { status: 409 }
-          );
+    } catch (error) {
+      // Clean up uploaded image if game creation failed
+      if (uploadedImageKey) {
+        try {
+          await bulkDelete([uploadedImageKey]);
+        } catch (cleanupError) {
+          console.error('[POST /api/bgg/games/:bggId/import] Failed to cleanup image after error:', cleanupError);
         }
-        if (errorMessage.includes('bgg_id') || errorCause?.constraint_name?.includes('bgg_id')) {
+      }
+
+      console.error('[POST /api/bgg/games/:bggId/import] Error:', error);
+
+      // Check if it's a duplicate error (PostgreSQL unique constraint violation)
+      if (error instanceof Error) {
+        const errorMessage = error.message.toLowerCase();
+        const errorCause = (error as any).cause;
+
+        // Check for PostgreSQL unique constraint errors
+        const isUniqueConstraintError =
+          errorMessage.includes('unique constraint') ||
+          errorMessage.includes('duplicate key') ||
+          (errorCause && (
+            errorCause.code === '23505' ||
+            errorCause.constraint_name?.includes('unique')
+          ));
+
+        if (isUniqueConstraintError) {
+          if (errorMessage.includes('slug') || errorCause?.constraint_name?.includes('slug')) {
+            return NextResponse.json(
+              { error: 'A game with this name and year already exists' },
+              { status: 409 }
+            );
+          }
+          if (errorMessage.includes('bgg_id') || errorCause?.constraint_name?.includes('bgg_id')) {
+            return NextResponse.json(
+              { error: 'This game has already been imported' },
+              { status: 409 }
+            );
+          }
           return NextResponse.json(
             { error: 'This game has already been imported' },
             { status: 409 }
           );
         }
+      }
+
+      // Return more specific error message if available
+      if (error instanceof Error) {
         return NextResponse.json(
-          { error: 'This game has already been imported' },
-          { status: 409 }
+          { error: error.message || 'Failed to create game from BoardGameGeek' },
+          { status: 500 }
         );
       }
-    }
 
-    // Return more specific error message if available
-    if (error instanceof Error) {
       return NextResponse.json(
-        { error: error.message || 'Failed to create game from BoardGameGeek' },
+        { error: 'Failed to create game from BoardGameGeek' },
         { status: 500 }
       );
     }
-
-    return NextResponse.json(
-      { error: 'Failed to create game from BoardGameGeek' },
-      { status: 500 }
-    );
-  }
+  });
 }

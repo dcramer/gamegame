@@ -83,7 +83,7 @@ const CitationLink = ({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <sup className="text-blue-400 font-bold cursor-help">
+        <sup className="text-gray-500 font-bold cursor-help">
           [{number}]
         </sup>
       </TooltipTrigger>
@@ -401,8 +401,6 @@ const defaultQuestions = [
 
 export function Chat({
   game,
-  imageError,
-  setImageError,
 }: {
   game: {
     id: string;
@@ -411,10 +409,9 @@ export function Chat({
     bggUrl: string | null;
     resourceCount?: number;
   };
-  imageError: boolean;
-  setImageError: (error: boolean) => void;
 }) {
   const [input, setInput] = useState("");
+  const [imageError, setImageError] = useState(false);
 
   const {
     messages,

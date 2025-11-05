@@ -18,8 +18,8 @@
   --color-accent-foreground: oklch(9% 0 0);
   --color-destructive: oklch(60.2% 0.1684 12.77);
   --color-destructive-foreground: oklch(98% 0 0);
-  --color-border: oklch(89.8% 0 0);
-  --color-input: oklch(89.8% 0 0);
+  --color-border: oklch(70% 0 0);
+  --color-input: oklch(98% 0 0);
   --color-ring: oklch(3.9% 0 0);
 
   /* Border radius */
@@ -75,8 +75,8 @@
   --color-accent-foreground: oklch(98% 0 0);
   --color-destructive: oklch(30.6% 0.1255 12.77);
   --color-destructive-foreground: oklch(98% 0 0);
-  --color-border: oklch(18% 0 0);
-  --color-input: oklch(18% 0 0);
+  --color-border: oklch(30% 0 0);
+  --color-input: oklch(5% 0 0);
   --color-ring: oklch(50% 0 0);
 }
 

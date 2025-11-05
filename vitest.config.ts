@@ -6,7 +6,14 @@ export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
     include: ['**/*.test.ts', '**/*.test.tsx'],
-    exclude: ['node_modules', 'dist', '.next'],
+    exclude: [
+      'node_modules',
+      '**/node_modules/**',
+      'workers/**',
+      'dist',
+      '.next',
+      'tests/examples/**', // Exclude example tests (for documentation only)
+    ],
     globals: true,
     environment: 'node',
     setupFiles: ['./tests/mocks/next-server-mock.ts', './tests/setup.ts'],

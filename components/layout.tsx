@@ -1,9 +1,10 @@
-'use client';
-
-import Footer from "./footer-client";
+import Footer from "./footer";
 import Header from "./header";
+import { getCurrentUser } from "@/lib/session";
 
-export default function Layout({ children }: { children: React.ReactNode }) {
+export default async function Layout({ children }: { children: React.ReactNode }) {
+  const user = await getCurrentUser();
+
   return (
     <div className="min-h-screen flex flex-col items-stretch">
       <Header />
@@ -12,7 +13,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {children}
       </main>
 
-      <Footer />
+      <Footer isAdmin={user?.isAdmin} />
     </div>
   );
 }

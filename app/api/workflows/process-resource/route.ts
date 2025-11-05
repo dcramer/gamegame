@@ -15,7 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { processResourceWorkflow } from '@/lib/workflows/process-resource';
+import { processResourceWorkflow } from '@/lib/workflows/process-resource/index';
 import { db } from '@/lib/db';
 import { resources, jobs } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -24,10 +24,12 @@ import { requireAdmin } from '@/lib/auth/helpers';
 
 export async function POST(request: NextRequest) {
   try {
-    // Require admin authentication (internal workflow endpoint)
+    // Require admin authentication for workflow endpoint
     await requireAdmin();
 
     const body = await request.json();
+    const { searchParams } = new URL(request.url);
+    const fromStage = searchParams.get('from') as 'vision' | 'cleanup' | 'metadata' | 'embed' | null;
 
     // Validate required fields
     const { resourceId, gameId, gameName, name, url, sourceKey } = body;
@@ -42,6 +44,14 @@ export async function POST(request: NextRequest) {
     if (!url && !sourceKey) {
       return NextResponse.json(
         { error: 'Either url or sourceKey must be provided' },
+        { status: 400 }
+      );
+    }
+
+    // Validate fromStage parameter
+    if (fromStage && !['vision', 'cleanup', 'metadata', 'embed'].includes(fromStage)) {
+      return NextResponse.json(
+        { error: 'Invalid from parameter. Must be one of: vision, cleanup, metadata, embed' },
         { status: 400 }
       );
     }
@@ -77,7 +87,7 @@ export async function POST(request: NextRequest) {
       .update(resources)
       .set({
         status: 'processing',
-        processingStage: 'ingest',
+        processingStage: fromStage || 'ingest',
         currentJobId: jobId,
         updatedAt: Date.now(),
       })
@@ -92,6 +102,7 @@ export async function POST(request: NextRequest) {
       name,
       url,
       sourceKey,
+      fromStage: fromStage || undefined,
     };
 
     // Start workflow in background (don't await)

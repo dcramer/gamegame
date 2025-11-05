@@ -185,6 +185,33 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
     })
   );
 
+  // Update job progress
+  await updateJobProgress(input.jobId, 'Classifying answer types', 72);
+
+  // Generate answer type classifications for text chunks
+  const { classifyFragmentsAnswerTypes } = await import('@/lib/services/answer-type-classification');
+  const answerTypesArrays = await classifyFragmentsAnswerTypes(
+    pdfChunks.map((chunk) => ({
+      content: chunk.content,
+      section: chunk.section,
+      pageNumber: chunk.pageNumber,
+    })),
+    resourceInfo,
+    OPENAI_API_KEY,
+    {
+      batchSize: 10,
+    }
+  );
+
+  console.log(
+    JSON.stringify({
+      module: 'embed-stage',
+      event: 'answer_types_classified',
+      resourceId: input.resourceId,
+      totalClassifications: answerTypesArrays.reduce((sum, arr) => sum + arr.length, 0),
+    })
+  );
+
   // Build searchable content for text chunks
   const { buildSearchableContent, buildImageSearchableContent } = await import('@/lib/services/searchable-content');
 
@@ -203,6 +230,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
       chunk,
       searchableContent,
       syntheticQuestions: syntheticQuestionsArrays[index] || [],
+      answerTypes: answerTypesArrays[index] || [],
     };
   });
 
@@ -261,6 +289,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
       content: item.chunk.content,
       searchableContent: item.searchableContent,
       syntheticQuestions: item.syntheticQuestions,
+      answerTypes: item.answerTypes,
       pageNumber: item.chunk.pageNumber,
       pageRange: item.chunk.pageRange,
       section: item.chunk.section,
@@ -272,6 +301,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
       content: item.attachment.description || '',
       searchableContent: item.searchableContent,
       syntheticQuestions: [] as string[],
+      answerTypes: [] as string[],
       pageNumber: item.page.pageNumber,
       pageRange: null as [number, number] | null,
       section:
@@ -348,6 +378,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
     content: item.content,
     searchableContent: item.searchableContent,
     syntheticQuestions: item.syntheticQuestions.length > 0 ? JSON.stringify(item.syntheticQuestions) : null,
+    answerTypes: item.answerTypes.length > 0 ? JSON.stringify(item.answerTypes) : null,
     resourceName: resourceInfo.name,
     resourceDescription: resourceInfo.description,
     resourceType: resourceInfo.resourceType,

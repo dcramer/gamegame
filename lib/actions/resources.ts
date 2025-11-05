@@ -7,6 +7,8 @@ import { fragments as fragmentsTable } from "../db/schema/fragments";
 import { attachments } from "../db/schema/attachments";
 import { insertResourceSchema, resources } from "../db/schema/resources";
 import { games } from "../db/schema/games";
+import { jobs } from "../db/schema/jobs";
+import { processResourceWorkflow } from "../workflows/process-resource";
 import mime from "mime";
 import { asc, eq, sql } from "drizzle-orm";
 import { extractTextFromPdf } from "../pdf";
@@ -20,7 +22,7 @@ import {
   calculateResourceStats,
   cleanupBlobsOnError,
 } from "../services/resource-processor";
-import { enrichPDFImagesWithVision } from "../services/vision";
+import { chunkStructuredPDF } from "../services/chunking";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { env } from "../env.mjs";
@@ -101,38 +103,63 @@ export const createResource = async (input: {
     processingStage: "ingest",
   });
 
-  // Trigger Vercel Workflow asynchronously via API route
-  const workflowUrl = `${env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/workflows/process-resource`;
-
+  // Trigger Vercel Workflow directly (no HTTP call needed)
   try {
-    const response = await fetch(workflowUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        resourceId,
-        gameId: input.gameId,
-        gameName: game.name,
-        name: input.name,
-        url: input.url,
-      }),
+    // Create job record
+    const jobId = nanoid();
+    await db.insert(jobs).values({
+      id: jobId,
+      type: 'process-resource',
+      gameId: input.gameId,
+      resourceId,
+      status: 'pending',
+      currentStep: 'Queued for processing',
+      progress: 0,
     });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(`Failed to start workflow: ${response.status} ${error.error || response.statusText}`);
-    }
+    // Update resource with job ID
+    await db
+      .update(resources)
+      .set({
+        currentJobId: jobId,
+        updatedAt: Date.now(),
+      })
+      .where(eq(resources.id, resourceId));
 
-    const result = await response.json();
-    log.info({ jobId: result.jobId }, "Workflow started successfully");
+    // Start workflow in background (don't await - it's long-running)
+    const workflowInput = {
+      jobId,
+      resourceId,
+      gameId: input.gameId,
+      gameName: game.name,
+      name: input.name,
+      url: input.url,
+    };
+
+    processResourceWorkflow(workflowInput).catch((error) => {
+      log.error({ err: error, jobId }, 'Workflow execution failed');
+      // Mark job as failed
+      db.update(jobs)
+        .set({
+          status: 'failed',
+          error: {
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          },
+          completedAt: Date.now(),
+        })
+        .where(eq(jobs.id, jobId))
+        .catch((err) => log.error({ err }, 'Failed to update job'));
+    });
+
+    log.info({ jobId }, "Workflow started successfully");
 
     return {
       id: resourceId,
       name: input.name,
       url: input.url,
       status: "processing" as const,
-      jobId: result.jobId,
+      jobId,
     };
   } catch (error) {
     // If workflow failed to start, mark resource as failed
@@ -287,6 +314,13 @@ export const updateResource = async (
 
   const parsedInput = insertResourceSchema.partial().parse(input);
 
+  // TODO: Content regeneration is not fully implemented yet
+  // For now, only allow updating name
+  if (input.content) {
+    throw new Error("Direct content updates are not supported. Please reprocess the resource instead.");
+  }
+
+  /* DISABLED: Incomplete content regeneration feature
   // If content is being updated, regenerate embeddings
   if (input.content && input.content !== resource.content) {
     log.info("Regenerating embeddings for content update");
@@ -297,7 +331,19 @@ export const updateResource = async (
       // Set transaction timeout to prevent long-running locks
       await tx.execute(sql`SET LOCAL statement_timeout = '60s'`);
 
-      const [embeddings, version] = await generateEmbeddings(updatedContent);
+      // Chunk the content
+      const chunks = chunkStructuredPDF(updatedContent);
+
+      // Prepare chunks without images (since we're just updating content)
+      const chunksForEmbedding = chunks.map(chunk => ({
+        content: chunk.content,
+        pageNumber: chunk.pageNumber,
+        pageRange: chunk.pageRange,
+        section: chunk.section,
+        images: [],
+      }));
+
+      const [embeddings, version] = await generateEmbeddings(chunksForEmbedding, env.OPENAI_API_KEY);
       if (!embeddings.length) {
         throw new Error("Failed to generate embeddings");
       }
@@ -337,8 +383,9 @@ export const updateResource = async (
 
     return newResource;
   }
+  */
 
-  // Otherwise, just update the name (no need to regenerate embeddings)
+  // Update metadata only (name, etc. - no content changes allowed)
   log.info("Updating resource metadata (no content change)");
   const [updatedResource] = await db
     .update(resources)
@@ -388,7 +435,10 @@ export const deleteResource = async (resourceId: string) => {
   return {};
 };
 
-export const reprocessResource = async (resourceId: string) => {
+export const reprocessResource = async (
+  resourceId: string,
+  fromStage?: "ingest" | "vision" | "cleanup" | "metadata" | "embed"
+) => {
   await requireAdmin();
 
   const [resource] = await db
@@ -405,6 +455,7 @@ export const reprocessResource = async (resourceId: string) => {
     resourceId,
     resourceName: resource.name,
     gameId: resource.gameId,
+    fromStage,
   });
   log.info("Starting async resource reprocessing");
 
@@ -429,74 +480,116 @@ export const reprocessResource = async (resourceId: string) => {
     throw new Error(`Game ${resource.gameId} not found`);
   }
 
-  // Delete old fragments and attachments before starting reprocess
-  // This ensures we don't have duplicate data during processing
-  await db.transaction(async (tx) => {
-    await tx
+  // For full reprocess (ingest), delete old fragments and attachments
+  // For partial reprocessing, only delete fragments (attachments will be updated)
+  if (!fromStage || fromStage === "ingest") {
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(fragmentsTable)
+        .where(eq(fragmentsTable.resourceId, resourceId));
+
+      const oldAttachments = await tx
+        .select({ url: attachments.url })
+        .from(attachments)
+        .where(eq(attachments.resourceId, resourceId));
+
+      if (oldAttachments.length > 0) {
+        await tx
+          .delete(attachments)
+          .where(eq(attachments.resourceId, resourceId));
+
+        // Clean up old blob files in background
+        const oldBlobUrls = oldAttachments.map((a) => a.url);
+        deleteImages(oldBlobUrls).catch((cleanupError) => {
+          log.error({ err: cleanupError }, "Failed to cleanup old blobs");
+        });
+      }
+    });
+
+    // Update resource status to 'processing'
+    await db
+      .update(resources)
+      .set({
+        status: "processing",
+        processingStage: "ingest",
+        content: "",
+        version: 0,
+      })
+      .where(eq(resources.id, resourceId));
+  } else {
+    // For partial reprocessing, only delete fragments (embed stage will recreate them)
+    await db
       .delete(fragmentsTable)
       .where(eq(fragmentsTable.resourceId, resourceId));
 
-    const oldAttachments = await tx
-      .select({ url: attachments.url })
-      .from(attachments)
-      .where(eq(attachments.resourceId, resourceId));
+    // Update resource status to 'processing' at the requested stage
+    await db
+      .update(resources)
+      .set({
+        status: "processing",
+        processingStage: fromStage,
+      })
+      .where(eq(resources.id, resourceId));
+  }
 
-    if (oldAttachments.length > 0) {
-      await tx
-        .delete(attachments)
-        .where(eq(attachments.resourceId, resourceId));
-
-      // Clean up old blob files in background
-      const oldBlobUrls = oldAttachments.map((a) => a.url);
-      deleteImages(oldBlobUrls).catch((cleanupError) => {
-        log.error({ err: cleanupError }, "Failed to cleanup old blobs");
-      });
-    }
-  });
-
-  // Update resource status to 'processing'
-  await db
-    .update(resources)
-    .set({
-      status: "processing",
-      processingStage: "ingest",
-      content: "",
-      version: 0,
-    })
-    .where(eq(resources.id, resourceId));
-
-  // Trigger Vercel Workflow asynchronously via API route
-  const workflowUrl = `${env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/workflows/process-resource`;
-
+  // Trigger Vercel Workflow directly (no HTTP call needed)
   try {
-    const response = await fetch(workflowUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        resourceId,
-        gameId: resource.gameId,
-        gameName: game.name,
-        name: resource.name,
-        url: resource.url,
-      }),
+    // Create job record
+    const jobId = nanoid();
+    await db.insert(jobs).values({
+      id: jobId,
+      type: 'process-resource',
+      gameId: resource.gameId,
+      resourceId,
+      status: 'pending',
+      currentStep: 'Queued for reprocessing',
+      progress: 0,
     });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(`Failed to start workflow: ${response.status} ${error.error || response.statusText}`);
-    }
+    // Update resource with job ID
+    await db
+      .update(resources)
+      .set({
+        currentJobId: jobId,
+        updatedAt: Date.now(),
+      })
+      .where(eq(resources.id, resourceId));
 
-    const result = await response.json();
-    log.info({ jobId: result.jobId }, "Reprocessing workflow started successfully");
+    // Start workflow in background (don't await - it's long-running)
+    const workflowInput = {
+      jobId,
+      resourceId,
+      gameId: resource.gameId,
+      gameName: game.name,
+      name: resource.name,
+      url: resource.url,
+      fromStage,
+    };
+
+    processResourceWorkflow(workflowInput).catch((error) => {
+      log.error({ err: error, jobId }, 'Reprocessing workflow execution failed');
+      // Mark job as failed
+      db.update(jobs)
+        .set({
+          status: 'failed',
+          error: {
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          },
+          completedAt: Date.now(),
+        })
+        .where(eq(jobs.id, jobId))
+        .catch((err) => log.error({ err }, 'Failed to update job'));
+    });
+
+    log.info({ jobId }, "Reprocessing workflow started successfully");
 
     return {
       id: resourceId,
       name: resource.name,
       url: resource.url,
       status: "processing" as const,
-      jobId: result.jobId,
+      jobId,
     };
   } catch (error) {
     // If workflow failed to start, mark resource as failed
