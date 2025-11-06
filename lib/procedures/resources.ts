@@ -217,12 +217,13 @@ export const deleteResource = adminProcedure
 
 /**
  * Reprocess resource (admin only)
- * Triggers a new workflow run to reprocess the resource from the beginning
+ * Triggers a new workflow run to reprocess the resource from a specific stage
  */
 export const reprocess = adminProcedure
   .input(
     z.object({
       id: z.string(),
+      fromStage: z.enum(['ingest', 'vision', 'cleanup', 'metadata', 'embed']).optional(),
     })
   )
   .handler(async ({ input }) => {
@@ -275,12 +276,13 @@ export const reprocess = adminProcedure
     // Create new run ID
     const runId = nanoid();
 
-    // Update resource status
+    // Determine starting stage and update resource status
+    const startingStage = input.fromStage || 'ingest';
     await db
       .update(resources)
       .set({
         status: 'processing',
-        processingStage: 'ingest',
+        processingStage: startingStage,
         currentRunId: runId,
         updatedAt: Date.now(),
       })
@@ -294,6 +296,7 @@ export const reprocess = adminProcedure
       gameName: game.name,
       name: resource.name,
       url: resource.url,
+      fromStage: input.fromStage,
     };
 
     processResourceWorkflow(workflowInput).catch((error) => {

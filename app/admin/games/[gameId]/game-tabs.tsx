@@ -3,13 +3,16 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 
 interface GameTabsProps {
   gameId: string;
+  resourceCount: number;
+  attachmentCount: number;
   children: React.ReactNode;
 }
 
-export default function GameTabs({ gameId, children }: GameTabsProps) {
+export default function GameTabs({ gameId, resourceCount, attachmentCount, children }: GameTabsProps) {
   const pathname = usePathname();
 
   // Determine active tab from URL
@@ -31,12 +34,26 @@ export default function GameTabs({ gameId, children }: GameTabsProps) {
         </Link>
         <Link href={`/admin/games/${gameId}/resources`}>
           <TabsTrigger active={activeTab === "resources"}>
-            Resources
+            <span className="flex items-center gap-2">
+              Resources
+              {resourceCount > 0 && (
+                <Badge variant="secondary" className="text-xs px-1.5 py-0 h-5">
+                  {resourceCount}
+                </Badge>
+              )}
+            </span>
           </TabsTrigger>
         </Link>
         <Link href={`/admin/games/${gameId}/attachments`}>
           <TabsTrigger active={activeTab === "attachments"}>
-            Attachments
+            <span className="flex items-center gap-2">
+              Attachments
+              {attachmentCount > 0 && (
+                <Badge variant="secondary" className="text-xs px-1.5 py-0 h-5">
+                  {attachmentCount}
+                </Badge>
+              )}
+            </span>
           </TabsTrigger>
         </Link>
       </TabsList>

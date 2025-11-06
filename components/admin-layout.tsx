@@ -23,7 +23,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         pathname.startsWith("/admin/add-game")
       );
     }
-    // Jobs tab is active for /admin/jobs and sub-paths
+    // Workflows tab is active for /admin/workflows and sub-paths
     return pathname.startsWith(path);
   };
 
@@ -61,14 +61,14 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                 Games
               </Link>
               <Link
-                href="/admin/jobs"
+                href="/admin/workflows"
                 className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  isActive("/admin/jobs")
+                  isActive("/admin/workflows")
                     ? "border-primary text-foreground"
                     : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
                 }`}
               >
-                Jobs
+                Workflows
               </Link>
             </div>
           </nav>

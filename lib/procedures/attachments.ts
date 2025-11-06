@@ -129,6 +129,48 @@ export const listForResource = publicProcedure
   });
 
 /**
+ * List attachments for a game
+ */
+export const listForGame = publicProcedure
+  .input(
+    z.object({
+      gameId: z.string(),
+    })
+  )
+  .handler(async ({ input }) => {
+    const attachmentsList = await db
+      .select({
+        id: attachments.id,
+        resourceId: attachments.resourceId,
+        gameId: attachments.gameId,
+        type: attachments.type,
+        blobKey: attachments.blobKey,
+        mimeType: attachments.mimeType,
+        originalFilename: attachments.originalFilename,
+        pageNumber: attachments.pageNumber,
+        bbox: attachments.bbox,
+        caption: attachments.caption,
+        width: attachments.width,
+        height: attachments.height,
+        description: attachments.description,
+        isGoodQuality: attachments.isGoodQuality,
+        createdAt: attachments.createdAt,
+      })
+      .from(attachments)
+      .where(eq(attachments.gameId, input.gameId))
+      .orderBy(attachments.pageNumber, attachments.createdAt);
+
+    // Get public URLs
+    const { blobKeyToUrl } = await import('@/lib/services/blob-storage');
+
+    return attachmentsList.map((attachment) => ({
+      ...attachment,
+      url: attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null,
+      bbox: parseBbox(attachment.bbox),
+    }));
+  });
+
+/**
  * Update attachment metadata (admin only)
  */
 export const update = adminProcedure

@@ -16,11 +16,14 @@ export default async function Layout(props: {
   const params = await props.params;
   const { children } = props;
 
-  // Fetch game and resources using oRPC server client (Server Component)
-  let game, resourceList;
+  // Fetch game, resources, and attachments using oRPC server client (Server Component)
+  let game, resourceList, attachmentList;
   try {
     game = await serverClient.games.get({ idOrSlug: params.gameId });
-    resourceList = await serverClient.resources.listForGame({ gameId: game.id });
+    [resourceList, attachmentList] = await Promise.all([
+      serverClient.resources.listForGame({ gameId: game.id }),
+      serverClient.attachments.listForGame({ gameId: game.id }),
+    ]);
   } catch (error) {
     notFound();
   }
@@ -58,7 +61,11 @@ export default async function Layout(props: {
         }
       />
 
-      <GameTabs gameId={game.id}>
+      <GameTabs
+        gameId={game.id}
+        resourceCount={resourceList.length}
+        attachmentCount={attachmentList.length}
+      >
         <div className="flex flex-col lg:flex-row gap-8">
           {/* Left column - Content */}
           <div className="flex-1">

@@ -38,7 +38,11 @@ export const list = publicProcedure.handler(async () => {
     .groupBy(games.id)
     .orderBy(games.name);
 
-  return gamesList;
+  // Map to include hasResources boolean for UI compatibility
+  return gamesList.map(game => ({
+    ...game,
+    hasResources: game.resourceCount > 0,
+  }));
 });
 
 /**

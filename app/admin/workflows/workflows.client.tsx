@@ -21,10 +21,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { formatDate, formatDuration } from '@/lib/utils/format-date';
-import type { JobWithDetails } from '@/app/api/admin/jobs/route';
+import type { JobWithDetails } from '@/app/api/admin/workflows/route';
 import { EmptyState } from '@/components/empty-state';
 
-type JobsClientProps = {
+type WorkflowsClientProps = {
   initialJobs: JobWithDetails[];
 };
 
@@ -46,7 +46,7 @@ function getStatusVariant(
   }
 }
 
-export default function JobsClient({ initialJobs }: JobsClientProps) {
+export default function WorkflowsClient({ initialJobs }: WorkflowsClientProps) {
   const [jobs, setJobs] = useState<JobWithDetails[]>(initialJobs);
   const [canceling, setCanceling] = useState<Set<string>>(new Set());
   const [retrying, setRetrying] = useState<Set<string>>(new Set());
@@ -78,7 +78,7 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
   const handleCancel = async (jobId: string) => {
     if (
       !confirm(
-        'Cancel this job?\n\nThe resource will not be processed and the job will be marked as cancelled.'
+        'Cancel this workflow?\n\nThe resource will not be processed and the workflow will be marked as cancelled.'
       )
     ) {
       return;
@@ -94,7 +94,7 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
       setJobs(data.jobs);
     } catch (error) {
       console.error('Cancel error:', error);
-      const message = error instanceof Error ? error.message : 'Failed to cancel job';
+      const message = error instanceof Error ? error.message : 'Failed to cancel workflow';
       alert(message);
     } finally{
       setCanceling((prev) => {
@@ -108,7 +108,7 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
   const handleRetry = async (jobId: string) => {
     if (
       !confirm(
-        'Retry this job?\n\nIt will be re-queued and processing will start again from the beginning.'
+        'Retry this workflow?\n\nIt will be re-queued with the original parameters and processing will start again.'
       )
     ) {
       return;
@@ -124,7 +124,7 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
       setJobs(data.jobs);
     } catch (error) {
       console.error('Retry error:', error);
-      const message = error instanceof Error ? error.message : 'Failed to retry job';
+      const message = error instanceof Error ? error.message : 'Failed to retry workflow';
       alert(message);
     } finally {
       setRetrying((prev) => {
@@ -138,8 +138,8 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
   if (jobs.length === 0) {
     return (
       <EmptyState
-        title="No jobs found"
-        description="Jobs appear here when resources are being processed."
+        title="No workflows found"
+        description="Workflow runs appear here when resources are being processed."
         action={{ label: "Back to Games", href: "/admin" }}
       />
     );
@@ -228,7 +228,7 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
                               <X className="h-4 w-4 text-destructive" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Cancel job</TooltipContent>
+                          <TooltipContent>Cancel workflow</TooltipContent>
                         </Tooltip>
                       )}
                       {canRetry && (
@@ -244,7 +244,7 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
                               <RotateCcw className="h-4 w-4" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Retry job</TooltipContent>
+                          <TooltipContent>Retry workflow</TooltipContent>
                         </Tooltip>
                       )}
                     </div>

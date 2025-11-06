@@ -1,17 +1,17 @@
 import { requireAdmin } from '@/lib/auth/helpers';
 import AdminLayout from '@/components/admin-layout';
-import JobsClient from './jobs-client';
-import type { JobWithDetails } from '@/app/api/admin/jobs/route';
+import WorkflowsClient from './workflows.client';
+import type { JobWithDetails } from '@/app/api/admin/workflows/route';
 import { listWorkflowRunsWithDetails } from '@/lib/services/workflows';
 
 export const metadata = {
-  title: 'Jobs - Admin',
-  description: 'View and manage resource processing jobs',
+  title: 'Workflows - Admin',
+  description: 'View and manage workflow runs',
 };
 
 export const dynamic = 'force-dynamic';
 
-export default async function JobsPage() {
+export default async function WorkflowsPage() {
   // Require admin authentication
   await requireAdmin();
 
@@ -36,7 +36,7 @@ export default async function JobsPage() {
 
   return (
     <AdminLayout>
-      <JobsClient initialJobs={formattedJobs} />
+      <WorkflowsClient initialJobs={formattedJobs} />
     </AdminLayout>
   );
 }

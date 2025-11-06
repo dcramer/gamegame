@@ -121,86 +121,32 @@ export const retry = adminProcedure
       });
     }
 
-    // Extract resource and game IDs from workflow input
-    const workflowInput = run.input[0] as any;
-    if (!workflowInput?.resourceId || !workflowInput?.gameId) {
+    // Extract original workflow input
+    const originalInput = run.input[0] as any;
+    if (!originalInput) {
       throw new ORPCError({
         code: 'BAD_REQUEST',
-        message: 'Invalid workflow data',
+        message: 'Invalid workflow data - no input found',
       });
     }
 
-    // Get resource details
-    const [resource] = await db
-      .select()
-      .from(resources)
-      .where(eq(resources.id, workflowInput.resourceId))
-      .limit(1);
+    // Create new run ID
+    const newRunId = nanoid();
 
-    if (!resource) {
-      throw new ORPCError({
-        code: 'NOT_FOUND',
-        message: 'Resource not found',
-      });
-    }
-
-    // Get game details
-    const [game] = await db
-      .select()
-      .from(games)
-      .where(eq(games.id, workflowInput.gameId))
-      .limit(1);
-
-    if (!game) {
-      throw new ORPCError({
-        code: 'NOT_FOUND',
-        message: 'Game not found',
-      });
-    }
-
-    // Create new job ID
-    const newJobId = nanoid();
-
-    // Update resource status
-    await db
-      .update(resources)
-      .set({
-        status: 'processing',
-        processingStage: 'ingest', // Start from beginning on retry
-        currentRunId: newJobId,
-        updatedAt: Date.now(),
-      })
-      .where(eq(resources.id, workflowInput.resourceId));
-
-    // Trigger workflow asynchronously
+    // Trigger workflow asynchronously with original input but new runId
     const newWorkflowInput = {
-      runId: newJobId,
-      resourceId: resource.id,
-      gameId: resource.gameId,
-      gameName: game.name,
-      name: resource.name,
-      url: resource.url,
+      ...originalInput,
+      runId: newRunId,
     };
 
     // Start workflow in background (don't await)
     processResourceWorkflow(newWorkflowInput).catch((error) => {
       console.error('[Retry Workflow] Error:', error);
-      // Mark resource as failed
-      db.update(resources)
-        .set({
-          status: 'failed',
-          processingStage: 'failed',
-          processingMetadata: null,
-          currentRunId: null,
-          updatedAt: Date.now(),
-        })
-        .where(eq(resources.id, workflowInput.resourceId))
-        .catch((err) => console.error('[Retry Workflow] Failed to update resource:', err));
     });
 
     return {
       success: true,
-      runId: newJobId,
-      message: 'Job retrying from beginning',
+      runId: newRunId,
+      message: 'Workflow retry initiated with original parameters',
     };
   });

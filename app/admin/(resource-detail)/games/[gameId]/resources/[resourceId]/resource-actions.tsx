@@ -22,29 +22,26 @@ export default function ResourceActions({
   const router = useRouter();
   const { flash } = useFlashMessages();
 
-  const handleReprocess = async () => {
-    if (
-      !confirm(
-        `Reprocess "${resourceName}"?\n\nThis will re-extract the PDF, re-analyze images, and re-embed all content.`
-      )
-    ) {
-      return;
-    }
+  const handleReprocess = async (fromStage: 'ingest' | 'vision' | 'cleanup' | 'metadata' | 'embed' = 'ingest') => {
+    // Map 'fromStage' parameter to user-friendly titles
+    const jobTitles = {
+      ingest: 'Full Reprocess',
+      vision: 'Improve Image Descriptions',
+      cleanup: 'Clean Up Markdown',
+      metadata: 'Regenerate Metadata',
+      embed: 'Regenerate Embeddings',
+    };
+    const title = jobTitles[fromStage];
 
-    const message = flash(`Reprocessing ${resourceName}...`, "info", {
+    const message = flash(`${title}: ${resourceName}...`, "info", {
       removeAfter: null,
     });
 
     try {
-      // TODO: Add reprocess to API client
-      const response = await fetch(`/api/resources/${resourceId}/reprocess`, {
-        method: 'POST',
-        credentials: 'same-origin',
+      const response = await orpc.resources.reprocess({
+        id: resourceId,
+        fromStage: fromStage === 'ingest' ? undefined : fromStage
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to reprocess resource');
-      }
 
       message.update(
         `${resourceName} queued for reprocessing`,
@@ -104,12 +101,38 @@ export default function ResourceActions({
 
       <div>
         <h3 className="text-sm font-semibold mb-3">Reprocessing</h3>
-        <ActionButton
-          icon={RefreshCw}
-          title="Reprocess Resource"
-          description="Re-extract PDF, re-analyze images, and re-embed content"
-          onClick={handleReprocess}
-        />
+        <div className="space-y-2">
+          <ActionButton
+            icon={RefreshCw}
+            title="Full Reprocess"
+            description="Complete pipeline from scratch"
+            onClick={() => handleReprocess('ingest')}
+          />
+          <ActionButton
+            icon={RefreshCw}
+            title="Improve Image Descriptions"
+            description="Re-analyze image content"
+            onClick={() => handleReprocess('vision')}
+          />
+          <ActionButton
+            icon={RefreshCw}
+            title="Clean Up Markdown"
+            description="Fix formatting issues"
+            onClick={() => handleReprocess('cleanup')}
+          />
+          <ActionButton
+            icon={RefreshCw}
+            title="Regenerate Metadata"
+            description="Update document title and description"
+            onClick={() => handleReprocess('metadata')}
+          />
+          <ActionButton
+            icon={RefreshCw}
+            title="Regenerate Embeddings"
+            description="Update search index"
+            onClick={() => handleReprocess('embed')}
+          />
+        </div>
       </div>
 
       <div>
