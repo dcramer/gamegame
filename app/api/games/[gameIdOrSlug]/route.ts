@@ -10,15 +10,8 @@ import { db } from '@/lib/db';
 import { games, resources, fragments, attachments, embeddings } from '@/lib/db/schema';
 import { eq, or, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { requireAdmin } from '@/lib/auth/helpers';
-
-// Schema for updating a game
-const updateGameSchema = z.object({
-  name: z.string().min(1).optional(),
-  year: z.number().int().min(1900).max(2100).nullable().optional(),
-  imageUrl: z.string().nullable().optional(),
-  bggUrl: z.string().url().nullable().optional(),
-});
+import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
+import { updateGameSchema } from '@/lib/api/schemas';
 
 /**
  * GET /api/games/:gameIdOrSlug
@@ -79,13 +72,15 @@ export async function GET(
  * PATCH /api/games/:gameId
  * Update game (admin only)
  */
-export async function PATCH(
+export const PATCH = withAdmin(async (
   request: NextRequest,
-  props: { params: Promise<{ gameIdOrSlug: string }> }
-) {
+  user,
+  props?: { params: Promise<{ gameIdOrSlug: string }> }
+) => {
   try {
-    // Require admin authentication
-    await requireAdmin();
+    if (!props) {
+      return errorResponse('Invalid request', 400, 'INVALID_REQUEST');
+    }
 
     const params = await props.params;
     const { gameIdOrSlug } = params;
@@ -100,10 +95,7 @@ export async function PATCH(
       .limit(1);
 
     if (!existingGame) {
-      return NextResponse.json(
-        { error: 'Game not found' },
-        { status: 404 }
-      );
+      return errorResponse('Game not found', 404, 'NOT_FOUND');
     }
 
     // Prepare update data
@@ -141,34 +133,30 @@ export async function PATCH(
       .where(eq(games.id, gameIdOrSlug))
       .limit(1);
 
-    return NextResponse.json(updatedGame);
+    return successResponse(updatedGame);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Validation error', details: error.issues },
-        { status: 400 }
-      );
+      return errorResponse('Validation error', 400, 'VALIDATION_ERROR', error.issues);
     }
 
     console.error('[PATCH /api/games/:gameId] Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to update game' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to update game', 500, 'INTERNAL_ERROR');
   }
-}
+});
 
 /**
  * DELETE /api/games/:gameId
  * Delete game and all associated data (admin only)
  */
-export async function DELETE(
+export const DELETE = withAdmin(async (
   request: NextRequest,
-  props: { params: Promise<{ gameIdOrSlug: string }> }
-) {
+  user,
+  props?: { params: Promise<{ gameIdOrSlug: string }> }
+) => {
   try {
-    // Require admin authentication
-    await requireAdmin();
+    if (!props) {
+      return errorResponse('Invalid request', 400, 'INVALID_REQUEST');
+    }
 
     const params = await props.params;
     const { gameIdOrSlug } = params;
@@ -181,10 +169,7 @@ export async function DELETE(
       .limit(1);
 
     if (!game) {
-      return NextResponse.json(
-        { error: 'Game not found' },
-        { status: 404 }
-      );
+      return errorResponse('Game not found', 404, 'NOT_FOUND');
     }
 
     // Get all resources for this game
@@ -237,19 +222,16 @@ export async function DELETE(
     // 5. Finally delete the game
     await db.delete(games).where(eq(games.id, game.id));
 
-    return NextResponse.json({
+    return successResponse({
       success: true,
       deletedResources: resourceIds.length,
       message: `Game "${game.name}" and ${resourceIds.length} resources deleted`,
     });
   } catch (error) {
     console.error('[DELETE /api/games/:gameId] Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete game' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to delete game', 500, 'INTERNAL_ERROR');
   }
-}
+});
 
 /**
  * Generate URL-safe slug from name

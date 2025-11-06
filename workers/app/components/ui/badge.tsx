@@ -14,7 +14,7 @@ const badgeVariants = cva(
         outline: "border border-input bg-background",
         success: "bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-400",
         warning: "bg-yellow-50 text-yellow-600 dark:bg-yellow-950 dark:text-yellow-400",
-        error: "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400",
+        error: "bg-red-50 text-red-500 dark:bg-red-950 dark:text-red-400",
         info: "bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400",
         neutral: "bg-gray-50 text-gray-600 dark:bg-gray-950 dark:text-gray-400",
       },

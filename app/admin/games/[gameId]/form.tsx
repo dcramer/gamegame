@@ -5,11 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { updateGameForm } from "@/lib/actions/forms";
+import { api } from "@/lib/api/client";
 import { upload } from "@/lib/uploads/client";
 import { Loader2 } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function Form({
   game,
@@ -24,6 +25,7 @@ export default function Form({
     bggUrl: string | null;
   };
 }) {
+  const router = useRouter();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(game.imageUrl);
   const [isLoading, setLoading] = useState(false);
@@ -47,19 +49,41 @@ export default function Form({
         setLoading(true);
         try {
           const formData = new FormData(event.currentTarget);
+
+          let finalImageUrl = imageUrl;
           if (imageFile) {
             const newBlob = await upload(imageFile.name, imageFile, {
               access: "public",
               handleUploadUrl: "/api/images/upload",
             });
-            formData.set("imageUrl", newBlob.url);
+            finalImageUrl = newBlob.url;
           }
 
-          await updateGameForm(game.id, formData);
-          setLoading(false);
+          const updateData: any = {
+            name: formData.get("name") as string,
+          };
+
+          const yearValue = formData.get("year") as string;
+          if (yearValue) {
+            updateData.year = parseInt(yearValue, 10);
+          }
+
+          const bggUrlValue = formData.get("bggUrl") as string;
+          if (bggUrlValue) {
+            updateData.bggUrl = bggUrlValue;
+          }
+
+          if (finalImageUrl !== game.imageUrl) {
+            updateData.imageUrl = finalImageUrl;
+          }
+
+          await api.games.update(game.id, updateData);
+          router.refresh();
         } catch (error) {
+          console.error('Failed to update game:', error);
+          alert('Failed to update game');
+        } finally {
           setLoading(false);
-          throw error;
         }
       }}
       className="grid gap-4"

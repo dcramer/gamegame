@@ -3,7 +3,7 @@
 import { ActionButton } from "@/components/ui/action-button";
 import { RefreshCw, ExternalLink } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { reanalyzeAttachment } from "@/lib/actions/attachments";
+import { api } from "@/lib/api/client";
 import { useFlashMessages } from "@/components/flashMessages";
 
 interface AttachmentActionsProps {
@@ -36,7 +36,7 @@ export default function AttachmentActions({
     });
 
     try {
-      await reanalyzeAttachment(attachmentId, gameId);
+      await api.attachments.reprocess(attachmentId);
       message.update(`Image analysis started`, "success", { removeAfter: 5000 });
       // Refresh after a short delay to let the workflow start
       setTimeout(() => router.refresh(), 2000);

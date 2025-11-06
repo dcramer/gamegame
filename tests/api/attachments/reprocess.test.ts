@@ -12,22 +12,19 @@ import { eq } from 'drizzle-orm';
 import { cleanupTestDb } from '@/tests/db-helpers';
 import { createTestGame, createTestResource, createTestAttachment } from '@/tests/fixtures';
 
-// Mock the vision analysis function (external API)
-vi.mock('@/lib/services/image-analysis', () => ({
-  analyzeImageQuality: vi.fn(() =>
+// Mock the unified workflow
+vi.mock('@/workflows/analyze-images', () => ({
+  analyzeImagesWorkflow: vi.fn(() =>
     Promise.resolve({
-      description: 'A game board showing player positions and resources',
-      quality: 'high',
-      relevant: true,
-      type: 'diagram',
-      ocrText: 'Player 1: 5 points',
+      success: true,
+      mode: 'single-attachment',
     })
   ),
 }));
 
-// Mock requireAdmin
-vi.mock('@/lib/auth/helpers', () => ({
-  requireAdmin: vi.fn(),
+// Mock requireAdmin from session module
+vi.mock('@/lib/session', () => ({
+  requireAdmin: vi.fn(() => Promise.resolve({ id: 'test-user', email: 'admin@test.com', isAdmin: true })),
 }));
 
 // Mock blob storage URL helper
@@ -64,8 +61,8 @@ describe.sequential('Attachment Reprocess API', () => {
     );
 
     // Mock requireAdmin to allow all requests
-    const { requireAdmin } = await import('@/lib/auth/helpers');
-    (requireAdmin as any).mockResolvedValue(undefined);
+    const { requireAdmin } = await import('@/lib/session');
+    (requireAdmin as any).mockResolvedValue({ id: 'test-user', email: 'admin@test.com', isAdmin: true });
 
     // Create test data
     const game = await createTestGame({ name: 'Test Game' });
@@ -91,16 +88,16 @@ describe.sequential('Attachment Reprocess API', () => {
 
   describe('POST /api/attachments/[attachmentId]/reprocess', () => {
     it('should reject unauthorized requests', async () => {
-      const { requireAdmin } = await import('@/lib/auth/helpers');
-      (requireAdmin as any).mockRejectedValue(new Error('Unauthorized'));
+      const { requireAdmin } = await import('@/lib/session');
+      (requireAdmin as any).mockRejectedValueOnce(new Error('Unauthorized'));
 
       const response = await reprocessAttachment(new NextRequest('http://localhost'), {
         params: Promise.resolve({ attachmentId: testAttachmentId }),
       });
       const data = await response.json();
 
-      expect(response.status).toBe(500); // Auth error gets caught by general error handler
-      expect(data.error).toBeDefined();
+      expect(response.status).toBe(401); // Unauthorized
+      expect(data.error).toBe('Authentication required');
     });
 
     it('should reject non-existent attachment', async () => {
@@ -146,7 +143,19 @@ describe.sequential('Attachment Reprocess API', () => {
     });
 
     it('should successfully reprocess image attachment', async () => {
-      const { analyzeImageQuality } = await import('@/lib/services/image-analysis');
+      const { analyzeImagesWorkflow } = await import('@/workflows/analyze-images');
+
+      // Update the attachment first to simulate what the workflow does
+      await db
+        .update(attachments)
+        .set({
+          description: 'A game board showing player positions and resources',
+          isGoodQuality: 'high',
+          isRelevant: 1,
+          detectedType: 'diagram',
+          ocrText: 'Player 1: 5 points',
+        })
+        .where(eq(attachments.id, testAttachmentId));
 
       const response = await reprocessAttachment(new NextRequest('http://localhost'), {
         params: Promise.resolve({ attachmentId: testAttachmentId }),
@@ -154,32 +163,23 @@ describe.sequential('Attachment Reprocess API', () => {
       const data = await response.json();
 
       expect(response.status).toBe(200);
-      expect(analyzeImageQuality).toHaveBeenCalled();
+      expect(analyzeImagesWorkflow).toHaveBeenCalledWith({
+        mode: 'single-attachment',
+        attachmentId: testAttachmentId,
+        gameId: testGameId,
+      });
 
       // Verify response data
       expect(data.id).toBe(testAttachmentId);
       expect(data.description).toBe('A game board showing player positions and resources');
       expect(data.isGoodQuality).toBe('high');
-      expect(data.isRelevant).toBe(1); // true converted to 1
+      expect(data.isRelevant).toBe(1);
       expect(data.detectedType).toBe('diagram');
       expect(data.ocrText).toBe('Player 1: 5 points');
-
-      // Verify database was updated
-      const [updatedAttachment] = await db
-        .select()
-        .from(attachments)
-        .where(eq(attachments.id, testAttachmentId))
-        .limit(1);
-
-      expect(updatedAttachment.description).toBe('A game board showing player positions and resources');
-      expect(updatedAttachment.isGoodQuality).toBe('high');
-      expect(updatedAttachment.isRelevant).toBe(1);
-      expect(updatedAttachment.detectedType).toBe('diagram');
-      expect(updatedAttachment.ocrText).toBe('Player 1: 5 points');
     });
 
-    it('should pass correct context to vision analysis', async () => {
-      const { analyzeImageQuality } = await import('@/lib/services/image-analysis');
+    it('should pass correct parameters to workflow', async () => {
+      const { analyzeImagesWorkflow } = await import('@/workflows/analyze-images');
 
       // Create attachment with specific metadata
       const testAttachment = await createTestAttachment(testResourceId, testGameId, {
@@ -194,27 +194,26 @@ describe.sequential('Attachment Reprocess API', () => {
         params: Promise.resolve({ attachmentId: testAttachment.id }),
       });
 
-      // Verify analyzeImageQuality was called with correct metadata
-      expect(analyzeImageQuality).toHaveBeenCalledWith(
-        expect.any(Buffer),
-        {
-          pageNumber: 5,
-          section: undefined,
-          caption: 'Setup diagram',
-        },
-        expect.any(String) // OPENAI_API_KEY
-      );
+      // Verify workflow was called with correct parameters
+      expect(analyzeImagesWorkflow).toHaveBeenCalledWith({
+        mode: 'single-attachment',
+        attachmentId: testAttachment.id,
+        gameId: testGameId,
+      });
     });
 
     it('should handle vision analysis with null ocrText', async () => {
-      const { analyzeImageQuality } = await import('@/lib/services/image-analysis');
-      (analyzeImageQuality as any).mockResolvedValueOnce({
-        description: 'Abstract game art',
-        quality: 'medium',
-        relevant: false,
-        type: 'artwork',
-        ocrText: null,
-      });
+      // Update attachment to simulate workflow result with null ocrText
+      await db
+        .update(attachments)
+        .set({
+          description: 'Abstract game art',
+          isGoodQuality: 'medium',
+          isRelevant: 0,
+          detectedType: 'artwork',
+          ocrText: null,
+        })
+        .where(eq(attachments.id, testAttachmentId));
 
       const response = await reprocessAttachment(new NextRequest('http://localhost'), {
         params: Promise.resolve({ attachmentId: testAttachmentId }),
@@ -226,9 +225,9 @@ describe.sequential('Attachment Reprocess API', () => {
       expect(data.isRelevant).toBe(0); // false converted to 0
     });
 
-    it('should handle vision analysis errors', async () => {
-      const { analyzeImageQuality } = await import('@/lib/services/image-analysis');
-      (analyzeImageQuality as any).mockRejectedValueOnce(new Error('Vision API timeout'));
+    it('should handle workflow errors', async () => {
+      const { analyzeImagesWorkflow } = await import('@/workflows/analyze-images');
+      (analyzeImagesWorkflow as any).mockRejectedValueOnce(new Error('Vision API timeout'));
 
       const response = await reprocessAttachment(new NextRequest('http://localhost'), {
         params: Promise.resolve({ attachmentId: testAttachmentId }),

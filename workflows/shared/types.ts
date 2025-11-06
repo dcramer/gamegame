@@ -3,7 +3,7 @@
  */
 
 export interface ProcessResourceInput {
-  jobId: string;
+  runId: string;
   resourceId: string;
   gameId: string;
   gameName: string;
@@ -30,7 +30,7 @@ export interface CleanupStalledJobsResult {
   stalledJobs: number;
   cleanedJobs: number;
   failedUpdates: number;
-  errors: Array<{ jobId: string; error: string }>;
+  errors: Array<{ runId: string; error: string }>;
 }
 
 export interface StalledJob {

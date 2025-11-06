@@ -140,7 +140,7 @@ export default function AdminGames() {
                           </div>
                         )}
                         {!hasResources && (
-                          <div className="text-xs text-red-500 mt-1">No resources yet</div>
+                          <div className="text-xs text-destructive mt-1">No resources yet</div>
                         )}
                       </TableCell>
                       <TableCell className="text-center align-middle">
@@ -148,14 +148,14 @@ export default function AdminGames() {
                           <TooltipTrigger asChild>
                             <Button
                               size="sm"
-                              variant="ghost"
+                              variant="destructive-outline"
                               className="h-8 w-8 p-0"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDelete(game.id, game.name);
                               }}
                             >
-                              <Trash2 className="h-4 w-4 text-red-500" />
+                              <Trash2 className="h-4 w-4" />
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>Delete game</TooltipContent>

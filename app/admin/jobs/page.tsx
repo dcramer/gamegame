@@ -1,10 +1,8 @@
-import { db } from '@/lib/db';
-import { jobs, games, resources } from '@/lib/db/schema';
 import { requireAdmin } from '@/lib/auth/helpers';
-import { desc, eq } from 'drizzle-orm';
 import AdminLayout from '@/components/admin-layout';
 import JobsClient from './jobs-client';
 import type { JobWithDetails } from '@/app/api/admin/jobs/route';
+import { listWorkflowRunsWithDetails } from '@/lib/services/workflows';
 
 export const metadata = {
   title: 'Jobs - Admin',
@@ -17,45 +15,23 @@ export default async function JobsPage() {
   // Require admin authentication
   await requireAdmin();
 
-  // Query jobs with joined game and resource data
-  const jobsList = await db
-    .select({
-      jobId: jobs.id,
-      type: jobs.type,
-      status: jobs.status,
-      progress: jobs.progress,
-      currentStep: jobs.currentStep,
-      error: jobs.error,
-      createdAt: jobs.createdAt,
-      completedAt: jobs.completedAt,
-      gameId: jobs.gameId,
-      gameName: games.name,
-      resourceId: jobs.resourceId,
-      resourceName: resources.name,
-    })
-    .from(jobs)
-    .leftJoin(games, eq(jobs.gameId, games.id))
-    .leftJoin(resources, eq(jobs.resourceId, resources.id))
-    .orderBy(desc(jobs.createdAt));
+  // Query workflow runs with details
+  const runs = await listWorkflowRunsWithDetails({
+    limit: 100,
+  });
 
   // Format the response
-  const formattedJobs: JobWithDetails[] = jobsList.map((job) => ({
-    jobId: job.jobId,
-    type: job.type,
-    status: job.status,
-    progress: job.progress,
-    currentStep: job.currentStep,
-    error: job.error
-      ? typeof job.error === 'string'
-        ? job.error
-        : (job.error as any).message
-      : null,
-    createdAt: job.createdAt,
-    completedAt: job.completedAt,
-    gameId: job.gameId,
-    gameName: job.gameName,
-    resourceId: job.resourceId,
-    resourceName: job.resourceName,
+  const formattedJobs: JobWithDetails[] = runs.map((run) => ({
+    jobId: run.runId,
+    type: run.workflowName,
+    status: run.status,
+    error: run.error || null,
+    createdAt: run.createdAt.getTime(),
+    completedAt: run.completedAt ? run.completedAt.getTime() : null,
+    gameId: run.gameId,
+    gameName: run.gameName,
+    resourceId: run.resourceId,
+    resourceName: run.resourceName,
   }));
 
   return (

@@ -1,25 +1,27 @@
 /**
- * Session management using iron-session
- * Encrypted cookie-based sessions (no database sessions table)
- * User data is fetched from database on each request for security and freshness
+ * Session management using JWT tokens
+ * Tokens stored in httpOnly cookies (no database sessions table)
+ * User data is embedded in JWT payload for performance
  */
 
-import { getIronSession, IronSession } from 'iron-session';
 import { cookies } from 'next/headers';
 import { cache } from 'react';
 import { db } from './db';
 import { users } from './db/schema/users';
 import { eq } from 'drizzle-orm';
+import { signJWT, verifyJWT, type JWTTokenPayload } from './auth/jwt';
 
 /**
- * Minimal session data stored in encrypted cookie
+ * Session data stored in JWT token
  */
 export interface SessionData {
   userId: string;
+  email: string;
+  isAdmin: boolean;
 }
 
 /**
- * Full user data fetched from database
+ * Full user data (alias for SessionData for backward compatibility)
  */
 export interface UserData {
   userId: string;
@@ -27,27 +29,61 @@ export interface UserData {
   isAdmin: boolean;
 }
 
-const sessionOptions = {
-  password: process.env.SESSION_SECRET!,
-  cookieName: 'gamegame_session',
-  cookieOptions: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    sameSite: 'lax' as const,
-    maxAge: 60 * 60 * 24 * 30, // 30 days
-  },
+const COOKIE_NAME = 'gamegame_session';
+const COOKIE_OPTIONS = {
+  secure: process.env.NODE_ENV === 'production',
+  httpOnly: true,
+  sameSite: 'lax' as const,
+  maxAge: 60 * 60 * 24 * 30, // 30 days
+  path: '/',
 };
 
 /**
- * Get the current session
+ * Get the JWT token from cookie
  */
-export async function getSession(): Promise<IronSession<SessionData>> {
-  return getIronSession<SessionData>(await cookies(), sessionOptions);
+async function getTokenFromCookie(): Promise<string | null> {
+  const cookieStore = await cookies();
+  return cookieStore.get(COOKIE_NAME)?.value || null;
+}
+
+/**
+ * Set the JWT token in cookie
+ */
+async function setTokenInCookie(token: string): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.set(COOKIE_NAME, token, COOKIE_OPTIONS);
+}
+
+/**
+ * Delete the JWT token cookie
+ */
+async function deleteTokenCookie(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.delete(COOKIE_NAME);
+}
+
+/**
+ * Get the current session data from JWT token
+ * Returns null if no token or token is invalid/expired
+ */
+export async function getSession(): Promise<SessionData | null> {
+  const token = await getTokenFromCookie();
+  if (!token) return null;
+
+  const payload = await verifyJWT(token);
+  if (!payload) return null;
+
+  return {
+    userId: payload.userId,
+    email: payload.email,
+    isAdmin: payload.isAdmin,
+  };
 }
 
 /**
  * Get user data from database (cached per-request to avoid duplicate queries)
  * Uses React's cache() to dedupe within a single request
+ * Used for fresh data verification when needed
  */
 const getUserFromDb = cache(async (userId: string): Promise<UserData | null> => {
   const [user] = await db
@@ -70,35 +106,43 @@ const getUserFromDb = cache(async (userId: string): Promise<UserData | null> => 
 });
 
 /**
- * Get current authenticated user data from database
- * Returns null if not authenticated or user not found in database
+ * Get current authenticated user data from JWT token
+ * Returns null if not authenticated or token invalid/expired
+ * Note: This returns data from the JWT token, not fresh from database
+ * For fresh data, use getUserFromDb() directly
  */
 export async function getCurrentUser(): Promise<UserData | null> {
-  const session = await getSession();
-  if (!session.userId) return null;
-
-  return getUserFromDb(session.userId);
+  return getSession();
 }
 
 /**
- * Create a new session for a user (only stores userId in cookie)
+ * Create a new session for a user (generates JWT and sets cookie)
  */
-export async function createSession(userId: string) {
-  const session = await getSession();
-  session.userId = userId;
-  await session.save();
+export async function createSession(userId: string): Promise<void> {
+  // Fetch user data from database to create JWT
+  const user = await getUserFromDb(userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  const token = await signJWT({
+    userId: user.userId,
+    email: user.email,
+    isAdmin: user.isAdmin,
+  });
+
+  await setTokenInCookie(token);
 }
 
 /**
  * Destroy the current session
  */
-export async function destroySession() {
-  const session = await getSession();
-  session.destroy();
+export async function destroySession(): Promise<void> {
+  await deleteTokenCookie();
 }
 
 /**
- * Check if user is authenticated (has valid session with existing user in database)
+ * Check if user is authenticated (has valid JWT token)
  */
 export async function isAuthenticated(): Promise<boolean> {
   const user = await getCurrentUser();
@@ -118,20 +162,16 @@ export async function isAdmin(): Promise<boolean> {
  */
 export async function getCurrentUserId(): Promise<string | null> {
   const session = await getSession();
-  return session.userId || null;
+  return session?.userId || null;
 }
 
 /**
- * Require authentication - throws if not authenticated or user not found
- * Note: Cannot destroy invalid sessions in Server Components (Next.js 15 restriction)
+ * Require authentication - throws if not authenticated
  */
 export async function requireAuth(): Promise<UserData> {
   const user = await getCurrentUser();
 
   if (!user) {
-    // User session exists but user deleted from database
-    // Cannot call session.destroy() in Server Components (Next.js 15)
-    // The session will remain until it expires or user logs out
     throw new Error('Unauthorized');
   }
 
@@ -149,4 +189,30 @@ export async function requireAdmin(): Promise<UserData> {
   }
 
   return user;
+}
+
+/**
+ * Refresh the current session token (issue new token with fresh expiration)
+ * Returns true if successful, false if no valid session
+ */
+export async function refreshSession(): Promise<boolean> {
+  const token = await getTokenFromCookie();
+  if (!token) return false;
+
+  const payload = await verifyJWT(token);
+  if (!payload) return false;
+
+  // Verify user still exists in database
+  const user = await getUserFromDb(payload.userId);
+  if (!user) return false;
+
+  // Issue new token with fresh data from database
+  const newToken = await signJWT({
+    userId: user.userId,
+    email: user.email,
+    isAdmin: user.isAdmin,
+  });
+
+  await setTokenInCookie(newToken);
+  return true;
 }

@@ -1,5 +1,6 @@
-import { getGame } from "@/lib/actions/games";
-import { getAllResourcesForGame } from "@/lib/actions/resources";
+import { db } from "@/lib/db";
+import { games, resources } from "@/lib/db/schema";
+import { eq, or } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { Breadcrumbs } from "@/components/breadcrumbs";
@@ -17,12 +18,34 @@ export default async function Layout(props: {
   const params = await props.params;
   const { children } = props;
 
-  const game = await getGame(params.gameId);
+  // Fetch game directly from database (Server Component)
+  const [game] = await db
+    .select({
+      id: games.id,
+      name: games.name,
+      year: games.year,
+      slug: games.slug,
+      imageUrl: games.imageUrl,
+      bggId: games.bggId,
+      bggUrl: games.bggUrl,
+      createdAt: games.createdAt,
+      updatedAt: games.updatedAt,
+    })
+    .from(games)
+    .where(or(eq(games.slug, params.gameId), eq(games.id, params.gameId)))
+    .limit(1);
+
   if (!game) {
     notFound();
   }
 
-  const resourceList = await getAllResourcesForGame(game.id);
+  // Fetch resources for this game
+  const resourceList = await db
+    .select({
+      id: resources.id,
+    })
+    .from(resources)
+    .where(eq(resources.gameId, game.id));
 
   return (
     <AdminBaseLayout>

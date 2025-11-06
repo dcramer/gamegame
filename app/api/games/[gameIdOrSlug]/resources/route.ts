@@ -9,7 +9,7 @@ import { db } from '@/lib/db';
 import { games, resources, fragments } from '@/lib/db/schema';
 import { eq, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
-import { requireAdmin } from '@/lib/auth/helpers';
+import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
 
 /**
  * GET /api/games/:gameIdOrSlug/resources
@@ -48,7 +48,7 @@ export async function GET(
         pdfExtractor: resources.pdfExtractor,
         processedAt: resources.processedAt,
         status: resources.status,
-        currentJobId: resources.currentJobId,
+        currentRunId: resources.currentRunId,
         processingStage: resources.processingStage,
         pageCount: resources.pageCount,
         imageCount: resources.imageCount,
@@ -82,13 +82,15 @@ export async function GET(
  * POST /api/games/:gameIdOrSlug/resources
  * Upload new resource for processing (admin only)
  */
-export async function POST(
+export const POST = withAdmin(async (
   request: NextRequest,
-  props: { params: Promise<{ gameIdOrSlug: string }> }
-) {
+  user,
+  props?: { params: Promise<{ gameIdOrSlug: string }> }
+) => {
   try {
-    // Require admin authentication
-    await requireAdmin();
+    if (!props) {
+      return errorResponse('Invalid request', 400, 'INVALID_REQUEST');
+    }
 
     const params = await props.params;
     const { gameIdOrSlug } = params;
@@ -101,10 +103,7 @@ export async function POST(
       .limit(1);
 
     if (!game) {
-      return NextResponse.json(
-        { error: 'Game not found' },
-        { status: 404 }
-      );
+      return errorResponse('Game not found', 404, 'NOT_FOUND');
     }
 
     const formData = await request.formData();
@@ -113,10 +112,7 @@ export async function POST(
     const url = formData.get('url') as string | null;
 
     if (!file && !url) {
-      return NextResponse.json(
-        { error: 'Either file or url must be provided' },
-        { status: 400 }
-      );
+      return errorResponse('Either file or url must be provided', 400, 'VALIDATION_ERROR');
     }
 
     // Create resource record
@@ -145,7 +141,7 @@ export async function POST(
       originalFilename: file?.name || undefined,
       status: 'pending',
       processingStage: 'pending',
-      currentJobId: undefined,
+      currentRunId: undefined,
       processingMetadata: undefined,
       resourceType: 'rulebook',
     });
@@ -158,7 +154,7 @@ export async function POST(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        jobId: nanoid(),
+        runId: nanoid(),
         resourceId,
         gameId: game.id,
         gameName: game.name,
@@ -178,12 +174,9 @@ export async function POST(
       .where(eq(resources.id, resourceId))
       .limit(1);
 
-    return NextResponse.json(newResource, { status: 201 });
+    return successResponse(newResource, 201);
   } catch (error) {
     console.error('[POST /api/games/:gameIdOrSlug/resources] Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to create resource' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to create resource', 500, 'INTERNAL_ERROR');
   }
-}
+});

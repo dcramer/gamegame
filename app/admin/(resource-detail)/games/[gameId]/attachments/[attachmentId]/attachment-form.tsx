@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,15 +9,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle, Loader2 } from "lucide-react";
-import { updateAttachment, getAttachment } from "@/lib/actions/attachments";
+import { api } from "@/lib/api/client";
 
-type AttachmentData = Awaited<ReturnType<typeof getAttachment>>;
+type AttachmentData = Awaited<ReturnType<typeof api.attachments.get>>;
 
 export default function AttachmentForm({
   attachment: initialAttachment,
 }: {
   attachment: AttachmentData;
 }) {
+  const router = useRouter();
   const [attachment, setAttachment] = useState<AttachmentData>(initialAttachment);
   const [description, setDescription] = useState(initialAttachment.description || "");
   const [originalFilename, setOriginalFilename] = useState(
@@ -29,13 +31,14 @@ export default function AttachmentForm({
 
     setSaving(true);
     try {
-      const updated = await updateAttachment(attachment.id, {
+      const updated = await api.attachments.update(attachment.id, {
         description: description.trim() || null,
         originalFilename: originalFilename.trim() || null,
       });
       setAttachment(updated);
       setDescription(updated.description || "");
       setOriginalFilename(updated.originalFilename || "");
+      router.refresh();
     } catch (error) {
       console.error("Update error:", error);
       alert("Failed to save attachment details. Please try again.");

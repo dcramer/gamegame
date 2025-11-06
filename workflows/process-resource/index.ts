@@ -31,7 +31,7 @@ export async function processResourceWorkflow(input: ProcessResourceInput) {
   if (startStage === 'ingest') {
     const ingestResult = await runIngestStage(input);
     if (!ingestResult.success) {
-      await markJobFailedStep(input.jobId, input.resourceId, ingestResult.error!);
+      await markJobFailedStep(input.runId, input.resourceId, ingestResult.error!);
       return { success: false, stage: 'ingest', error: ingestResult.error };
     }
   }
@@ -42,7 +42,7 @@ export async function processResourceWorkflow(input: ProcessResourceInput) {
     // This is handled inside the vision step
     const visionResult = await runVisionStage(input);
     if (!visionResult.success) {
-      await markJobFailedStep(input.jobId, input.resourceId, visionResult.error!);
+      await markJobFailedStep(input.runId, input.resourceId, visionResult.error!);
       return { success: false, stage: 'vision', error: visionResult.error };
     }
   }
@@ -51,7 +51,7 @@ export async function processResourceWorkflow(input: ProcessResourceInput) {
   if (startStage === 'ingest' || startStage === 'vision' || startStage === 'cleanup') {
     const cleanupResult = await runCleanupStage(input);
     if (!cleanupResult.success) {
-      await markJobFailedStep(input.jobId, input.resourceId, cleanupResult.error!);
+      await markJobFailedStep(input.runId, input.resourceId, cleanupResult.error!);
       return { success: false, stage: 'cleanup', error: cleanupResult.error };
     }
   }
@@ -60,7 +60,7 @@ export async function processResourceWorkflow(input: ProcessResourceInput) {
   if (startStage === 'ingest' || startStage === 'vision' || startStage === 'cleanup' || startStage === 'metadata') {
     const metadataResult = await runMetadataStage(input);
     if (!metadataResult.success) {
-      await markJobFailedStep(input.jobId, input.resourceId, metadataResult.error!);
+      await markJobFailedStep(input.runId, input.resourceId, metadataResult.error!);
       return { success: false, stage: 'metadata', error: metadataResult.error };
     }
   }
@@ -68,14 +68,14 @@ export async function processResourceWorkflow(input: ProcessResourceInput) {
   // Stage 5: EMBED - Embedding generation (always run if we're at metadata or embed stage)
   const embedResult = await runEmbedStage(input);
   if (!embedResult.success) {
-    await markJobFailedStep(input.jobId, input.resourceId, embedResult.error!);
+    await markJobFailedStep(input.runId, input.resourceId, embedResult.error!);
     return { success: false, stage: 'embed', error: embedResult.error };
   }
 
   // Stage 6: FINALIZE - Mark resource ready
   const finalizeResult = await runFinalizeStage(input);
   if (!finalizeResult.success) {
-    await markJobFailedStep(input.jobId, input.resourceId, finalizeResult.error!);
+    await markJobFailedStep(input.runId, input.resourceId, finalizeResult.error!);
     return { success: false, stage: 'finalize', error: finalizeResult.error };
   }
 

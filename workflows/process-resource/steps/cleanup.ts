@@ -3,7 +3,7 @@
  */
 
 import { db } from '@/lib/db';
-import { jobs, resources } from '@/lib/db/schema';
+import { resources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { ProcessResourceInput } from '../../shared/types';
 import {
@@ -25,7 +25,7 @@ export async function runCleanupStage(input: ProcessResourceInput) {
     const [resourceRow] = await db
       .select({
         metadata: resources.processingMetadata,
-        currentJobId: resources.currentJobId,
+        currentRunId: resources.currentRunId,
       })
       .from(resources)
       .where(eq(resources.id, input.resourceId))
@@ -35,10 +35,10 @@ export async function runCleanupStage(input: ProcessResourceInput) {
       throw new Error(`Resource ${input.resourceId} not found`);
     }
 
-    if (resourceRow.currentJobId && resourceRow.currentJobId !== input.jobId) {
+    if (resourceRow.currentRunId && resourceRow.currentRunId !== input.runId) {
       return {
         success: false,
-        error: `Resource is being processed by different job: ${resourceRow.currentJobId}`,
+        error: `Resource is being processed by different job: ${resourceRow.currentRunId}`,
       };
     }
 
@@ -46,14 +46,6 @@ export async function runCleanupStage(input: ProcessResourceInput) {
     if (metadata.stages.cleanup) {
       return { success: true };
     }
-
-    await db
-      .update(jobs)
-      .set({
-        currentStep: 'Cleaning markdown',
-        progress: 40,
-      })
-      .where(eq(jobs.id, input.jobId));
 
     const structured = await loadStructured(input.resourceId);
 
@@ -64,19 +56,7 @@ export async function runCleanupStage(input: ProcessResourceInput) {
         markdown: page.markdown,
         pageNumber: page.pageNumber,
       })),
-      OPENAI_API_KEY,
-      {
-        onProgress: async (processed, total) => {
-          const progressPercent = 40 + Math.floor((processed / total) * 10);
-          await db
-            .update(jobs)
-            .set({
-              currentStep: `Markdown cleanup: ${processed}/${total} pages`,
-              progress: progressPercent,
-            })
-            .where(eq(jobs.id, input.jobId));
-        },
-      }
+      OPENAI_API_KEY
     );
 
     structured.pages.forEach((page, index) => {
@@ -94,14 +74,6 @@ export async function runCleanupStage(input: ProcessResourceInput) {
         updatedAt: Date.now(),
       })
       .where(eq(resources.id, input.resourceId));
-
-    await db
-      .update(jobs)
-      .set({
-        currentStep: 'Metadata pending',
-        progress: 45,
-      })
-      .where(eq(jobs.id, input.jobId));
 
     return { success: true };
   } catch (error) {

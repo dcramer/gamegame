@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getResource } from "@/lib/actions/resources";
+import { api } from "@/lib/api/client";
 import ResourceForm from "./form";
 
 export const maxDuration = 300;
@@ -10,7 +10,7 @@ export default async function Page(
   }
 ) {
   const params = await props.params;
-  const resource = await getResource(params.resourceId, true);
+  const resource = await api.resources.get(params.resourceId).catch(() => null);
   if (!resource) {
     notFound();
   }

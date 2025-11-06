@@ -9,9 +9,8 @@ import { games } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { getBGGGameDetails, downloadImage } from '@/lib/services/bgg';
 import { nanoid } from 'nanoid';
-import { requireAdmin } from '@/lib/auth/helpers';
+import { withAdmin, errorResponse, successResponse, withRateLimit } from '@/lib/api/middleware';
 import { uploadBlob, blobKeyToUrl, bulkDelete } from '@/lib/services/blob-storage';
-import { withRateLimit } from '@/lib/utils/rate-limit-handler';
 
 function generateSlug(name: string, year?: number | null): string {
   const slug = name
@@ -26,30 +25,30 @@ function generateSlug(name: string, year?: number | null): string {
  * POST /api/bgg/games/:bggId/import
  * Import a game from BoardGameGeek (fetches data, downloads image, creates game)
  */
-export async function POST(
+export const POST = withAdmin(async (
   request: NextRequest,
-  props: { params: Promise<{ bggId: string }> }
-) {
+  user,
+  props?: { params: Promise<{ bggId: string }> }
+) => {
   return withRateLimit(request, 'bgg', async () => {
     let uploadedImageKey: string | null = null;
 
     try {
-      // Require admin authentication
-      await requireAdmin();
+      if (!props) {
+        return errorResponse('Invalid request', 400, 'INVALID_REQUEST');
+      }
 
-    const params = await props.params;
-    const { bggId } = params;
+      const params = await props.params;
+      const { bggId } = params;
 
-    // Check if BGG API key is configured
-    if (!process.env.BGG_API_KEY) {
-      return NextResponse.json(
-        {
-          error: 'BGG_API_KEY_MISSING',
-          message: 'BoardGameGeek API key is not configured.'
-        },
-        { status: 503 }
-      );
-    }
+      // Check if BGG API key is configured
+      if (!process.env.BGG_API_KEY) {
+        return errorResponse(
+          'BoardGameGeek API key is not configured',
+          503,
+          'BGG_API_KEY_MISSING'
+        );
+      }
 
     // Fetch game details from BGG
     const details = await getBGGGameDetails(bggId, {
@@ -111,7 +110,7 @@ export async function POST(
       .where(eq(games.id, gameId))
       .limit(1);
 
-    return NextResponse.json(game, { status: 201 });
+    return successResponse(game, 201);
     } catch (error) {
       // Clean up uploaded image if game creation failed
       if (uploadedImageKey) {
@@ -140,36 +139,21 @@ export async function POST(
 
         if (isUniqueConstraintError) {
           if (errorMessage.includes('slug') || errorCause?.constraint_name?.includes('slug')) {
-            return NextResponse.json(
-              { error: 'A game with this name and year already exists' },
-              { status: 409 }
-            );
+            return errorResponse('A game with this name and year already exists', 409, 'DUPLICATE_GAME');
           }
           if (errorMessage.includes('bgg_id') || errorCause?.constraint_name?.includes('bgg_id')) {
-            return NextResponse.json(
-              { error: 'This game has already been imported' },
-              { status: 409 }
-            );
+            return errorResponse('This game has already been imported', 409, 'DUPLICATE_GAME');
           }
-          return NextResponse.json(
-            { error: 'This game has already been imported' },
-            { status: 409 }
-          );
+          return errorResponse('This game has already been imported', 409, 'DUPLICATE_GAME');
         }
       }
 
       // Return more specific error message if available
       if (error instanceof Error) {
-        return NextResponse.json(
-          { error: error.message || 'Failed to create game from BoardGameGeek' },
-          { status: 500 }
-        );
+        return errorResponse(error.message || 'Failed to create game from BoardGameGeek', 500, 'INTERNAL_ERROR');
       }
 
-      return NextResponse.json(
-        { error: 'Failed to create game from BoardGameGeek' },
-        { status: 500 }
-      );
+      return errorResponse('Failed to create game from BoardGameGeek', 500, 'INTERNAL_ERROR');
     }
   });
-}
+});

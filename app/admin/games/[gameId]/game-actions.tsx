@@ -3,8 +3,7 @@
 import { ActionButton } from "@/components/ui/action-button";
 import { RefreshCw, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { deleteGame } from "@/lib/actions/games";
-import { reprocessResource } from "@/lib/actions/resources";
+import { api } from "@/lib/api/client";
 import { useFlashMessages } from "@/components/flashMessages";
 import { useProcessing } from "@/components/processing-provider";
 
@@ -38,7 +37,8 @@ export default function GameActions({
 
       for (const resourceId of resourceIds) {
         try {
-          await reprocessResource(resourceId);
+          // TODO: Add reprocess endpoint to API client
+          await fetch(`/api/resources/${resourceId}/reprocess`, { method: 'POST' });
           successCount++;
         } catch (error) {
           console.error(`Failed to reprocess resource ${resourceId}:`, error);
@@ -80,7 +80,7 @@ export default function GameActions({
     });
 
     try {
-      await deleteGame(gameId);
+      await api.games.delete(gameId);
       message.update(`Deleted ${gameName}`, "success", { removeAfter: 3000 });
       // Redirect to admin games page
       router.push("/admin");

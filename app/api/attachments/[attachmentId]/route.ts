@@ -9,7 +9,8 @@ import { db } from '@/lib/db';
 import { attachments } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { requireAdmin } from '@/lib/auth/helpers';
+import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
+import { updateAttachmentSchema } from '@/lib/api/schemas';
 
 /**
  * Helper to safely parse bbox JSON
@@ -96,22 +97,19 @@ export async function GET(
   }
 }
 
-const updateAttachmentSchema = z.object({
-  description: z.string().optional().nullable(),
-  originalFilename: z.string().optional().nullable(),
-});
-
 /**
  * PATCH /api/attachments/:attachmentId
  * Update attachment metadata (admin only)
  */
-export async function PATCH(
+export const PATCH = withAdmin(async (
   request: NextRequest,
-  props: { params: Promise<{ attachmentId: string }> }
-) {
+  user,
+  props?: { params: Promise<{ attachmentId: string }> }
+) => {
   try {
-    // Require admin authentication
-    await requireAdmin();
+    if (!props) {
+      return errorResponse('Invalid request', 400, 'INVALID_REQUEST');
+    }
 
     const params = await props.params;
     const { attachmentId } = params;
@@ -134,10 +132,7 @@ export async function PATCH(
       .returning();
 
     if (!updated) {
-      return NextResponse.json(
-        { error: 'Attachment not found' },
-        { status: 404 }
-      );
+      return errorResponse('Attachment not found', 404, 'NOT_FOUND');
     }
 
     // Get public URL
@@ -148,19 +143,13 @@ export async function PATCH(
       bbox: parseBbox(updated.bbox),
     };
 
-    return NextResponse.json(result);
+    return successResponse(result);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Validation error', details: error.issues },
-        { status: 400 }
-      );
+      return errorResponse('Validation error', 400, 'VALIDATION_ERROR', error.issues);
     }
 
     console.error('[PATCH /api/attachments/:attachmentId] Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to update attachment' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to update attachment', 500, 'INTERNAL_ERROR');
   }
-}
+});

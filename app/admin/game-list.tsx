@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/table";
 import Link from "next/link";
 import Image from "next/image";
-import { deleteGame } from "@/lib/actions/games";
+import { api } from "@/lib/api/client";
 import { useState } from "react";
 
 export default function GameList({
@@ -99,14 +99,19 @@ export default function GameList({
                 <TableCell className="text-center">
                   <Button
                     size="sm"
-                    variant="destructive"
+                    variant="destructive-outline"
                     onClick={async (e) => {
                       e.stopPropagation();
 
-                      await deleteGame(game.id);
-                      setGameList(
-                        activeGameList.filter((g) => g.id !== game.id)
-                      );
+                      try {
+                        await api.games.delete(game.id);
+                        setGameList(
+                          activeGameList.filter((g) => g.id !== game.id)
+                        );
+                      } catch (error) {
+                        console.error('Failed to delete game:', error);
+                        alert('Failed to delete game');
+                      }
                     }}
                   >
                     Delete

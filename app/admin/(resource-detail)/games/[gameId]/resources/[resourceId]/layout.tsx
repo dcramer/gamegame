@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
-import { getResource } from "@/lib/actions/resources";
-import { getGame } from "@/lib/actions/games";
+import { api } from "@/lib/api/client";
 import { PageHeader } from "@/components/page-header";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import AdminBaseLayout from "@/components/admin-base-layout";
@@ -14,18 +13,18 @@ export default async function Layout(props: {
   const params = await props.params;
   const { children } = props;
 
-  const resource = await getResource(params.resourceId, true);
+  const resource = await api.resources.get(params.resourceId).catch(() => null);
   if (!resource) {
     notFound();
   }
 
-  const game = await getGame(params.gameId);
+  const game = await api.games.get(params.gameId).catch(() => null);
   if (!game) {
     notFound();
   }
 
   const stats = [
-    `${resource.embeddingCount.toLocaleString()} chunks`,
+    `${resource.fragmentCount.toLocaleString()} chunks`,
     resource.pageCount && `${resource.pageCount} pages`,
     resource.imageCount > 0 && `${resource.imageCount} images`,
     resource.wordCount > 0 && `${(resource.wordCount / 1000).toFixed(1)}k words`,

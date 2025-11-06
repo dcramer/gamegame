@@ -5,6 +5,7 @@
 
 export {
   getSession,
+  getCurrentUser,
   getCurrentUserId,
   isAuthenticated,
   isAdmin,
@@ -12,19 +13,7 @@ export {
   requireAdmin,
   createSession,
   destroySession,
+  refreshSession,
   type SessionData,
+  type UserData,
 } from '@/lib/session';
-
-/**
- * Get the current user from session (backwards compatibility)
- */
-export async function getCurrentUser() {
-  const session = await import('@/lib/session').then((m) => m.getSession());
-  if (!session.userId) return null;
-
-  return {
-    id: session.userId,
-    email: session.email,
-    isAdmin: session.isAdmin,
-  };
-}

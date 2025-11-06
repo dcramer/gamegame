@@ -27,7 +27,7 @@ export const resources = pgTable(
     pdfExtractor: varchar('pdf_extractor', { length: 50 }),
     processedAt: bigint('processed_at', { mode: 'number' }),
     status: varchar('status', { length: 50 }).notNull().default('ready'),
-    currentJobId: varchar('current_job_id', { length: 191 }),
+    currentRunId: varchar('current_run_id', { length: 191 }),
     processingStage: varchar('processing_stage', { length: 50 }).default('ready'),
     processingMetadata: text('processing_metadata'), // JSON string
 
@@ -54,7 +54,7 @@ export const resources = pgTable(
   (table) => ({
     gameIdx: index('idx_resources_game_id').on(table.gameId),
     statusIdx: index('idx_resources_status').on(table.status),
-    jobIdx: index('idx_resources_job_id').on(table.currentJobId),
+    runIdx: index('idx_resources_run_id').on(table.currentRunId),
   })
 );
 

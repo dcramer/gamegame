@@ -145,14 +145,48 @@ BGG integration provides game metadata and images:
 - **Image processing**: Downloads BGG images, converts to WebP (900x600, 85% quality) via Sharp
 - **Search**: `searchBGGGames()` returns search results with optional thumbnails
 - **Details**: `getBGGGameDetails()` fetches full game info (players, time, designers, publishers)
-- Server actions in `lib/actions/bgg.ts` provide `searchBGG()`, `fetchBGGGame()`, `createGameFromBGG()`
+- API endpoints in `app/api/bgg/` provide search and import functionality
 
-### Resource Processing (`lib/actions/resources.ts`)
+### API Architecture (`app/api/`, `lib/api/`)
 
-When uploading a PDF rulebook:
-1. PDF is fetched and converted to markdown text using the Mistral OCR API
-2. Text is chunked and embedded via `generateEmbeddings()`
-3. Resource and fragments are inserted in a transaction
+The application uses a **REST API architecture** with JWT authentication:
+
+#### API Routes (`app/api/`)
+All CRUD operations go through API endpoints (no server actions):
+- **Games**: `GET/POST /api/games`, `GET/PATCH/DELETE /api/games/:id`
+- **Resources**: `GET/POST /api/games/:id/resources`, `GET/PATCH/DELETE /api/resources/:id`
+- **Attachments**: `GET /api/resources/:id/attachments`, `GET/PATCH /api/attachments/:id`, `POST /api/attachments/:id/reprocess`
+- **BGG**: `GET /api/bgg/search`, `POST /api/bgg/games/:bggId/import`
+- **Auth**: `GET /api/auth/me`, `POST /api/auth/logout`, `POST /api/auth/refresh`
+
+#### Authentication Middleware (`lib/api/middleware.ts`)
+Protected routes use JWT middleware wrappers:
+```typescript
+export const POST = withAdmin(async (request, user, props) => {
+  // user is guaranteed to be admin
+  // Automatic 401/403 responses for unauthorized access
+});
+```
+
+Available middleware:
+- `withAuth()`: Requires any authenticated user
+- `withAdmin()`: Requires admin user (isAdmin: true)
+- `withOptionalAuth()`: Optional authentication (user may be null)
+
+#### API Client (`lib/api/client.ts`)
+Type-safe client library for all API calls:
+```typescript
+import { api } from '@/lib/api/client';
+
+// Automatic JWT cookie handling, error handling
+const game = await api.games.get(gameId);
+const games = await api.games.list();
+await api.games.create({ name: 'Arcs', year: 2024 });
+await api.games.update(id, { name: 'Updated' });
+await api.games.delete(id);
+```
+
+All admin UI components use the API client instead of direct server actions.
 
 ## Data Storage and Rendering
 
@@ -312,29 +346,67 @@ This information is available in the fragment metadata.
    - Helps users find info in original PDF
    - Improves context for LLM responses
 
-### Authentication (`auth.ts`)
+### Authentication (`auth.ts`, `lib/session.ts`, `lib/auth/jwt.ts`)
 
-Uses NextAuth v5 (beta) with:
-- Resend email provider for passwordless login
-- Drizzle adapter for persistence
-- Admin flag on users for protected routes (`/admin/*`)
+**NextAuth v5** handles passwordless email login:
+- Resend email provider for magic link authentication
+- Drizzle adapter for user/session persistence
+- Admin flag on users (`isAdmin: boolean`)
+
+**JWT Sessions** (`lib/session.ts`, `lib/auth/jwt.ts`):
+- After NextAuth login, user sessions are managed via **JWT tokens**
+- Tokens stored in **httpOnly cookies** (`session`) for security
+- 30-day expiration with automatic refresh
+- JWT signed with HS256 using `SESSION_SECRET` (via jose library)
+
+**Session Functions** (`lib/session.ts`):
+```typescript
+// Get current user from JWT
+const user = await getCurrentUser(); // { userId, email, isAdmin }
+
+// Check authentication
+if (await isAdmin()) { /* ... */ }
+if (await isAuthenticated()) { /* ... */ }
+
+// Require authentication (throws if not authenticated)
+const user = await requireAuth();    // Any authenticated user
+const admin = await requireAdmin();  // Admin only
+
+// Session management
+await createSession(userId);  // Called after NextAuth login
+await destroySession();       // Logout
+await refreshSession();       // Extend expiration
+```
+
+**Protected Routes**:
+- API routes: Use `withAdmin()` or `withAuth()` middleware
+- UI routes: Check `await requireAdmin()` in Server Components
+- Client Components: Use API client (handles auth automatically)
 
 ### File Structure
 
 ```
 app/                      # Next.js 15 App Router
   admin/                  # Admin UI for managing games and resources
-  api/                    # API routes for images, resources, games
+  api/                    # REST API endpoints (games, resources, attachments, BGG, auth)
   games/[gameId]/         # Game-specific chat interface
 lib/
-  actions/                # Server actions (games, resources, auth)
-  ai/                     # AI prompt building and RAG search
+  api/
+    client.ts            # Type-safe API client library
+    middleware.ts        # JWT authentication middleware (withAuth, withAdmin)
+  auth/
+    jwt.ts               # JWT signing/verification utilities
+    helpers.ts           # Re-exports from session.ts
+  session.ts             # Session management with JWT tokens
+  ai/                    # AI prompt building and RAG search
   db/
     schema/              # Drizzle ORM schema definitions
-    migrations/          # SQL migrations
+  services/              # Business logic (BGG, images, chunking, blob storage, etc.)
   pdf.ts                 # PDF text extraction (Mistral OCR)
   env.mjs                # Environment variable validation (@t3-oss/env-nextjs)
 components/              # React components (mostly Radix UI + Tailwind)
+workflows/               # Vercel Workflows for async processing
+tests/                   # API and integration tests
 ```
 
 ## Environment Variables
@@ -345,6 +417,7 @@ Required:
 - `MISTRAL_API_KEY`: Mistral API key for PDF OCR extraction
 - `AUTH_SECRET`: NextAuth secret (generate via `npx auth secret`)
 - `AUTH_RESEND_KEY`: Resend API key for email authentication
+- `SESSION_SECRET`: JWT signing secret, minimum 32 characters (generate via `openssl rand -base64 32`)
 
 Optional:
 - `BLOB_READ_WRITE_TOKEN`: Vercel Blob storage (falls back to local `./public/uploads`)

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createGameForm } from "@/lib/actions/forms";
+import { api } from "@/lib/api/client";
 import { upload } from "@/lib/uploads/client";
 import type { BGGSearchResult } from "@/lib/types/bgg";
 import { Loader2, Search, Dices } from "lucide-react";
@@ -251,19 +251,32 @@ export default function Form() {
       onSubmit={async (event) => {
         event.preventDefault();
         setLoading(true);
-        const formData = new FormData(event.currentTarget);
-        if (imageFile) {
-          const newBlob = await upload(imageFile.name, imageFile, {
-            access: "public",
-            handleUploadUrl: "/api/images/upload",
-          });
-          formData.set("imageUrl", newBlob.url);
-        } else if (imageUrl && !imageFile) {
-          formData.set("imageUrl", imageUrl);
-        }
+        try {
+          const formData = new FormData(event.currentTarget);
 
-        await createGameForm(formData);
-        setLoading(false);
+          let finalImageUrl = imageUrl;
+          if (imageFile) {
+            const newBlob = await upload(imageFile.name, imageFile, {
+              access: "public",
+              handleUploadUrl: "/api/images/upload",
+            });
+            finalImageUrl = newBlob.url;
+          }
+
+          const gameData = {
+            name: formData.get("name") as string,
+            imageUrl: finalImageUrl || undefined,
+            bggUrl: formData.get("bggUrl") as string || undefined,
+          };
+
+          const game = await api.games.create(gameData);
+          router.push(`/admin/games/${game.id}`);
+        } catch (error) {
+          console.error('Failed to create game:', error);
+          flash({ type: 'error', message: 'Failed to create game' });
+        } finally {
+          setLoading(false);
+        }
       }}
       className="grid gap-4"
     >

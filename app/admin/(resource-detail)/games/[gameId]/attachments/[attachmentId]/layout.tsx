@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
-import { getAttachment } from "@/lib/actions/attachments";
-import { getGame } from "@/lib/actions/games";
+import { api } from "@/lib/api/client";
 import { PageHeader } from "@/components/page-header";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import AdminBaseLayout from "@/components/admin-base-layout";
@@ -16,7 +15,7 @@ export default async function Layout(props: {
   const params = await props.params;
   const { children } = props;
 
-  const attachment = await getAttachment(params.attachmentId);
+  const attachment = await api.attachments.get(params.attachmentId).catch(() => null);
   if (!attachment) {
     notFound();
   }
@@ -35,7 +34,7 @@ export default async function Layout(props: {
     notFound();
   }
 
-  const game = await getGame(params.gameId);
+  const game = await api.games.get(params.gameId).catch(() => null);
   if (!game) {
     notFound();
   }

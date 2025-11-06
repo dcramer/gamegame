@@ -174,7 +174,7 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
               <TableHead>Status</TableHead>
               <TableHead>Game</TableHead>
               <TableHead>Resource</TableHead>
-              <TableHead>Progress</TableHead>
+              <TableHead>Error</TableHead>
               <TableHead>Started</TableHead>
               <TableHead>Duration</TableHead>
               <TableHead className="w-[80px] text-center">Actions</TableHead>
@@ -184,11 +184,11 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
             {jobs.map((job) => {
               const canCancel = job.status === 'pending' || job.status === 'processing';
               const canRetry = job.status === 'failed' || job.status === 'cancelled';
-              const isCanceling = canceling.has(job.jobId);
-              const isRetrying = retrying.has(job.jobId);
+              const isCanceling = canceling.has(job.runId);
+              const isRetrying = retrying.has(job.runId);
 
               return (
-                <TableRow key={job.jobId}>
+                <TableRow key={job.runId}>
                   <TableCell className="align-middle">
                     <Badge variant={getStatusVariant(job.status)}>
                       {job.status}
@@ -219,26 +219,10 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
                     )}
                   </TableCell>
                   <TableCell className="align-middle">
-                    <div className="flex items-center gap-2">
-                      <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary transition-all"
-                          style={{ width: `${job.progress}%` }}
-                        />
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        {job.progress}%
-                      </span>
-                    </div>
-                    {job.currentStep && (
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {job.currentStep}
-                      </div>
-                    )}
                     {job.error && (
-                      <div className="text-xs text-destructive mt-1" title={job.error}>
-                        {job.error.length > 50
-                          ? `${job.error.slice(0, 50)}...`
+                      <div className="text-xs text-destructive" title={job.error}>
+                        {job.error.length > 100
+                          ? `${job.error.slice(0, 100)}...`
                           : job.error}
                       </div>
                     )}
@@ -259,7 +243,7 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
                               variant="ghost"
                               className="h-8 w-8 p-0"
                               disabled={isCanceling}
-                              onClick={() => handleCancel(job.jobId)}
+                              onClick={() => handleCancel(job.runId)}
                             >
                               <X className="h-4 w-4 text-destructive" />
                             </Button>
@@ -275,7 +259,7 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
                               variant="ghost"
                               className="h-8 w-8 p-0"
                               disabled={isRetrying}
-                              onClick={() => handleRetry(job.jobId)}
+                              onClick={() => handleRetry(job.runId)}
                             >
                               <RotateCcw className="h-4 w-4" />
                             </Button>

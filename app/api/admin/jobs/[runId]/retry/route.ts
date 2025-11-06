@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { jobs, resources, games } from '@/lib/db/schema';
+import { resources, games } from '@/lib/db/schema';
 import { requireAdmin } from '@/lib/auth/helpers';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { processResourceWorkflow } from '@/workflows/process-resource/index';
+import { getWorkflowRun } from '@/lib/services/workflows';
 
 type Params = {
   params: Promise<{
-    jobId: string;
+    runId: string;
   }>;
 };
 
@@ -17,23 +18,28 @@ export async function POST(request: Request, { params }: Params) {
     // Require admin authentication
     await requireAdmin();
 
-    const { jobId } = await params;
+    const { runId } = await params;
 
-    // Get the failed job
-    const [job] = await db
-      .select()
-      .from(jobs)
-      .where(eq(jobs.id, jobId))
-      .limit(1);
+    // Get the workflow run
+    const run = await getWorkflowRun(runId);
 
-    if (!job) {
+    if (!run) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
     // Only allow retrying failed or cancelled jobs
-    if (job.status !== 'failed' && job.status !== 'cancelled') {
+    if (run.status !== 'failed' && run.status !== 'cancelled') {
       return NextResponse.json(
         { error: 'Only failed or cancelled jobs can be retried' },
+        { status: 400 }
+      );
+    }
+
+    // Extract resource and game IDs from workflow input
+    const input = run.input[0] as any;
+    if (!input?.resourceId || !input?.gameId) {
+      return NextResponse.json(
+        { error: 'Invalid workflow data' },
         { status: 400 }
       );
     }
@@ -42,7 +48,7 @@ export async function POST(request: Request, { params }: Params) {
     const [resource] = await db
       .select()
       .from(resources)
-      .where(eq(resources.id, job.resourceId))
+      .where(eq(resources.id, input.resourceId))
       .limit(1);
 
     if (!resource) {
@@ -53,27 +59,15 @@ export async function POST(request: Request, { params }: Params) {
     const [game] = await db
       .select()
       .from(games)
-      .where(eq(games.id, job.gameId))
+      .where(eq(games.id, input.gameId))
       .limit(1);
 
     if (!game) {
       return NextResponse.json({ error: 'Game not found' }, { status: 404 });
     }
 
-    // Create new job record
+    // Create new job ID
     const newJobId = nanoid();
-    const now = Date.now();
-    await db.insert(jobs).values({
-      id: newJobId,
-      type: 'process-resource',
-      gameId: job.gameId,
-      resourceId: job.resourceId,
-      status: 'pending',
-      currentStep: 'Queued for retry',
-      progress: 0,
-      createdAt: now,
-      updatedAt: now,
-    });
 
     // Update resource status
     await db
@@ -81,42 +75,40 @@ export async function POST(request: Request, { params }: Params) {
       .set({
         status: 'processing',
         processingStage: 'ingest', // Start from beginning on retry
-        currentJobId: newJobId,
+        currentRunId: newJobId,
         updatedAt: Date.now(),
       })
-      .where(eq(resources.id, job.resourceId));
+      .where(eq(resources.id, input.resourceId));
 
     // Trigger workflow asynchronously
     const workflowInput = {
-      jobId: newJobId,
+      runId: newJobId,
       resourceId: resource.id,
       gameId: resource.gameId,
       gameName: game.name,
       name: resource.name,
       url: resource.url,
-      sourceKey: undefined, // Will fetch from URL
     };
 
     // Start workflow in background (don't await)
     processResourceWorkflow(workflowInput).catch((error) => {
       console.error('[Retry Workflow] Error:', error);
-      // Mark job as failed
-      db.update(jobs)
+      // Mark resource as failed
+      db.update(resources)
         .set({
           status: 'failed',
-          error: {
-            message: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined,
-          },
-          completedAt: Date.now(),
+          processingStage: 'failed',
+          processingMetadata: null,
+          currentRunId: null,
+          updatedAt: Date.now(),
         })
-        .where(eq(jobs.id, newJobId))
-        .catch((err) => console.error('[Retry Workflow] Failed to update job:', err));
+        .where(eq(resources.id, input.resourceId))
+        .catch((err) => console.error('[Retry Workflow] Failed to update resource:', err));
     });
 
     return NextResponse.json({
       success: true,
-      jobId: newJobId,
+      runId: newJobId,
       message: 'Job retrying from beginning',
     });
   } catch (error) {

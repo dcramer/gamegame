@@ -81,7 +81,7 @@ describe('Embed Stage Integration', () => {
     };
 
     const input = {
-      jobId: nanoid(),
+      runId: nanoid(),
       resourceId,
       gameId: game.id,
       gameName: game.name,
@@ -174,7 +174,7 @@ describe('Embed Stage Integration', () => {
     };
 
     const input = {
-      jobId: nanoid(),
+      runId: nanoid(),
       resourceId,
       gameId: game.id,
       gameName: game.name,
@@ -243,7 +243,7 @@ describe('Embed Stage Integration', () => {
     };
 
     const input = {
-      jobId: nanoid(),
+      runId: nanoid(),
       resourceId,
       gameId: game.id,
       gameName: game.name,
@@ -306,7 +306,7 @@ describe('Embed Stage Integration', () => {
     };
 
     const input = {
-      jobId: nanoid(),
+      runId: nanoid(),
       resourceId,
       gameId: game.id,
       gameName: game.name,

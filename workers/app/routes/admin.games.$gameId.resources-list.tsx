@@ -276,14 +276,14 @@ export default function GameResourcesTab() {
                             <TooltipTrigger asChild>
                               <Button
                                 size="sm"
-                                variant="ghost"
+                                variant="destructive-outline"
                                 className="h-8 w-8 p-0"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleDelete(resource.id, resource.name);
                                 }}
                               >
-                                <Trash2 className="h-4 w-4 text-red-500" />
+                                <Trash2 className="h-4 w-4" />
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>Delete resource</TooltipContent>

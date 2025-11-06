@@ -1,4 +1,4 @@
-import { getGame } from "@/lib/actions/games";
+import { api } from "@/lib/api/client";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { EmptyState } from "@/components/empty-state";
@@ -70,7 +70,7 @@ export default async function AttachmentsPage(props: { params: Promise<{ gameId:
   await requireAdmin();
 
   const params = await props.params;
-  const game = await getGame(params.gameId);
+  const game = await api.games.get(params.gameId).catch(() => null);
   if (!game) {
     notFound();
   }

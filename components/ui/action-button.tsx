@@ -17,7 +17,7 @@ const ActionButton = React.forwardRef<HTMLButtonElement, ActionButtonProps>(
         className={cn(
           "w-full text-left p-3 rounded-lg border transition-colors group cursor-pointer",
           variant === "danger"
-            ? "border-red-500/50 bg-card hover:bg-red-500/10 hover:border-red-500"
+            ? "border-destructive/50 bg-card hover:bg-destructive/10 hover:border-destructive"
             : "border-border bg-card hover:bg-accent hover:border-accent-foreground/20",
           className
         )}
@@ -29,7 +29,7 @@ const ActionButton = React.forwardRef<HTMLButtonElement, ActionButtonProps>(
               className={cn(
                 "h-4 w-4 mt-0.5",
                 variant === "danger"
-                  ? "text-red-500"
+                  ? "text-destructive"
                   : "text-muted-foreground group-hover:text-foreground"
               )}
             />
@@ -38,7 +38,7 @@ const ActionButton = React.forwardRef<HTMLButtonElement, ActionButtonProps>(
             <div
               className={cn(
                 "font-medium text-sm mb-1",
-                variant === "danger" && "text-red-500"
+                variant === "danger" && "text-destructive"
               )}
             >
               {title}

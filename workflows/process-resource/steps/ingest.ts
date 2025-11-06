@@ -3,7 +3,7 @@
  */
 
 import { db } from '@/lib/db';
-import { jobs, resources } from '@/lib/db/schema';
+import { resources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { ProcessResourceInput } from '../../shared/types';
 import {
@@ -26,7 +26,7 @@ export async function runIngestStage(input: ProcessResourceInput) {
     const [resourceRow] = await db
       .select({
         metadata: resources.processingMetadata,
-        currentJobId: resources.currentJobId,
+        currentRunId: resources.currentRunId,
       })
       .from(resources)
       .where(eq(resources.id, input.resourceId))
@@ -36,10 +36,10 @@ export async function runIngestStage(input: ProcessResourceInput) {
       throw new Error(`Resource ${input.resourceId} not found`);
     }
 
-    if (resourceRow.currentJobId && resourceRow.currentJobId !== input.jobId) {
+    if (resourceRow.currentRunId && resourceRow.currentRunId !== input.runId) {
       return {
         success: false,
-        error: `Resource is being processed by different job: ${resourceRow.currentJobId}`,
+        error: `Resource is being processed by different job: ${resourceRow.currentRunId}`,
       };
     }
 
@@ -49,15 +49,6 @@ export async function runIngestStage(input: ProcessResourceInput) {
       const hasImages = structured.pages.some((page) => page.images.length > 0);
       return { success: true, hasImages };
     }
-
-    await db
-      .update(jobs)
-      .set({
-        status: 'processing',
-        currentStep: 'Starting PDF ingestion',
-        progress: 5,
-      })
-      .where(eq(jobs.id, input.jobId));
 
     const { buffer, mimeType } = await fetchDocumentBuffer(input);
 
@@ -77,18 +68,10 @@ export async function runIngestStage(input: ProcessResourceInput) {
         status: 'processing',
         processingStage: 'vision',
         processingMetadata: serializeMetadata(metadata),
-        currentJobId: input.jobId,
+        currentRunId: input.runId,
         updatedAt: Date.now(),
       })
       .where(eq(resources.id, input.resourceId));
-
-    await db
-      .update(jobs)
-      .set({
-        currentStep: 'Vision analysis pending',
-        progress: 15,
-      })
-      .where(eq(jobs.id, input.jobId));
 
     const hasImages = extraction.structured.pages.some((page) => page.images.length > 0);
     return { success: true, hasImages };

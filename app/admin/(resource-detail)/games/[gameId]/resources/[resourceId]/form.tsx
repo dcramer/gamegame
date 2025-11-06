@@ -5,9 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
-import { updateResourceForm } from "@/lib/actions/forms";
+import { api } from "@/lib/api/client";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function ResourceForm({
   resourceId,
@@ -26,6 +27,7 @@ export default function ResourceForm({
   };
 }) {
   const [isLoading, setLoading] = useState(false);
+  const router = useRouter();
 
   return (
     <Card className="max-w-2xl">
@@ -36,11 +38,19 @@ export default function ResourceForm({
             setLoading(true);
             try {
               const formData = new FormData(event.currentTarget);
-              await updateResourceForm(resourceId, formData);
+              const description = formData.get("description") as string;
+
+              await api.resources.update(resourceId, {
+                name: formData.has("name") ? (formData.get("name") as string) : undefined,
+                description: description?.trim() || null,
+              });
+
+              router.refresh();
               setLoading(false);
             } catch (error) {
+              console.error('Failed to update resource:', error);
+              alert('Failed to update resource');
               setLoading(false);
-              throw error;
             }
           }}
           className="grid gap-4"

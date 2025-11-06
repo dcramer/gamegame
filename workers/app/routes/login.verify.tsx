@@ -109,7 +109,7 @@ export default function LoginVerify() {
 
               {status === 'error' && (
                 <div className="text-center py-8">
-                  <XCircle className="w-16 h-16 text-red-600 dark:text-red-400 mx-auto mb-4" />
+                  <XCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
                   <p className="text-lg font-medium mb-2">Verification Failed</p>
                   <p className="text-sm text-muted-foreground mb-6">{error}</p>
                   <Button onClick={() => navigate('/login')} className="w-full">

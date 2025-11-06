@@ -10,15 +10,8 @@ import { games, resources } from '@/lib/db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
-import { requireAdmin } from '@/lib/auth/helpers';
-
-// Schema for creating a game
-const createGameSchema = z.object({
-  name: z.string().min(1),
-  year: z.number().int().min(1900).max(2100).optional(),
-  imageUrl: z.string().min(1).optional(),
-  bggUrl: z.string().url().optional(),
-});
+import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
+import { createGameSchema, gameListResponseSchema } from '@/lib/api/schemas';
 
 /**
  * GET /api/games
@@ -58,11 +51,8 @@ export async function GET() {
  * POST /api/games
  * Create a new game (admin only)
  */
-export async function POST(request: NextRequest) {
+export const POST = withAdmin(async (request) => {
   try {
-    // Require admin authentication
-    await requireAdmin();
-
     const body = await request.json();
     const data = createGameSchema.parse(body);
 
@@ -96,22 +86,16 @@ export async function POST(request: NextRequest) {
       .where(eq(games.id, gameId))
       .limit(1);
 
-    return NextResponse.json(newGame, { status: 201 });
+    return successResponse(newGame, 201);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Validation error', details: error.issues },
-        { status: 400 }
-      );
+      return errorResponse('Validation error', 400, 'VALIDATION_ERROR', error.issues);
     }
 
     console.error('[POST /api/games] Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to create game' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to create game', 500, 'INTERNAL_ERROR');
   }
-}
+});
 
 /**
  * Generate URL-safe slug from name

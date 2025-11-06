@@ -6,54 +6,26 @@
  */
 
 import { db } from '@/lib/db';
-import { jobs, resources } from '@/lib/db/schema';
+import { resources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { StructuredPDFContent, PDFImage } from '@/lib/types/pdf';
 import type { ProcessingMetadata, ProcessResourceInput } from './types';
 
 // ==========================================
-// Job Status Helpers
+// Resource Failure Helper
 // ==========================================
 
-export async function checkJobStatus(jobId: string) {
-  const [job] = await db
-    .select()
-    .from(jobs)
-    .where(eq(jobs.id, jobId))
-    .limit(1);
-  return job;
-}
-
-export async function markJobFailed(jobId: string, resourceId: string, error: string) {
-  await db
-    .update(jobs)
-    .set({
-      status: 'failed',
-      error: { message: error },
-      completedAt: Date.now(),
-    })
-    .where(eq(jobs.id, jobId));
-
+export async function markResourceFailed(resourceId: string, error: string) {
   await db
     .update(resources)
     .set({
       status: 'failed',
       processingStage: 'failed',
       processingMetadata: null,
-      currentJobId: null,
+      currentRunId: null,
       updatedAt: Date.now(),
     })
     .where(eq(resources.id, resourceId));
-}
-
-export async function updateJobProgress(jobId: string, currentStep: string, progress: number) {
-  await db
-    .update(jobs)
-    .set({
-      currentStep,
-      progress,
-    })
-    .where(eq(jobs.id, jobId));
 }
 
 // ==========================================

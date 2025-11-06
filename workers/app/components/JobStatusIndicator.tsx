@@ -48,12 +48,12 @@ export function JobStatusIndicator({
     <div className={`text-xs mt-1 flex items-center gap-2 flex-wrap ${className}`}>
       {isProcessing && !showFailure && <Spinner size="sm" />}
       <span
-        className={`capitalize ${showFailure ? 'text-red-500 font-semibold' : 'text-muted-foreground'}`}
+        className={`capitalize ${showFailure ? 'text-destructive font-semibold' : 'text-muted-foreground'}`}
       >
         {status}
       </span>
       {messageText && (
-        <span className={`text-xs ${showFailure ? 'text-red-500' : 'text-muted-foreground'}`}>
+        <span className={`text-xs ${showFailure ? 'text-destructive' : 'text-muted-foreground'}`}>
           {messageText}
         </span>
       )}

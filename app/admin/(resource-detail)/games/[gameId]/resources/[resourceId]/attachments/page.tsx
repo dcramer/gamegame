@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
-import { getResource } from "@/lib/actions/resources";
-import { getResourceAttachments } from "@/lib/actions/attachments";
+import { api } from "@/lib/api/client";
 import Link from "next/link";
 import { EmptyState } from "@/components/empty-state";
 
@@ -12,12 +11,12 @@ export default async function Page(
   }
 ) {
   const params = await props.params;
-  const resource = await getResource(params.resourceId, true);
+  const resource = await api.resources.get(params.resourceId).catch(() => null);
   if (!resource) {
     notFound();
   }
 
-  const attachments = await getResourceAttachments(params.resourceId);
+  const attachments = await api.attachments.listForResource(params.resourceId);
 
   if (attachments.length === 0) {
     return (

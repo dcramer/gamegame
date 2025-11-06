@@ -7,11 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verificationTokens } from '@/lib/db/schema/auth';
 import { randomBytes } from 'crypto';
-import { z } from 'zod';
-
-const loginSchema = z.object({
-  email: z.string().email(),
-});
+import { loginSchema } from '@/lib/api/schemas';
 
 export async function POST(request: NextRequest) {
   try {

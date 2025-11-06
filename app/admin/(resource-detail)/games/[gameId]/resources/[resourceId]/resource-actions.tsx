@@ -3,7 +3,7 @@
 import { ActionButton } from "@/components/ui/action-button";
 import { RefreshCw, Trash2, ExternalLink } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { deleteResource, reprocessResource } from "@/lib/actions/resources";
+import { api } from "@/lib/api/client";
 import { useFlashMessages } from "@/components/flashMessages";
 
 interface ResourceActionsProps {
@@ -36,7 +36,16 @@ export default function ResourceActions({
     });
 
     try {
-      await reprocessResource(resourceId);
+      // TODO: Add reprocess to API client
+      const response = await fetch(`/api/resources/${resourceId}/reprocess`, {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to reprocess resource');
+      }
+
       message.update(
         `${resourceName} queued for reprocessing`,
         "success",
@@ -67,7 +76,7 @@ export default function ResourceActions({
     });
 
     try {
-      await deleteResource(resourceId);
+      await api.resources.delete(resourceId);
       message.update(`Deleted ${resourceName}`, "success", { removeAfter: 3000 });
       // Redirect to game resources page
       router.push(`/admin/games/${gameId}/resources`);

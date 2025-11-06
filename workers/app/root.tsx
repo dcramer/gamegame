@@ -181,7 +181,7 @@ export function ErrorBoundary() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="max-w-md w-full p-6 bg-white rounded-lg shadow-lg">
-          <h1 className="text-2xl font-bold text-red-600 mb-4">
+          <h1 className="text-2xl font-bold text-destructive mb-4">
             {error.status} {error.statusText}
           </h1>
           <p className="text-gray-700 mb-4">
@@ -208,7 +208,7 @@ export function ErrorBoundary() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="max-w-2xl w-full p-6 bg-white rounded-lg shadow-lg">
-        <h1 className="text-2xl font-bold text-red-600 mb-4">
+        <h1 className="text-2xl font-bold text-destructive mb-4">
           Unexpected Error
         </h1>
         <p className="text-gray-700 mb-4">

@@ -11,11 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  deleteResource,
-  createResource,
-  reprocessResource,
-} from "@/lib/actions/resources";
+import { api } from "@/lib/api/client";
 import { nanoid } from "@/lib/utils";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -44,7 +40,7 @@ type ActiveResource = {
   processedAt?: number | null;
   status?: string | null;
   processingStage?: string | null;
-  currentJobId?: string | null;
+  currentRunId?: string | null;
   stats?: {
     fragmentCount: number;
     pageCount: number | null;
@@ -70,7 +66,7 @@ export default function ResourceList({
     processedAt?: number | null;
     status?: string | null;
     processingStage?: string | null;
-    currentJobId?: string | null;
+    currentRunId?: string | null;
     stats?: {
       fragmentCount: number;
       pageCount: number | null;
@@ -177,24 +173,13 @@ export default function ResourceList({
     });
 
     try {
-      const newBlob = await upload(resource.file.name, resource.file, {
-        access: "public",
-        handleUploadUrl: "/api/resources/upload",
-        clientPayload: JSON.stringify({
-          gameId,
-          resourceId: resource.id,
-          name: resource.name,
-        }),
-      });
+      const formData = new FormData();
+      formData.append('file', resource.file);
+      formData.append('name', resource.name);
 
-      const result = await createResource({
-        id: resource.id,
-        name: resource.name,
-        gameId,
-        url: newBlob.url,
-      });
+      const result = await api.resources.create(gameId, formData);
 
-      if (result.status === "processing") {
+      if (result.status === "processing" || result.status === "pending") {
         // Add to processing set for polling
         setProcessingResources((prev) => new Set(prev).add(result.id));
 
@@ -349,7 +334,12 @@ export default function ResourceList({
                         );
 
                         try {
-                          const result = await reprocessResource(resource.id);
+                          // TODO: Add reprocess to API client
+                          const response = await fetch(`/api/resources/${resource.id}/reprocess`, {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                          });
+                          const result = await response.json();
 
                           if (result.status === "processing") {
                             // Add to processing set for polling
@@ -389,13 +379,18 @@ export default function ResourceList({
                       onClick={async (e) => {
                         e.stopPropagation();
 
-                        if (!resource.pending) {
-                          await deleteResource(resource.id);
+                        try {
+                          if (!resource.pending) {
+                            await api.resources.delete(resource.id);
+                          }
+                          setAllResources((prev) =>
+                            prev.filter((r) => r.id !== resource.id)
+                          );
+                          flash(`Resource ${resource.name} deleted.`, "success");
+                        } catch (error) {
+                          console.error('Failed to delete resource:', error);
+                          flash(`Failed to delete ${resource.name}.`, "error");
                         }
-                        setAllResources((prev) =>
-                          prev.filter((r) => r.id !== resource.id)
-                        );
-                        flash(`Resource ${resource.name} deleted.`, "success");
                       }}
                     >
                       Delete

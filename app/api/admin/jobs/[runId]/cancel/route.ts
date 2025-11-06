@@ -1,12 +1,10 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { jobs, resources } from '@/lib/db/schema';
 import { requireAdmin } from '@/lib/auth/helpers';
-import { eq, and } from 'drizzle-orm';
+import { cancelWorkflowRun, getWorkflowRun } from '@/lib/services/workflows';
 
 type Params = {
   params: Promise<{
-    jobId: string;
+    runId: string;
   }>;
 };
 
@@ -15,56 +13,32 @@ export async function POST(request: Request, { params }: Params) {
     // Require admin authentication
     await requireAdmin();
 
-    const { jobId } = await params;
+    const { runId } = await params;
 
-    // Get the job
-    const [job] = await db
-      .select()
-      .from(jobs)
-      .where(eq(jobs.id, jobId))
-      .limit(1);
+    // Get the workflow run
+    const run = await getWorkflowRun(runId);
 
-    if (!job) {
+    if (!run) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
     // Check if job can be cancelled
-    if (job.status === 'completed') {
+    if (run.status === 'completed') {
       return NextResponse.json(
         { error: 'Cannot cancel completed job' },
         { status: 400 }
       );
     }
 
-    if (job.status === 'cancelled' || job.status === 'failed') {
+    if (run.status === 'cancelled' || run.status === 'failed') {
       return NextResponse.json(
         { error: 'Job is already cancelled or failed' },
         { status: 400 }
       );
     }
 
-    // Update job status to cancelled
-    await db
-      .update(jobs)
-      .set({
-        status: 'cancelled',
-        error: { message: 'Job cancelled by admin' },
-        updatedAt: Date.now(),
-        completedAt: Date.now(),
-      })
-      .where(eq(jobs.id, jobId));
-
-    // Update resource status if it's still associated with this job
-    await db
-      .update(resources)
-      .set({
-        status: 'failed',
-        currentJobId: null,
-        updatedAt: Date.now(),
-      })
-      .where(
-        and(eq(resources.id, job.resourceId), eq(resources.currentJobId, jobId))
-      );
+    // Cancel the workflow run
+    await cancelWorkflowRun(runId);
 
     return NextResponse.json({
       success: true,

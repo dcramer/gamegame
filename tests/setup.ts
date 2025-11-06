@@ -15,6 +15,7 @@ process.env.OPENAI_API_KEY = 'test-openai-key';
 process.env.MISTRAL_API_KEY = 'test-mistral-key';
 process.env.AUTH_SECRET = 'test-auth-secret';
 process.env.AUTH_RESEND_KEY = 'test-resend-key';
+process.env.SESSION_SECRET = 'test-session-secret-must-be-at-least-32-characters-long';
 process.env.NODE_ENV = 'test';
 
 // Now import vitest after env vars are set
@@ -38,32 +39,61 @@ vi.mock('@/auth', () => ({
   },
 }));
 
-// Mock auth helpers to bypass authentication in tests
+// Mock session functions to bypass authentication in tests
+vi.mock('@/lib/session', () => ({
+  getSession: vi.fn(async () => ({
+    userId: 'test-admin-id',
+    email: 'admin@test.com',
+    isAdmin: true,
+  })),
+  getCurrentUser: vi.fn(async () => ({
+    userId: 'test-admin-id',
+    email: 'admin@test.com',
+    isAdmin: true,
+  })),
+  getCurrentUserId: vi.fn(async () => 'test-admin-id'),
+  isAuthenticated: vi.fn(async () => true),
+  isAdmin: vi.fn(async () => true),
+  requireAuth: vi.fn(async () => ({
+    userId: 'test-admin-id',
+    email: 'admin@test.com',
+    isAdmin: true,
+  })),
+  requireAdmin: vi.fn(async () => ({
+    userId: 'test-admin-id',
+    email: 'admin@test.com',
+    isAdmin: true,
+  })),
+  createSession: vi.fn(async () => {}),
+  destroySession: vi.fn(async () => {}),
+  refreshSession: vi.fn(async () => true),
+}));
+
+// Mock auth helpers (re-exports from session)
 vi.mock('@/lib/auth/helpers', () => ({
   requireAdmin: vi.fn(async () => ({
-    id: 'test-admin-id',
+    userId: 'test-admin-id',
     email: 'admin@test.com',
     isAdmin: true,
   })),
   requireAuth: vi.fn(async () => ({
-    id: 'test-user-id',
-    email: 'user@test.com',
-    isAdmin: false,
+    userId: 'test-admin-id',
+    email: 'admin@test.com',
+    isAdmin: true,
   })),
   getSession: vi.fn(async () => ({
-    user: {
-      id: 'test-admin-id',
-      email: 'admin@test.com',
-      isAdmin: true,
-    },
+    userId: 'test-admin-id',
+    email: 'admin@test.com',
+    isAdmin: true,
   })),
   getCurrentUser: vi.fn(async () => ({
-    id: 'test-admin-id',
+    userId: 'test-admin-id',
     email: 'admin@test.com',
     isAdmin: true,
   })),
   isAuthenticated: vi.fn(async () => true),
   isAdmin: vi.fn(async () => true),
+  refreshSession: vi.fn(async () => true),
 }));
 
 /**

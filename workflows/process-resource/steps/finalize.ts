@@ -3,7 +3,7 @@
  */
 
 import { db } from '@/lib/db';
-import { jobs, resources } from '@/lib/db/schema';
+import { resources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { ProcessResourceInput } from '../../shared/types';
 
@@ -17,20 +17,10 @@ export async function runFinalizeStage(input: ProcessResourceInput) {
         status: 'ready',
         processingStage: 'ready',
         processingMetadata: null,
-        currentJobId: null,
+        currentRunId: null,
         updatedAt: Date.now(),
       })
       .where(eq(resources.id, input.resourceId));
-
-    await db
-      .update(jobs)
-      .set({
-        status: 'completed',
-        currentStep: 'Processing complete',
-        progress: 100,
-        completedAt: Date.now(),
-      })
-      .where(eq(jobs.id, input.jobId));
 
     return { success: true };
   } catch (error) {

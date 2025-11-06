@@ -10,7 +10,8 @@ import { db } from '@/lib/db';
 import { resources, fragments, attachments } from '@/lib/db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { requireAdmin } from '@/lib/auth/helpers';
+import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
+import { updateResourceSchema } from '@/lib/api/schemas';
 
 /**
  * GET /api/resources/:resourceId
@@ -36,7 +37,7 @@ export async function GET(
         pdfExtractor: resources.pdfExtractor,
         processedAt: resources.processedAt,
         status: resources.status,
-        currentJobId: resources.currentJobId,
+        currentRunId: resources.currentRunId,
         processingStage: resources.processingStage,
         pageCount: resources.pageCount,
         imageCount: resources.imageCount,
@@ -77,22 +78,19 @@ export async function GET(
   }
 }
 
-const updateResourceSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional().nullable(),
-});
-
 /**
  * PATCH /api/resources/:resourceId
  * Update resource metadata (admin only)
  */
-export async function PATCH(
+export const PATCH = withAdmin(async (
   request: NextRequest,
-  props: { params: Promise<{ resourceId: string }> }
-) {
+  user,
+  props?: { params: Promise<{ resourceId: string }> }
+) => {
   try {
-    // Require admin authentication
-    await requireAdmin();
+    if (!props) {
+      return errorResponse('Invalid request', 400, 'INVALID_REQUEST');
+    }
 
     const params = await props.params;
     const { resourceId } = params;
@@ -117,40 +115,33 @@ export async function PATCH(
       .returning();
 
     if (!updated) {
-      return NextResponse.json(
-        { error: 'Resource not found' },
-        { status: 404 }
-      );
+      return errorResponse('Resource not found', 404, 'NOT_FOUND');
     }
 
-    return NextResponse.json(updated);
+    return successResponse(updated);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Validation error', details: error.issues },
-        { status: 400 }
-      );
+      return errorResponse('Validation error', 400, 'VALIDATION_ERROR', error.issues);
     }
 
     console.error('[PATCH /api/resources/:resourceId] Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to update resource' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to update resource', 500, 'INTERNAL_ERROR');
   }
-}
+});
 
 /**
  * DELETE /api/resources/:resourceId
  * Delete resource and all associated data (admin only)
  */
-export async function DELETE(
+export const DELETE = withAdmin(async (
   request: NextRequest,
-  props: { params: Promise<{ resourceId: string }> }
-) {
+  user,
+  props?: { params: Promise<{ resourceId: string }> }
+) => {
   try {
-    // Require admin authentication
-    await requireAdmin();
+    if (!props) {
+      return errorResponse('Invalid request', 400, 'INVALID_REQUEST');
+    }
 
     const params = await props.params;
     const { resourceId } = params;
@@ -173,10 +164,7 @@ export async function DELETE(
       .returning();
 
     if (result.length === 0) {
-      return NextResponse.json(
-        { error: 'Resource not found' },
-        { status: 404 }
-      );
+      return errorResponse('Resource not found', 404, 'NOT_FOUND');
     }
 
     const errors: string[] = [];
@@ -203,7 +191,7 @@ export async function DELETE(
       `[DELETE /api/resources/:resourceId] Deleted resource ${resourceId}: ${fragmentList.length} fragments, ${attachmentList.length} attachments`
     );
 
-    return NextResponse.json({
+    return successResponse({
       success: errors.length === 0,
       deletedFragments: fragmentList.length,
       deletedAttachments: attachmentList.length,
@@ -215,9 +203,6 @@ export async function DELETE(
     });
   } catch (error) {
     console.error('[DELETE /api/resources/:resourceId] Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete resource' },
-      { status: 500 }
-    );
+    return errorResponse('Failed to delete resource', 500, 'INTERNAL_ERROR');
   }
-}
+});

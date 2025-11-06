@@ -8,39 +8,31 @@ import { db } from '@/lib/db';
 import { games } from '@/lib/db/schema';
 import { inArray } from 'drizzle-orm';
 import { searchBGGGames } from '@/lib/services/bgg';
-import { requireAdmin } from '@/lib/auth/helpers';
-import { withRateLimit } from '@/lib/utils/rate-limit-handler';
+import { withAdmin, errorResponse, withRateLimit } from '@/lib/api/middleware';
 
 /**
  * GET /api/bgg/search
- * Search BoardGameGeek for games
+ * Search BoardGameGeek for games (admin only, rate limited)
  */
-export async function GET(request: NextRequest) {
+export const GET = withAdmin(async (request) => {
   return withRateLimit(request, 'bgg', async () => {
     try {
-      // Require admin authentication
-      await requireAdmin();
 
       const { searchParams } = new URL(request.url);
       const query = searchParams.get('q');
 
       if (!query || query.length < 2) {
-        return NextResponse.json(
-          { error: 'Query must be at least 2 characters' },
-          { status: 400 }
-        );
+        return errorResponse('Query must be at least 2 characters', 400, 'VALIDATION_ERROR');
       }
 
       // Check if BGG API key is configured
       if (!process.env.BGG_API_KEY) {
         console.warn('BGG_API_KEY not configured, BGG search unavailable');
-        return NextResponse.json(
-          {
-            error: 'BGG_API_KEY_MISSING',
-            message: 'BoardGameGeek API key is not configured. Please add games manually or configure BGG_API_KEY.',
-            results: []
-          },
-          { status: 503 }
+        return errorResponse(
+          'BoardGameGeek API key is not configured',
+          503,
+          'BGG_API_KEY_MISSING',
+          { message: 'Please add games manually or configure BGG_API_KEY', results: [] }
         );
       }
 
@@ -83,10 +75,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(resultsWithStatus);
     } catch (error) {
       console.error('[GET /api/bgg/search] Error:', error);
-      return NextResponse.json(
-        { error: 'Failed to search BoardGameGeek' },
-        { status: 500 }
-      );
+      return errorResponse('Failed to search BoardGameGeek', 500, 'INTERNAL_ERROR');
     }
   });
-}
+});

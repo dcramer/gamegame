@@ -1,41 +1,16 @@
 /**
  * Reprocess Attachment with Vision API
  * POST /api/attachments/:attachmentId/reprocess
+ *
+ * This is now a thin API wrapper around the unified analyze-images workflow.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { attachments } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { requireAdmin } from '@/lib/auth/helpers';
-import { analyzeImageQuality } from '@/lib/services/image-analysis';
-import { env } from '@/lib/env.mjs';
-
-/**
- * Helper to fetch image from URL (supports both Vercel Blob and local storage)
- */
-async function fetchImageBuffer(url: string): Promise<Buffer> {
-  // If URL is relative and we're using local storage, read from filesystem
-  if (url.startsWith('/') && !env.BLOB_READ_WRITE_TOKEN) {
-    const { readFile } = await import('node:fs/promises');
-    const path = await import('node:path');
-    const filePath = path.join(process.cwd(), 'public', url);
-    try {
-      return await readFile(filePath);
-    } catch (error) {
-      throw new Error(
-        `Failed to read file from local storage at "${filePath}": ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  }
-
-  // Otherwise fetch from URL
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch image from "${url}": ${response.status} ${response.statusText}`);
-  }
-  return Buffer.from(await response.arrayBuffer());
-}
+import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
+import { analyzeImagesWorkflow } from '@/workflows/analyze-images';
 
 /**
  * Helper to safely parse bbox JSON
@@ -70,13 +45,15 @@ function parseBbox(bboxValue: any): number[] | undefined {
  * POST /api/attachments/:attachmentId/reprocess
  * Reprocess attachment with GPT-4o vision analysis
  */
-export async function POST(
+export const POST = withAdmin(async (
   request: NextRequest,
-  props: { params: Promise<{ attachmentId: string }> }
-) {
+  user,
+  props?: { params: Promise<{ attachmentId: string }> }
+) => {
   try {
-    // Require admin authentication
-    await requireAdmin();
+    if (!props) {
+      return errorResponse('Invalid request', 400, 'INVALID_REQUEST');
+    }
 
     const params = await props.params;
     const { attachmentId } = params;
@@ -89,46 +66,30 @@ export async function POST(
       .limit(1);
 
     if (!attachment) {
-      return NextResponse.json({ error: 'Attachment not found' }, { status: 404 });
+      return errorResponse('Attachment not found', 404, 'NOT_FOUND');
     }
 
     // Only process images
     if (attachment.type !== 'image' || !attachment.mimeType?.startsWith('image/')) {
-      return NextResponse.json(
-        { error: 'Only image attachments can be reprocessed with vision' },
-        { status: 400 }
-      );
+      return errorResponse('Only image attachments can be reprocessed with vision', 400, 'VALIDATION_ERROR');
     }
 
-    // Fetch image data
-    const imageBuffer = await fetchImageBuffer(attachment.url);
+    // Call unified workflow in single-attachment mode
+    await analyzeImagesWorkflow({
+      mode: 'single-attachment',
+      attachmentId,
+      gameId: attachment.gameId,
+    });
 
-    // Analyze with vision
-    const result = await analyzeImageQuality(
-      imageBuffer,
-      {
-        pageNumber: attachment.pageNumber || 1,
-        section: undefined,
-        caption: attachment.caption || undefined,
-      },
-      env.OPENAI_API_KEY
-    );
-
-    // Update attachment with new analysis
+    // Fetch updated attachment
     const [updated] = await db
-      .update(attachments)
-      .set({
-        description: result.description,
-        isGoodQuality: result.quality,
-        isRelevant: result.relevant ? 1 : 0,
-        detectedType: result.type,
-        ocrText: result.ocrText || null,
-      })
+      .select()
+      .from(attachments)
       .where(eq(attachments.id, attachmentId))
-      .returning();
+      .limit(1);
 
     if (!updated) {
-      return NextResponse.json({ error: 'Failed to update attachment' }, { status: 500 });
+      return errorResponse('Failed to fetch updated attachment', 500, 'INTERNAL_ERROR');
     }
 
     // Get public URL
@@ -139,12 +100,12 @@ export async function POST(
       bbox: parseBbox(updated.bbox),
     };
 
-    return NextResponse.json(responseData);
+    return successResponse(responseData);
   } catch (error) {
     console.error('[POST /api/attachments/:attachmentId/reprocess] Error:', error);
 
     const errorMessage = error instanceof Error ? error.message : 'Failed to reprocess attachment';
 
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    return errorResponse(errorMessage, 500, 'INTERNAL_ERROR');
   }
-}
+});

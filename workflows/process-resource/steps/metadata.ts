@@ -3,7 +3,7 @@
  */
 
 import { db } from '@/lib/db';
-import { jobs, resources } from '@/lib/db/schema';
+import { resources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { ProcessResourceInput } from '../../shared/types';
 import {
@@ -24,7 +24,7 @@ export async function runMetadataStage(input: ProcessResourceInput) {
     const [resourceRow] = await db
       .select({
         metadata: resources.processingMetadata,
-        currentJobId: resources.currentJobId,
+        currentRunId: resources.currentRunId,
         name: resources.name,
         originalFilename: resources.originalFilename,
         description: resources.description,
@@ -37,10 +37,10 @@ export async function runMetadataStage(input: ProcessResourceInput) {
       throw new Error(`Resource ${input.resourceId} not found`);
     }
 
-    if (resourceRow.currentJobId && resourceRow.currentJobId !== input.jobId) {
+    if (resourceRow.currentRunId && resourceRow.currentRunId !== input.runId) {
       return {
         success: false,
-        error: `Resource is being processed by different job: ${resourceRow.currentJobId}`,
+        error: `Resource is being processed by different job: ${resourceRow.currentRunId}`,
       };
     }
 
@@ -48,14 +48,6 @@ export async function runMetadataStage(input: ProcessResourceInput) {
     if (metadata.stages.metadata) {
       return { success: true };
     }
-
-    await db
-      .update(jobs)
-      .set({
-        currentStep: 'Generating metadata',
-        progress: 55,
-      })
-      .where(eq(jobs.id, input.jobId));
 
     const structured = await loadStructured(input.resourceId);
     const { rebuildMarkdownFromPages } = await import('@/lib/pdf');
@@ -81,14 +73,6 @@ export async function runMetadataStage(input: ProcessResourceInput) {
         updatedAt: Date.now(),
       })
       .where(eq(resources.id, input.resourceId));
-
-    await db
-      .update(jobs)
-      .set({
-        currentStep: 'Embedding pending',
-        progress: 60,
-      })
-      .where(eq(jobs.id, input.jobId));
 
     return { success: true };
   } catch (error) {

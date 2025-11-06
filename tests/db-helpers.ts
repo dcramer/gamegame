@@ -58,9 +58,6 @@ export async function cleanupTestDb(): Promise<void> {
   await db.execute(sql`DELETE FROM resources`);
   await db.execute(sql`DELETE FROM bgg_games`);
   await db.execute(sql`DELETE FROM games`);
-  await db.execute(sql`DELETE FROM jobs`);
-  await db.execute(sql`DELETE FROM accounts`);
-  await db.execute(sql`DELETE FROM sessions`);
   await db.execute(sql`DELETE FROM verification_tokens`);
   await db.execute(sql`DELETE FROM users`);
 }
@@ -83,16 +80,13 @@ export async function resetTestDb(): Promise<void> {
   // CASCADE automatically truncates dependent tables
   await db.execute(sql`TRUNCATE TABLE
     users,
-    accounts,
-    sessions,
     verification_tokens,
     games,
     bgg_games,
     resources,
     attachments,
     embeddings,
-    fragments,
-    jobs
+    fragments
     RESTART IDENTITY CASCADE
   `);
 }
@@ -123,7 +117,7 @@ export async function getTableCount(tableName: string): Promise<number> {
 export async function isDatabaseEmpty(): Promise<boolean> {
   const tables = [
     'users', 'games', 'resources', 'attachments', 'fragments',
-    'bgg_games', 'jobs', 'sessions', 'accounts'
+    'bgg_games', 'verification_tokens'
   ];
 
   for (const table of tables) {
