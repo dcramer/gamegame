@@ -2,10 +2,11 @@ import { getGame } from "@/lib/actions/games";
 import { getAllResourcesForGame } from "@/lib/actions/resources";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { MessageSquare } from "lucide-react";
 import Link from "next/link";
-import AdminLayout from "@/components/admin-layout";
+import AdminBaseLayout from "@/components/admin-base-layout";
 import GameTabs from "./game-tabs";
 import GameActions from "./game-actions";
 
@@ -23,13 +24,15 @@ export default async function Layout(props: {
 
   const resourceList = await getAllResourcesForGame(game.id);
 
-  // Resource detail pages have their own layout - just pass through wrapped in AdminLayout
-  // Check if this is a resource detail page by looking at the params
-  // Note: We can't use usePathname in server components, so we rely on the fact that
-  // resource detail pages have their own layout.tsx that provides the full structure
-
   return (
-    <AdminLayout>
+    <AdminBaseLayout>
+      <Breadcrumbs
+        items={[
+          { label: "Games", href: "/admin" },
+          { label: game.name },
+        ]}
+      />
+
       <PageHeader
         title={
           <div className="flex items-center gap-3">
@@ -72,6 +75,6 @@ export default async function Layout(props: {
           </div>
         </div>
       </GameTabs>
-    </AdminLayout>
+    </AdminBaseLayout>
   );
 }

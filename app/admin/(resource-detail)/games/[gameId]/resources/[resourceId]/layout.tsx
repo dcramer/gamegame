@@ -3,7 +3,7 @@ import { getResource } from "@/lib/actions/resources";
 import { getGame } from "@/lib/actions/games";
 import { PageHeader } from "@/components/page-header";
 import { Breadcrumbs } from "@/components/breadcrumbs";
-import AdminLayout from "@/components/admin-layout";
+import AdminBaseLayout from "@/components/admin-base-layout";
 import ResourceTabs from "./resource-tabs";
 import ResourceActions from "./resource-actions";
 
@@ -34,7 +34,7 @@ export default async function Layout(props: {
     .join(" • ");
 
   return (
-    <AdminLayout>
+    <AdminBaseLayout>
       <Breadcrumbs
         items={[
           { label: "Games", href: "/admin" },
@@ -50,12 +50,14 @@ export default async function Layout(props: {
       />
 
       <ResourceTabs gameId={params.gameId} resourceId={params.resourceId}>
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-8">
+        <div className="flex flex-col lg:flex-row gap-8">
           {/* Left column - Content */}
-          <div>{children}</div>
+          <div className="flex-1">
+            {children}
+          </div>
 
           {/* Right column - Actions sidebar */}
-          <div className="lg:sticky lg:top-8 lg:self-start">
+          <div className="lg:w-[380px]">
             <ResourceActions
               resourceId={params.resourceId}
               resourceName={resource.name}
@@ -65,6 +67,6 @@ export default async function Layout(props: {
           </div>
         </div>
       </ResourceTabs>
-    </AdminLayout>
+    </AdminBaseLayout>
   );
 }

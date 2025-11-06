@@ -1,32 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { Dices } from "lucide-react";
 import { GitHubLogoIcon } from "@radix-ui/react-icons";
 import { GITHUB_URL } from "@/constants";
 import FlashMessages from "@/components/flashMessages";
 
-interface AdminLayoutProps {
+interface AdminBaseLayoutProps {
   children: React.ReactNode;
 }
 
-export default function AdminLayout({ children }: AdminLayoutProps) {
-  const pathname = usePathname();
-
-  const isActive = (path: string) => {
-    if (path === "/admin") {
-      // Games tab is active for /admin, /admin/games/*, and /admin/add-game
-      return (
-        pathname === "/admin" ||
-        pathname.startsWith("/admin/games") ||
-        pathname.startsWith("/admin/add-game")
-      );
-    }
-    // Jobs tab is active for /admin/jobs and sub-paths
-    return pathname.startsWith(path);
-  };
-
+/**
+ * Base admin layout with header and footer, but without navigation tabs.
+ * Used for detail pages that shouldn't show the Games/Jobs navigation.
+ */
+export default function AdminBaseLayout({ children }: AdminBaseLayoutProps) {
   return (
     <FlashMessages>
       <div className="min-h-screen flex flex-col">
@@ -46,39 +34,13 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
               </Link>
             </div>
           </div>
-
-          {/* Navigation */}
-          <nav className="container mx-auto px-4">
-            <div className="flex gap-1 -mb-px">
-              <Link
-                href="/admin"
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  isActive("/admin")
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-                }`}
-              >
-                Games
-              </Link>
-              <Link
-                href="/admin/jobs"
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  isActive("/admin/jobs")
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-                }`}
-              >
-                Jobs
-              </Link>
-            </div>
-          </nav>
         </header>
 
         <main className="container mx-auto px-4 py-6 flex-1">
           {children}
         </main>
 
-        {/* Footer - client-safe version with admin link always visible */}
+        {/* Footer */}
         <footer className="container mx-auto px-4 py-8 text-center text-muted-foreground font-mono text-xs">
           <div className="flex justify-center items-center gap-4">
             <Link
