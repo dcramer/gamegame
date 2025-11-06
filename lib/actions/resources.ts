@@ -216,6 +216,12 @@ export async function getResource(resourceId: string, withContent = false) {
       pageCount: resources.pageCount,
       imageCount: resources.imageCount,
       wordCount: resources.wordCount,
+      description: resources.description,
+      author: resources.author,
+      attributionUrl: resources.attributionUrl,
+      originalFilename: resources.originalFilename,
+      createdAt: resources.createdAt,
+      updatedAt: resources.updatedAt,
       ...(withContent ? { content: resources.content } : {}),
     })
     .from(resources)
@@ -292,6 +298,9 @@ export const updateResource = async (
   input: {
     name?: string;
     content?: string;
+    description?: string | null;
+    author?: string | null;
+    attributionUrl?: string | null;
     // url?: string;
   }
 ) => {

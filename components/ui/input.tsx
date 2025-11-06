@@ -16,7 +16,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           "flex h-10 w-full rounded border border-border px-3 py-2 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus:outline-none focus:border-foreground transition-colors",
           !readOnly && !disabled && "bg-background",
           className,
-          readOnly && "bg-muted cursor-not-allowed",
+          readOnly && "bg-accent cursor-not-allowed text-muted-foreground",
           disabled && "cursor-not-allowed opacity-50"
         )}
         ref={ref}

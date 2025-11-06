@@ -65,11 +65,16 @@ export const createGame = async (input: NewGameParams) => {
 
   const parsedInput = insertGameSchema.parse(input);
 
-  // Generate slug from name
-  const slug = parsedInput.name
+  // Generate slug from name and year (e.g., "arcs-2023")
+  let slug = parsedInput.name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
+
+  // Append year if available
+  if (parsedInput.year) {
+    slug = `${slug}-${parsedInput.year}`;
+  }
 
   const [game] = await db.insert(games).values({
     ...parsedInput,
@@ -102,6 +107,7 @@ export const updateGame = async (
     .select({
       id: games.id,
       name: games.name,
+      year: games.year,
       imageUrl: games.imageUrl,
       bggUrl: games.bggUrl,
     })
@@ -121,6 +127,26 @@ export const updateGame = async (
 
   if (Object.keys(parsedInput).length === 0) {
     return game;
+  }
+
+  // Regenerate slug if name or year changed
+  const nameChanged = 'name' in parsedInput;
+  const yearChanged = 'year' in parsedInput;
+
+  if (nameChanged || yearChanged) {
+    const finalName = parsedInput.name ?? game.name;
+    const finalYear = parsedInput.year !== undefined ? parsedInput.year : game.year;
+
+    let slug = finalName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    if (finalYear) {
+      slug = `${slug}-${finalYear}`;
+    }
+
+    parsedInput.slug = slug;
   }
 
   // Track old image URL for cleanup if imageUrl is changing

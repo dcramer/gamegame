@@ -34,10 +34,17 @@ export const updateResourceForm = async (
   resourceId: string,
   formData: FormData
 ) => {
+  const description = formData.get("description") as string;
+  const author = formData.get("author") as string;
+  const attributionUrl = formData.get("attributionUrl") as string;
+
   await updateResource(resourceId, {
     name: formData.has("name") ? (formData.get("name") as string) : undefined,
     content: formData.has("content")
       ? (formData.get("content") as string)
       : undefined,
+    description: description?.trim() || null,
+    author: author?.trim() || null,
+    attributionUrl: attributionUrl?.trim() || null,
   });
 };
