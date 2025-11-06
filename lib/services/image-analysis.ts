@@ -21,6 +21,7 @@ export interface ImageAnalysisResult {
 
 export interface ImageAnalysisContext {
   pageNumber: number;
+  gameName?: string;
   section?: string;
   caption?: string;
 }
@@ -102,10 +103,11 @@ export async function analyzeImageQuality(
     // Validate and normalize the response
     return validateAnalysisResult(result);
   } catch (error) {
-    console.error('Error analyzing image:', error);
+    console.error('Error analyzing image (page %d):', context.pageNumber, error);
     // Return a safe fallback rather than failing the entire pipeline
+    // Use empty string for description so it's clear analysis didn't run
     return {
-      description: 'Image analysis failed',
+      description: '',
       quality: 'bad',
       relevant: false,
       type: 'decorative',

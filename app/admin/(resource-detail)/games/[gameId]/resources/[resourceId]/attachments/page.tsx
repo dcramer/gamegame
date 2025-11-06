@@ -36,11 +36,9 @@ export default async function Page(
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
         {attachments.map((attachment) => (
-          <a
+          <Link
             key={attachment.id}
-            href={attachment.url}
-            target="_blank"
-            rel="noopener noreferrer"
+            href={`/admin/games/${params.gameId}/attachments/${attachment.id}`}
             className="group relative aspect-square rounded-lg border border-border bg-card hover:border-primary/50 overflow-hidden transition-colors"
           >
             <img
@@ -51,18 +49,23 @@ export default async function Page(
             />
 
             {/* Overlay with info */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-black/0 opacity-0 group-hover:opacity-100 transition-opacity">
-              <div className="absolute bottom-0 left-0 right-0 p-3 text-white">
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-black/20 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="absolute bottom-0 left-0 right-0 p-3 text-white space-y-1">
                 {attachment.pageNumber && (
-                  <div className="text-xs font-medium mb-1">
+                  <div className="text-xs font-medium">
                     Page {attachment.pageNumber}
+                  </div>
+                )}
+                {attachment.isGoodQuality && (
+                  <div className="text-xs font-medium">
+                    Quality: {attachment.isGoodQuality === 'good' ? '✓ Good' : '✗ Low'}
                   </div>
                 )}
                 {attachment.caption && (
                   <div className="text-xs line-clamp-2">{attachment.caption}</div>
                 )}
                 {attachment.width && attachment.height && (
-                  <div className="text-xs mt-1">
+                  <div className="text-xs">
                     {attachment.width} × {attachment.height}
                   </div>
                 )}
@@ -75,7 +78,7 @@ export default async function Page(
                 p{attachment.pageNumber}
               </div>
             )}
-          </a>
+          </Link>
         ))}
       </div>
     </div>

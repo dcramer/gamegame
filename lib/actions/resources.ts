@@ -97,6 +97,7 @@ export const createResource = async (input: {
     gameId: input.gameId,
     name: input.name,
     url: input.url,
+    originalFilename: input.name, // Preserve original filename
     content: "",
     version: 0,
     status: "processing",

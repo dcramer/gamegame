@@ -4,6 +4,7 @@ import { db } from "../db";
 import { attachments } from "../db/schema/attachments";
 import { resources } from "../db/schema/resources";
 import { eq, asc } from "drizzle-orm";
+import { requireAdmin } from "../auth/helpers";
 
 /**
  * Get an attachment by ID
@@ -34,6 +35,7 @@ export async function getAttachment(attachmentId: string) {
     height: attachment.height,
     description: attachment.description,
     isGoodQuality: attachment.isGoodQuality,
+    resourceId: attachment.resourceId,
   };
 }
 
@@ -109,4 +111,88 @@ export async function getGameAttachments(gameId: string) {
     resourceId: attachment.resourceId,
     resourceName: attachment.resourceName,
   }));
+}
+
+/**
+ * Update attachment metadata (admin only)
+ * @param attachmentId The attachment ID
+ * @param data The fields to update
+ * @returns Updated attachment
+ */
+export async function updateAttachment(
+  attachmentId: string,
+  data: {
+    description?: string | null;
+    originalFilename?: string | null;
+  }
+) {
+  await requireAdmin();
+
+  const updateData: Partial<typeof attachments.$inferInsert> = {};
+
+  if (data.description !== undefined) {
+    updateData.description = data.description;
+  }
+  if (data.originalFilename !== undefined) {
+    updateData.originalFilename = data.originalFilename;
+  }
+
+  const [updated] = await db
+    .update(attachments)
+    .set(updateData)
+    .where(eq(attachments.id, attachmentId))
+    .returning();
+
+  if (!updated) {
+    throw new Error("Attachment not found");
+  }
+
+  return {
+    id: updated.id,
+    type: updated.type,
+    url: updated.url,
+    mimeType: updated.mimeType,
+    originalFilename: updated.originalFilename,
+    pageNumber: updated.pageNumber,
+    bbox: updated.bbox as number[] | undefined,
+    caption: updated.caption,
+    width: updated.width,
+    height: updated.height,
+    description: updated.description,
+    isGoodQuality: updated.isGoodQuality,
+  };
+}
+
+/**
+ * Reanalyze attachment with vision API (admin only)
+ * Triggers a workflow to re-run vision analysis
+ * @param attachmentId The attachment ID
+ * @param gameId The game ID
+ */
+export async function reanalyzeAttachment(attachmentId: string, gameId: string) {
+  await requireAdmin();
+
+  // Get attachment to verify it exists
+  const [attachment] = await db
+    .select({ id: attachments.id, gameId: attachments.gameId })
+    .from(attachments)
+    .where(eq(attachments.id, attachmentId))
+    .limit(1);
+
+  if (!attachment) {
+    throw new Error("Attachment not found");
+  }
+
+  // Trigger workflow
+  const { reanalyzeAttachmentWorkflow } = await import("@/workflows/reanalyze-attachment");
+
+  // Start workflow in background (don't await)
+  reanalyzeAttachmentWorkflow({
+    attachmentId,
+    gameId,
+  }).catch((error) => {
+    console.error("Reanalyze attachment workflow failed:", error);
+  });
+
+  return { success: true };
 }
