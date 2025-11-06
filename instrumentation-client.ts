@@ -6,10 +6,7 @@ import * as Sentry from "@sentry/nextjs";
 import * as Spotlight from "@spotlightjs/spotlight";
 
 Sentry.init({
-  dsn:
-    process.env.NODE_ENV === "production"
-      ? "https://491514b0beea2842d2bc10d78053fb4e@o172566.ingest.us.sentry.io/4507903928238080"
-      : undefined,
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
 
   // Add optional integrations for additional features
   integrations: [Sentry.replayIntegration()],

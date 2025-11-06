@@ -9,17 +9,27 @@ import { publicProcedure, adminProcedure } from './base';
 import { db } from '@/lib/db';
 import { resources, fragments, attachments } from '@/lib/db/schema';
 import { eq, sql } from 'drizzle-orm';
-import { updateResourceSchema } from '@/lib/api/schemas';
+import {
+  updateResourceSchema,
+  resourceResponseSchema,
+  resourceListResponseSchema,
+  successResponseSchema,
+} from '@/lib/api/schemas';
 
 /**
  * Get resource by ID
  */
 export const get = publicProcedure
+  .route({
+    method: 'GET',
+    path: '/resources/{id}',
+  })
   .input(
     z.object({
       id: z.string(),
     })
   )
+  .output(resourceResponseSchema.extend({ fragmentCount: z.number() }))
   .handler(async ({ input }) => {
     const [resource] = await db
       .select({
@@ -71,11 +81,16 @@ export const get = publicProcedure
  * List resources for a game
  */
 export const listForGame = publicProcedure
+  .route({
+    method: 'GET',
+    path: '/games/{gameId}/resources',
+  })
   .input(
     z.object({
       gameId: z.string(),
     })
   )
+  .output(z.array(resourceResponseSchema.extend({ hasContent: z.boolean() })))
   .handler(async ({ input }) => {
     const resourceList = await db
       .select({
@@ -111,12 +126,17 @@ export const listForGame = publicProcedure
  * Update resource metadata (admin only)
  */
 export const update = adminProcedure
+  .route({
+    method: 'PATCH',
+    path: '/resources/{id}',
+  })
   .input(
     z.object({
       id: z.string(),
       data: updateResourceSchema,
     })
   )
+  .output(resourceResponseSchema)
   .handler(async ({ input }) => {
     const updateData: any = {
       updatedAt: Date.now(),
@@ -149,9 +169,21 @@ export const update = adminProcedure
  * Delete resource and all associated data (admin only)
  */
 export const deleteResource = adminProcedure
+  .route({
+    method: 'DELETE',
+    path: '/resources/{id}',
+  })
   .input(
     z.object({
       id: z.string(),
+    })
+  )
+  .output(
+    successResponseSchema.extend({
+      deletedFragments: z.number(),
+      deletedAttachments: z.number(),
+      warnings: z.array(z.string()).optional(),
+      message: z.string(),
     })
   )
   .handler(async ({ input }) => {
@@ -220,10 +252,22 @@ export const deleteResource = adminProcedure
  * Triggers a new workflow run to reprocess the resource from a specific stage
  */
 export const reprocess = adminProcedure
+  .route({
+    method: 'POST',
+    path: '/resources/{id}/reprocess',
+  })
   .input(
     z.object({
       id: z.string(),
       fromStage: z.enum(['ingest', 'vision', 'cleanup', 'metadata', 'embed']).optional(),
+    })
+  )
+  .output(
+    z.object({
+      id: z.string(),
+      status: z.literal('processing'),
+      runId: z.string(),
+      message: z.string(),
     })
   )
   .handler(async ({ input }) => {

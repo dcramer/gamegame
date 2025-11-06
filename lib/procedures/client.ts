@@ -4,14 +4,14 @@
  */
 
 import { createORPCClient } from '@orpc/client';
-import { ORPCLink } from '@orpc/client/fetch';
+import { RPCLink } from '@orpc/client/fetch';
 import type { Router } from './router';
 
 /**
  * Browser client - makes HTTP requests to /api/rpc
  * Use this in Client Components
  */
-const link = new ORPCLink({
+const link = new RPCLink({
   url: typeof window !== 'undefined'
     ? new URL('/api/rpc', window.location.origin).toString()
     : '/api/rpc',

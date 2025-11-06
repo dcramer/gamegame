@@ -1,12 +1,13 @@
 /**
- * oRPC HTTP Handler
- * Handles all RPC requests from Client Components
+ * oRPC RPC Handler
+ * Handles type-safe RPC requests from Client Components
+ * Uses proprietary RPC protocol for efficient serialization
  */
 
-import { ORPCHandler } from '@orpc/server/fetch';
+import { RPCHandler } from '@orpc/server/fetch';
 import { router } from '@/lib/procedures/router';
 
-const handler = new ORPCHandler(router);
+const handler = new RPCHandler(router);
 
 async function handleRequest(request: Request) {
   const { response } = await handler.handle(request, {

@@ -12,6 +12,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { searchBGGGames, getBGGGameDetails, downloadImage } from '@/lib/services/bgg';
 import { nanoid } from 'nanoid';
 import { uploadBlob, blobKeyToUrl, bulkDelete } from '@/lib/services/blob-storage';
+import { bggGameSchema, gameResponseSchema } from '@/lib/api/schemas';
 
 function generateSlug(name: string, year?: number | null): string {
   const slug = name
@@ -26,10 +27,26 @@ function generateSlug(name: string, year?: number | null): string {
  * Search BGG for games (admin only, rate limited by middleware)
  */
 export const search = adminProcedure
+  .route({
+    method: 'GET',
+    path: '/bgg/search',
+  })
   .input(
     z.object({
       query: z.string().min(2, 'Query must be at least 2 characters'),
     })
+  )
+  .output(
+    z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        yearPublished: z.number().nullable(),
+        isImported: z.boolean(),
+        gameId: z.string().nullable(),
+        gameImageUrl: z.string().nullable(),
+      })
+    )
   )
   .handler(async ({ input }) => {
     // Check if BGG API key is configured
@@ -82,11 +99,16 @@ export const search = adminProcedure
  * Get game details from BGG (admin only, rate limited)
  */
 export const getGame = adminProcedure
+  .route({
+    method: 'GET',
+    path: '/bgg/games/{bggId}',
+  })
   .input(
     z.object({
       bggId: z.string(),
     })
   )
+  .output(bggGameSchema)
   .handler(async ({ input }) => {
     // Check if BGG API key is configured
     if (!process.env.BGG_API_KEY) {
@@ -107,11 +129,16 @@ export const getGame = adminProcedure
  * Import game from BGG (admin only, rate limited)
  */
 export const importGame = adminProcedure
+  .route({
+    method: 'POST',
+    path: '/bgg/games/{bggId}/import',
+  })
   .input(
     z.object({
       bggId: z.string(),
     })
   )
+  .output(gameResponseSchema)
   .handler(async ({ input }) => {
     let uploadedImageKey: string | null = null;
 

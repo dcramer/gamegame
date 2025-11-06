@@ -16,14 +16,37 @@ import {
   cancelWorkflowRun,
 } from '@/lib/services/workflows';
 import { processResourceWorkflow } from '@/workflows/process-resource/index';
+import { successResponseSchema } from '@/lib/api/schemas';
 
 /**
  * List all workflow runs (jobs) with details
  */
 export const list = adminProcedure
+  .route({
+    method: 'GET',
+    path: '/workflows',
+  })
   .input(
     z.object({
       limit: z.number().optional().default(100),
+    })
+  )
+  .output(
+    z.object({
+      jobs: z.array(
+        z.object({
+          runId: z.string(),
+          type: z.string(),
+          status: z.string(),
+          error: z.string().nullable(),
+          createdAt: z.number(),
+          completedAt: z.number().nullable(),
+          gameId: z.string().nullable(),
+          gameName: z.string().nullable(),
+          resourceId: z.string().nullable(),
+          resourceName: z.string().nullable(),
+        })
+      ),
     })
   )
   .handler(async ({ input }) => {
@@ -53,11 +76,16 @@ export const list = adminProcedure
  * Cancel a workflow run
  */
 export const cancel = adminProcedure
+  .route({
+    method: 'POST',
+    path: '/workflows/{runId}/cancel',
+  })
   .input(
     z.object({
       runId: z.string(),
     })
   )
+  .output(successResponseSchema.extend({ message: z.string() }))
   .handler(async ({ input }) => {
     // Get the workflow run
     const run = await getWorkflowRun(input.runId);
@@ -97,11 +125,16 @@ export const cancel = adminProcedure
  * Retry a failed or cancelled workflow run
  */
 export const retry = adminProcedure
+  .route({
+    method: 'POST',
+    path: '/workflows/{runId}/retry',
+  })
   .input(
     z.object({
       runId: z.string(),
     })
   )
+  .output(successResponseSchema.extend({ runId: z.string(), message: z.string() }))
   .handler(async ({ input }) => {
     // Get the workflow run
     const run = await getWorkflowRun(input.runId);

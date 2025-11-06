@@ -13,13 +13,22 @@ import { nanoid } from 'nanoid';
 import {
   createGameSchema,
   updateGameSchema,
+  gameListResponseSchema,
+  gameResponseSchema,
+  successResponseSchema,
   type GameResponse,
 } from '@/lib/api/schemas';
 
 /**
  * List all games with resource counts
  */
-export const list = publicProcedure.handler(async () => {
+export const list = publicProcedure
+  .route({
+    method: 'GET',
+    path: '/games',
+  })
+  .output(gameListResponseSchema)
+  .handler(async () => {
   const gamesList = await db
     .select({
       id: games.id,
@@ -49,11 +58,16 @@ export const list = publicProcedure.handler(async () => {
  * Get single game by ID or slug
  */
 export const get = publicProcedure
+  .route({
+    method: 'GET',
+    path: '/games/{idOrSlug}',
+  })
   .input(
     z.object({
       idOrSlug: z.string(),
     })
   )
+  .output(gameResponseSchema.extend({ resourceCount: z.number() }))
   .handler(async ({ input }) => {
     const [game] = await db
       .select({
@@ -94,7 +108,12 @@ export const get = publicProcedure
  * Create new game (admin only)
  */
 export const create = adminProcedure
+  .route({
+    method: 'POST',
+    path: '/games',
+  })
   .input(createGameSchema)
+  .output(gameResponseSchema)
   .handler(async ({ input }) => {
     // Generate slug from name
     const slug = generateSlug(input.name);
@@ -133,12 +152,17 @@ export const create = adminProcedure
  * Update game (admin only)
  */
 export const update = adminProcedure
+  .route({
+    method: 'PATCH',
+    path: '/games/{id}',
+  })
   .input(
     z.object({
       id: z.string(),
       data: updateGameSchema,
     })
   )
+  .output(gameResponseSchema)
   .handler(async ({ input }) => {
     // Check if game exists
     const [existingGame] = await db
@@ -193,11 +217,16 @@ export const update = adminProcedure
  * Delete game and all associated data (admin only)
  */
 export const deleteGame = adminProcedure
+  .route({
+    method: 'DELETE',
+    path: '/games/{id}',
+  })
   .input(
     z.object({
       id: z.string(),
     })
   )
+  .output(successResponseSchema.extend({ deletedResources: z.number(), message: z.string() }))
   .handler(async ({ input }) => {
     // Check if game exists
     const [game] = await db

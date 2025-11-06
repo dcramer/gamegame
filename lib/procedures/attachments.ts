@@ -9,7 +9,11 @@ import { publicProcedure, adminProcedure } from './base';
 import { db } from '@/lib/db';
 import { attachments } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { updateAttachmentSchema } from '@/lib/api/schemas';
+import {
+  updateAttachmentSchema,
+  attachmentResponseSchema,
+  attachmentListResponseSchema,
+} from '@/lib/api/schemas';
 
 /**
  * Helper to safely parse bbox JSON
@@ -44,11 +48,16 @@ function parseBbox(bboxValue: any): number[] | undefined {
  * Get attachment by ID
  */
 export const get = publicProcedure
+  .route({
+    method: 'GET',
+    path: '/attachments/{id}',
+  })
   .input(
     z.object({
       id: z.string(),
     })
   )
+  .output(attachmentResponseSchema)
   .handler(async ({ input }) => {
     const [attachment] = await db
       .select({
@@ -91,11 +100,16 @@ export const get = publicProcedure
  * List attachments for a resource
  */
 export const listForResource = publicProcedure
+  .route({
+    method: 'GET',
+    path: '/resources/{resourceId}/attachments',
+  })
   .input(
     z.object({
       resourceId: z.string(),
     })
   )
+  .output(attachmentListResponseSchema)
   .handler(async ({ input }) => {
     const attachmentsList = await db
       .select({
@@ -132,11 +146,16 @@ export const listForResource = publicProcedure
  * List attachments for a game
  */
 export const listForGame = publicProcedure
+  .route({
+    method: 'GET',
+    path: '/games/{gameId}/attachments',
+  })
   .input(
     z.object({
       gameId: z.string(),
     })
   )
+  .output(attachmentListResponseSchema)
   .handler(async ({ input }) => {
     const attachmentsList = await db
       .select({
@@ -174,6 +193,10 @@ export const listForGame = publicProcedure
  * Update attachment metadata (admin only)
  */
 export const update = adminProcedure
+  .route({
+    method: 'PATCH',
+    path: '/attachments/{id}',
+  })
   .input(
     z.object({
       id: z.string(),
@@ -181,6 +204,7 @@ export const update = adminProcedure
       originalFilename: z.string().nullable().optional(),
     })
   )
+  .output(attachmentResponseSchema)
   .handler(async ({ input }) => {
     const updateData: any = {};
 
@@ -219,11 +243,16 @@ export const update = adminProcedure
  * Reprocess attachment with vision analysis (admin only)
  */
 export const reprocess = adminProcedure
+  .route({
+    method: 'POST',
+    path: '/attachments/{id}/reprocess',
+  })
   .input(
     z.object({
       id: z.string(),
     })
   )
+  .output(attachmentResponseSchema)
   .handler(async ({ input }) => {
     // Get attachment from database
     const [attachment] = await db
