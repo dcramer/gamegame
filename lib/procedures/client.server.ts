@@ -4,8 +4,7 @@
  */
 
 import 'server-only';
-import { createRouterClient } from '@orpc/server';
-import { router } from './router';
+import { callableRouter } from './router';
 
 /**
  * Server client - calls procedures directly without HTTP
@@ -13,7 +12,4 @@ import { router } from './router';
  *
  * Context is provided per-request via middleware in procedures
  */
-export const serverClient = createRouterClient({
-  router,
-  context: {},
-});
+export const serverClient = callableRouter;
