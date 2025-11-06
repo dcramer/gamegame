@@ -16,7 +16,7 @@ import { cleanupTestDb } from '@/tests/db-helpers';
 import { createTestGame, createTestResource, createTestJob } from '@/tests/fixtures';
 
 // Mock the workflow function to prevent actual execution
-vi.mock('@/lib/workflows/process-resource/index', () => ({
+vi.mock('@/workflows/process-resource/index', () => ({
   processResourceWorkflow: vi.fn(() => Promise.resolve()),
 }));
 

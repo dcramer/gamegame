@@ -19,7 +19,7 @@ export default function ResourceTabs({ gameId, resourceId, children }: ResourceT
 
   return (
     <Tabs>
-      <TabsList className="mb-8 -mx-4 px-4">
+      <TabsList className="mb-6 mt-4">
         <Link href={`/admin/games/${gameId}/resources/${resourceId}`}>
           <TabsTrigger active={activeTab === "details"}>Details</TabsTrigger>
         </Link>

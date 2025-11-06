@@ -2,8 +2,9 @@ import { notFound } from "next/navigation";
 import { getResource } from "@/lib/actions/resources";
 import { getGame } from "@/lib/actions/games";
 import { PageHeader } from "@/components/page-header";
+import AdminLayout from "@/components/admin-layout";
 import ResourceTabs from "./resource-tabs";
-import ResourceActions from "@/app/admin/games/[gameId]/[resourceId]/resource-actions";
+import ResourceActions from "./resource-actions";
 
 export default async function Layout(props: {
   params: Promise<{ gameId: string; resourceId: string }>;
@@ -32,19 +33,13 @@ export default async function Layout(props: {
     .join(" • ");
 
   return (
-    <>
-      <PageHeader
-        breadcrumbs={[
-          { label: "Admin", href: "/admin" },
-          { label: "Games", href: "/admin" },
-          { label: game.name, href: `/admin/games/${params.gameId}` },
-          { label: resource.name },
-        ]}
-        title={resource.name}
-        stats={stats}
-      />
-
+    <AdminLayout>
       <ResourceTabs gameId={params.gameId} resourceId={params.resourceId}>
+        <PageHeader
+          title={resource.name}
+          stats={stats}
+        />
+
         <div className="grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-8">
           {/* Left column - Content */}
           <div>{children}</div>
@@ -60,6 +55,6 @@ export default async function Layout(props: {
           </div>
         </div>
       </ResourceTabs>
-    </>
+    </AdminLayout>
   );
 }

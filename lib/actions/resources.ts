@@ -459,10 +459,10 @@ export const reprocessResource = async (
   });
   log.info("Starting async resource reprocessing");
 
-  const mimeType = mime.getType(resource.name);
+  const mimeType = mime.getType(resource.url);
 
   if (!mimeType) {
-    throw new Error(`Unable to determine file type for "${resource.name}". Please ensure the file has a valid extension (e.g., .pdf).`);
+    throw new Error(`Unable to determine file type for "${resource.url}". Please ensure the file has a valid extension (e.g., .pdf).`);
   }
 
   if (mimeType !== "application/pdf") {

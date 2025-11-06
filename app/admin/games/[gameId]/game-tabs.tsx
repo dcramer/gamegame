@@ -23,7 +23,7 @@ export default function GameTabs({ gameId, children }: GameTabsProps) {
 
   return (
     <Tabs>
-      <TabsList className="mb-8">
+      <TabsList className="mb-6 mt-4">
         <Link href={`/admin/games/${gameId}`}>
           <TabsTrigger active={activeTab === "details"}>Details</TabsTrigger>
         </Link>

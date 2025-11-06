@@ -123,17 +123,15 @@ export async function getCurrentUserId(): Promise<string | null> {
 
 /**
  * Require authentication - throws if not authenticated or user not found
- * Automatically destroys invalid sessions (user deleted from database)
+ * Note: Cannot destroy invalid sessions in Server Components (Next.js 15 restriction)
  */
 export async function requireAuth(): Promise<UserData> {
   const user = await getCurrentUser();
 
   if (!user) {
-    // User session exists but user deleted from database - clean up
-    const session = await getSession();
-    if (session.userId) {
-      session.destroy();
-    }
+    // User session exists but user deleted from database
+    // Cannot call session.destroy() in Server Components (Next.js 15)
+    // The session will remain until it expires or user logs out
     throw new Error('Unauthorized');
   }
 

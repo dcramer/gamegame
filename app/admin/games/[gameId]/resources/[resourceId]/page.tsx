@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { getResource } from "@/lib/actions/resources";
-import ResourceForm from "@/app/admin/games/[gameId]/[resourceId]/form";
+import ResourceForm from "./form";
 
 export const maxDuration = 300;
 

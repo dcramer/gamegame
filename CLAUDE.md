@@ -378,7 +378,7 @@ GameGame uses Vercel Workflows for durable, long-running tasks. The workflow arc
 ### Structure
 
 ```
-lib/workflows/
+workflows/
   shared/
     types.ts           # Shared TypeScript types
     helpers.ts         # Helper functions (for steps only!)
@@ -416,24 +416,15 @@ lib/workflows/
 
 Workflows run in a sandboxed environment with no Node.js runtime access. Steps have full Node.js access.
 
-See `lib/workflows/AGENTS.md` for detailed architecture documentation and best practices.
+See `workflows/AGENTS.md` for detailed architecture documentation and best practices.
 
 ### Existing Workflows
 
 - **process-resource**: 6-stage PDF processing (ingest → vision → cleanup → metadata → embed → finalize)
-- **cleanup-stalled-jobs**: Marks jobs stuck in processing state (>30min) as failed (scheduled: every 10 minutes)
-- **cleanup-orphaned-blobs**: Removes blob storage files no longer referenced in database (scheduled: daily at 2 AM UTC)
+- **cleanup-stalled-jobs**: Marks jobs stuck in processing state (>30min) as failed
+- **cleanup-orphaned-blobs**: Removes blob storage files no longer referenced in database
 
-### Scheduled Execution
-
-The cleanup workflows are automated via Vercel Cron (configured in `vercel.json`):
-
-- **cleanup-stalled-jobs**: Runs every 10 minutes (`*/10 * * * *`)
-- **cleanup-orphaned-blobs**: Runs daily at 2 AM UTC (`0 2 * * *`)
-
-Both workflows can also be triggered manually by admin users via POST/GET requests to their respective endpoints. Authentication supports both Vercel Cron (via `CRON_SECRET` header) and admin session tokens.
-
-See `SCHEDULED_JOBS.md` for detailed documentation on monitoring, troubleshooting, and manual triggering.
+Workflows are invoked by calling the workflow function directly (e.g., `processResourceWorkflow(input)`). The Vercel Workflow DevKit handles all routing automatically via `.well-known/workflow/*` endpoints.
 
 ## Important Notes
 

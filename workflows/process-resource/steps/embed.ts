@@ -53,7 +53,7 @@ export async function runEmbedStage(input: ProcessResourceInput) {
     const structured = await loadStructured(input.resourceId);
 
     // Run the complex EMBED stage implementation
-    const { runEmbedStageImpl } = await import('@/lib/workflows/embed-stage');
+    const { runEmbedStageImpl } = await import('@/workflows/embed-stage');
     await runEmbedStageImpl(input, structured);
 
     metadata.stages.embed = true;

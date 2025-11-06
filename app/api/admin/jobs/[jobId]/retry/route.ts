@@ -4,7 +4,7 @@ import { jobs, resources, games } from '@/lib/db/schema';
 import { requireAdmin } from '@/lib/auth/helpers';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
-import { processResourceWorkflow } from '@/lib/workflows/process-resource/index';
+import { processResourceWorkflow } from '@/workflows/process-resource/index';
 
 type Params = {
   params: Promise<{

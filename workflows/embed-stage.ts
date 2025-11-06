@@ -96,7 +96,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
           height: uploaded?.height ?? null,
           description: img.description ?? null,
           isGoodQuality: img.isGoodQuality === 'good' ? 1 : img.isGoodQuality === 'bad' ? 0 : null,
-          createdAt: new Date(),
+          createdAt: Date.now(),
         };
       })
   );
@@ -415,7 +415,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
         embedding: JSON.stringify(embeddingData.embedding),
         questionIndex: mapping.questionIndex!,
         questionText: mapping.questionText!,
-        createdAt: new Date(),
+        createdAt: Date.now(),
       };
     } else {
       return {
@@ -425,7 +425,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
         embedding: JSON.stringify(embeddingData.embedding),
         questionIndex: null,
         questionText: null,
-        createdAt: new Date(),
+        createdAt: Date.now(),
       };
     }
   });
@@ -493,8 +493,7 @@ async function deleteExistingAttachments(resourceId: string) {
   const existing = await db
     .select({ id: attachments.id, blobKey: attachments.blobKey })
     .from(attachments)
-    .where(eq(attachments.resourceId, resourceId))
-    .all();
+    .where(eq(attachments.resourceId, resourceId));
 
   if (existing.length > 0) {
     await db.delete(attachments).where(eq(attachments.resourceId, resourceId));
@@ -512,8 +511,7 @@ async function deleteExistingFragments(resourceId: string) {
   const existing = await db
     .select({ id: fragments.id })
     .from(fragments)
-    .where(eq(fragments.resourceId, resourceId))
-    .all();
+    .where(eq(fragments.resourceId, resourceId));
 
   if (existing.length > 0) {
     const fragmentIds = existing.map((f) => f.id);
