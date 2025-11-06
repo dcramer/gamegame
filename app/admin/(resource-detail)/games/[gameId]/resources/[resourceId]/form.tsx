@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
-import { api } from "@/lib/api/client";
+import { orpc } from "@/lib/procedures/client";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -40,7 +40,8 @@ export default function ResourceForm({
               const formData = new FormData(event.currentTarget);
               const description = formData.get("description") as string;
 
-              await api.resources.update(resourceId, {
+              await orpc.resources.update({
+                id: resourceId,
                 name: formData.has("name") ? (formData.get("name") as string) : undefined,
                 description: description?.trim() || null,
               });

@@ -3,7 +3,7 @@
 import { ActionButton } from "@/components/ui/action-button";
 import { RefreshCw, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api/client";
+import { orpc } from "@/lib/procedures/client";
 import { useFlashMessages } from "@/components/flashMessages";
 import { useProcessing } from "@/components/processing-provider";
 
@@ -80,7 +80,7 @@ export default function GameActions({
     });
 
     try {
-      await api.games.delete(gameId);
+      await orpc.games.deleteGame({ id: gameId });
       message.update(`Deleted ${gameName}`, "success", { removeAfter: 3000 });
       // Redirect to admin games page
       router.push("/admin");

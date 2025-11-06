@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { X, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { orpc } from '@/lib/procedures/client';
 import {
   Tooltip,
   TooltipContent,
@@ -62,11 +63,8 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
 
     const refreshJobs = async () => {
       try {
-        const res = await fetch('/api/admin/jobs');
-        if (res.ok) {
-          const data = await res.json();
-          setJobs(data.jobs);
-        }
+        const data = await orpc.workflows.list({ limit: 100 });
+        setJobs(data.jobs);
       } catch (error) {
         console.error('Failed to refresh jobs:', error);
       }
@@ -89,25 +87,16 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
     setCanceling((prev) => new Set(prev).add(jobId));
 
     try {
-      const response = await fetch(`/api/admin/jobs/${jobId}/cancel`, {
-        method: 'POST',
-      });
+      await orpc.workflows.cancel({ runId: jobId });
 
-      if (response.ok) {
-        // Refresh jobs list
-        const res = await fetch('/api/admin/jobs');
-        if (res.ok) {
-          const data = await res.json();
-          setJobs(data.jobs);
-        }
-      } else {
-        const errorData = (await response.json()) as { error?: string };
-        alert(errorData.error || 'Failed to cancel job');
-      }
+      // Refresh jobs list
+      const data = await orpc.workflows.list({ limit: 100 });
+      setJobs(data.jobs);
     } catch (error) {
       console.error('Cancel error:', error);
-      alert('Failed to cancel job. Please try again.');
-    } finally {
+      const message = error instanceof Error ? error.message : 'Failed to cancel job';
+      alert(message);
+    } finally{
       setCanceling((prev) => {
         const next = new Set(prev);
         next.delete(jobId);
@@ -128,24 +117,15 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
     setRetrying((prev) => new Set(prev).add(jobId));
 
     try {
-      const response = await fetch(`/api/admin/jobs/${jobId}/retry`, {
-        method: 'POST',
-      });
+      await orpc.workflows.retry({ runId: jobId });
 
-      if (response.ok) {
-        // Refresh jobs list
-        const res = await fetch('/api/admin/jobs');
-        if (res.ok) {
-          const data = await res.json();
-          setJobs(data.jobs);
-        }
-      } else {
-        const errorData = (await response.json()) as { error?: string };
-        alert(errorData.error || 'Failed to retry job');
-      }
+      // Refresh jobs list
+      const data = await orpc.workflows.list({ limit: 100 });
+      setJobs(data.jobs);
     } catch (error) {
       console.error('Retry error:', error);
-      alert('Failed to retry job. Please try again.');
+      const message = error instanceof Error ? error.message : 'Failed to retry job';
+      alert(message);
     } finally {
       setRetrying((prev) => {
         const next = new Set(prev);

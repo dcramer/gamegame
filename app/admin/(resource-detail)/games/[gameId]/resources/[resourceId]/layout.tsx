@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { api } from "@/lib/api/client";
+import { serverClient } from "@/lib/procedures/client.server";
 import { PageHeader } from "@/components/page-header";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import AdminBaseLayout from "@/components/admin-base-layout";
@@ -13,13 +13,14 @@ export default async function Layout(props: {
   const params = await props.params;
   const { children } = props;
 
-  const resource = await api.resources.get(params.resourceId).catch(() => null);
-  if (!resource) {
-    notFound();
-  }
-
-  const game = await api.games.get(params.gameId).catch(() => null);
-  if (!game) {
+  // Fetch resource and game using oRPC server client
+  let resource, game;
+  try {
+    [resource, game] = await Promise.all([
+      serverClient.resources.get({ id: params.resourceId }),
+      serverClient.games.get({ idOrSlug: params.gameId }),
+    ]);
+  } catch (error) {
     notFound();
   }
 

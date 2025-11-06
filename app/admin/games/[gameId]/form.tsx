@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api } from "@/lib/api/client";
+import { orpc } from "@/lib/procedures/client";
 import { upload } from "@/lib/uploads/client";
 import { Loader2 } from "lucide-react";
 import Image from "next/image";
@@ -77,7 +77,7 @@ export default function Form({
             updateData.imageUrl = finalImageUrl;
           }
 
-          await api.games.update(game.id, updateData);
+          await orpc.games.update({ id: game.id, ...updateData });
           router.refresh();
         } catch (error) {
           console.error('Failed to update game:', error);

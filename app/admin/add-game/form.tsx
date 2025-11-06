@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api } from "@/lib/api/client";
+import { orpc } from "@/lib/procedures/client";
 import { upload } from "@/lib/uploads/client";
 import type { BGGSearchResult } from "@/lib/types/bgg";
 import { Loader2, Search, Dices } from "lucide-react";
@@ -58,12 +58,7 @@ export default function Form() {
     setSearchError(null);
     setThumbnails({}); // Clear previous thumbnails
     try {
-      const response = await fetch(`/api/bgg/search?q=${encodeURIComponent(searchQuery)}`);
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.message || data.error || "Failed to search BoardGameGeek");
-      }
-      const results = await response.json();
+      const results = await orpc.bgg.search({ query: searchQuery });
       setSearchResults(results);
 
       // Lazy-load thumbnails for results that don't have them
@@ -101,16 +96,7 @@ export default function Form() {
     setSearchResults([]);
 
     try {
-      const response = await fetch(`/api/bgg/games/${result.id}/import`, {
-        method: "POST",
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to create game from BoardGameGeek");
-      }
-
-      const game = await response.json();
+      const game = await orpc.bgg.importGame({ bggId: result.id });
       flash(`Game "${game.name}" created successfully!`, "success");
       router.push(`/admin/games/${game.id}`);
     } catch (error) {
@@ -269,7 +255,7 @@ export default function Form() {
             bggUrl: formData.get("bggUrl") as string || undefined,
           };
 
-          const game = await api.games.create(gameData);
+          const game = await orpc.games.create(gameData);
           router.push(`/admin/games/${game.id}`);
         } catch (error) {
           console.error('Failed to create game:', error);

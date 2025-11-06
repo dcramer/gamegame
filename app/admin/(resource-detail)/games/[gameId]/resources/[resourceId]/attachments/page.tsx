@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { api } from "@/lib/api/client";
+import { serverClient } from "@/lib/procedures/client.server";
 import Link from "next/link";
 import { EmptyState } from "@/components/empty-state";
 
@@ -11,12 +11,17 @@ export default async function Page(
   }
 ) {
   const params = await props.params;
-  const resource = await api.resources.get(params.resourceId).catch(() => null);
-  if (!resource) {
+
+  // Fetch resource and attachments using oRPC server client
+  let resource, attachments;
+  try {
+    [resource, attachments] = await Promise.all([
+      serverClient.resources.get({ id: params.resourceId }),
+      serverClient.attachments.listForResource({ resourceId: params.resourceId }),
+    ]);
+  } catch (error) {
     notFound();
   }
-
-  const attachments = await api.attachments.listForResource(params.resourceId);
 
   if (attachments.length === 0) {
     return (

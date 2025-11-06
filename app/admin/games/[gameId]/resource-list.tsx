@@ -11,7 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Spinner } from "@/components/ui/spinner";
-import { api } from "@/lib/api/client";
+import { orpc } from "@/lib/procedures/client";
 import { nanoid } from "@/lib/utils";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -177,7 +177,12 @@ export default function ResourceList({
       formData.append('file', resource.file);
       formData.append('name', resource.name);
 
-      const result = await api.resources.create(gameId, formData);
+      // Note: Still using API route for resource creation because it handles FormData
+      const result = await fetch(`/api/games/${gameId}/resources`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'same-origin',
+      }).then(res => res.json());
 
       if (result.status === "processing" || result.status === "pending") {
         // Add to processing set for polling
@@ -334,12 +339,7 @@ export default function ResourceList({
                         );
 
                         try {
-                          // TODO: Add reprocess to API client
-                          const response = await fetch(`/api/resources/${resource.id}/reprocess`, {
-                            method: 'POST',
-                            credentials: 'same-origin',
-                          });
-                          const result = await response.json();
+                          const result = await orpc.resources.reprocess({ id: resource.id });
 
                           if (result.status === "processing") {
                             // Add to processing set for polling
@@ -381,7 +381,7 @@ export default function ResourceList({
 
                         try {
                           if (!resource.pending) {
-                            await api.resources.delete(resource.id);
+                            await orpc.resources.deleteResource({ id: resource.id });
                           }
                           setAllResources((prev) =>
                             prev.filter((r) => r.id !== resource.id)

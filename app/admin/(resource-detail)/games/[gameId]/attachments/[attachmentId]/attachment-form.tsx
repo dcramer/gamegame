@@ -9,9 +9,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle, Loader2 } from "lucide-react";
-import { api } from "@/lib/api/client";
+import { orpc } from "@/lib/procedures/client";
 
-type AttachmentData = Awaited<ReturnType<typeof api.attachments.get>>;
+type AttachmentData = Awaited<ReturnType<typeof orpc.attachments.get>>;
 
 export default function AttachmentForm({
   attachment: initialAttachment,
@@ -31,7 +31,8 @@ export default function AttachmentForm({
 
     setSaving(true);
     try {
-      const updated = await api.attachments.update(attachment.id, {
+      const updated = await orpc.attachments.update({
+        id: attachment.id,
         description: description.trim() || null,
         originalFilename: originalFilename.trim() || null,
       });

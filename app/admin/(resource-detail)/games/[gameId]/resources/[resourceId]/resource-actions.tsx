@@ -3,7 +3,7 @@
 import { ActionButton } from "@/components/ui/action-button";
 import { RefreshCw, Trash2, ExternalLink } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api/client";
+import { orpc } from "@/lib/procedures/client";
 import { useFlashMessages } from "@/components/flashMessages";
 
 interface ResourceActionsProps {
@@ -76,7 +76,7 @@ export default function ResourceActions({
     });
 
     try {
-      await api.resources.delete(resourceId);
+      await orpc.resources.deleteResource({ id: resourceId });
       message.update(`Deleted ${resourceName}`, "success", { removeAfter: 3000 });
       // Redirect to game resources page
       router.push(`/admin/games/${gameId}/resources`);

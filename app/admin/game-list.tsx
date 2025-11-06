@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/table";
 import Link from "next/link";
 import Image from "next/image";
-import { api } from "@/lib/api/client";
+import { orpc } from "@/lib/procedures/client";
 import { useState } from "react";
 
 export default function GameList({
@@ -104,7 +104,7 @@ export default function GameList({
                       e.stopPropagation();
 
                       try {
-                        await api.games.delete(game.id);
+                        await orpc.games.deleteGame({ id: game.id });
                         setGameList(
                           activeGameList.filter((g) => g.id !== game.id)
                         );

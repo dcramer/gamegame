@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { api } from "@/lib/api/client";
+import { serverClient } from "@/lib/procedures/client.server";
 import AttachmentForm from "./attachment-form";
 
 export default async function AttachmentDetailPage(props: {
@@ -9,9 +9,11 @@ export default async function AttachmentDetailPage(props: {
   }>;
 }) {
   const params = await props.params;
-  const attachment = await api.attachments.get(params.attachmentId).catch(() => null);
 
-  if (!attachment) {
+  let attachment;
+  try {
+    attachment = await serverClient.attachments.get({ id: params.attachmentId });
+  } catch (error) {
     notFound();
   }
 

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { api } from "@/lib/api/client";
+import { serverClient } from "@/lib/procedures/client.server";
 import ResourceForm from "./form";
 
 export const maxDuration = 300;
@@ -10,8 +10,12 @@ export default async function Page(
   }
 ) {
   const params = await props.params;
-  const resource = await api.resources.get(params.resourceId).catch(() => null);
-  if (!resource) {
+
+  // Fetch resource using oRPC server client
+  let resource;
+  try {
+    resource = await serverClient.resources.get({ id: params.resourceId });
+  } catch (error) {
     notFound();
   }
 
