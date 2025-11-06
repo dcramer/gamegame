@@ -17,29 +17,49 @@ export async function runEmbedStage(input: ProcessResourceInput) {
       throw new Error('Missing OPENAI_API_KEY');
     }
 
-    const [resourceRow] = await db
-      .select({
-        metadata: resources.processingMetadata,
-        currentRunId: resources.currentRunId,
-      })
-      .from(resources)
-      .where(eq(resources.id, input.resourceId))
-      .limit(1);
+    // Use transaction with row-level locking to prevent race conditions
+    const result = await db.transaction(async (tx) => {
+      // Lock the row for this transaction
+      const [resourceRow] = await tx
+        .select({
+          metadata: resources.processingMetadata,
+          currentRunId: resources.currentRunId,
+        })
+        .from(resources)
+        .where(eq(resources.id, input.resourceId))
+        .limit(1)
+        .for('update');
 
-    if (!resourceRow) {
-      throw new Error(`Resource ${input.resourceId} not found`);
-    }
+      if (!resourceRow) {
+        throw new Error(`Resource ${input.resourceId} not found`);
+      }
 
-    if (resourceRow.currentRunId && resourceRow.currentRunId !== input.runId) {
-      return {
-        success: false,
-        error: `Resource is being processed by different job: ${resourceRow.currentRunId}`,
-      };
-    }
+      if (resourceRow.currentRunId && resourceRow.currentRunId !== input.runId) {
+        return {
+          success: false,
+          error: `Resource is being processed by different job: ${resourceRow.currentRunId}`,
+        };
+      }
 
-    const metadata = parseMetadata(input.resourceId, resourceRow.metadata);
-    if (metadata.stages.embed) {
-      return { success: true };
+      const metadata = parseMetadata(input.resourceId, resourceRow.metadata);
+      if (metadata.stages.embed) {
+        return { success: true, skipProcessing: true };
+      }
+
+      // Set currentRunId immediately within the transaction
+      await tx
+        .update(resources)
+        .set({
+          currentRunId: input.runId,
+          updatedAt: Date.now(),
+        })
+        .where(eq(resources.id, input.resourceId));
+
+      return { success: true, skipProcessing: false };
+    });
+
+    if (!result.success || result.skipProcessing) {
+      return result;
     }
 
     const structured = await loadStructured(input.resourceId);
@@ -48,6 +68,7 @@ export async function runEmbedStage(input: ProcessResourceInput) {
     const { runEmbedStageImpl } = await import('@/workflows/embed-stage');
     await runEmbedStageImpl(input, structured);
 
+    const metadata = parseMetadata(input.resourceId, null);
     metadata.stages.embed = true;
     await db
       .update(resources)

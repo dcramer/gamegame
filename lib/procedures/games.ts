@@ -7,8 +7,8 @@ import { z } from 'zod';
 import { ORPCError } from '@orpc/server';
 import { publicProcedure, adminProcedure } from './base';
 import { db } from '@/lib/db';
-import { games, resources, fragments, attachments, embeddings } from '@/lib/db/schema';
-import { eq, or, sql, inArray } from 'drizzle-orm';
+import { games, resources, attachments } from '@/lib/db/schema';
+import { eq, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import {
   createGameSchema,
@@ -213,60 +213,48 @@ export const deleteGame = adminProcedure
       });
     }
 
-    // Get all resources for this game
+    // Count resources for reporting before deletion
     const gameResources = await db
       .select({ id: resources.id })
       .from(resources)
       .where(eq(resources.gameId, game.id));
 
-    const resourceIds = gameResources.map((r) => r.id);
+    const resourceCount = gameResources.length;
 
-    if (resourceIds.length > 0) {
-      // Get all fragments for deletion
-      const gameFragments = await db
-        .select({ id: fragments.id })
-        .from(fragments)
-        .where(inArray(fragments.resourceId, resourceIds));
+    // Collect attachment blob keys for cleanup before deletion
+    const gameAttachments = await db
+      .select({ blobKey: attachments.blobKey })
+      .from(attachments)
+      .where(eq(attachments.gameId, game.id));
 
-      const fragmentIds = gameFragments.map((f) => f.id);
-
-      // Delete in correct order to respect foreign keys
-      if (fragmentIds.length > 0) {
-        // 1. Delete embeddings
-        await db.delete(embeddings).where(inArray(embeddings.fragmentId, fragmentIds));
-
-        // 2. Delete fragments
-        await db.delete(fragments).where(inArray(fragments.id, fragmentIds));
-      }
-
-      // 3. Delete attachments
-      const gameAttachments = await db
-        .select({ id: attachments.id, blobKey: attachments.blobKey })
-        .from(attachments)
-        .where(eq(attachments.gameId, game.id));
-
-      if (gameAttachments.length > 0) {
-        await db.delete(attachments).where(eq(attachments.gameId, game.id));
-
-        // TODO: Delete from blob storage
-        // const { bulkDelete } = await import('@/lib/services/blob-storage');
-        // const keys = gameAttachments.map((a) => a.blobKey).filter((k): k is string => !!k);
-        // if (keys.length > 0) {
-        //   await bulkDelete(keys);
-        // }
-      }
-
-      // 4. Delete resources
-      await db.delete(resources).where(eq(resources.gameId, game.id));
-    }
-
-    // 5. Finally delete the game
+    // Delete the game - database cascades will handle resources, fragments, embeddings, and attachments
+    // Foreign key cascade order (defined in schema):
+    // 1. resources.gameId → cascade deletes resources
+    // 2. fragments.gameId → cascade deletes fragments
+    // 3. fragments.resourceId → cascade deletes fragments
+    // 4. embeddings.fragmentId → cascade deletes embeddings
+    // 5. embeddings.gameId → cascade deletes embeddings
+    // 6. attachments.gameId → cascade deletes attachments
     await db.delete(games).where(eq(games.id, game.id));
+
+    // Clean up blob storage after database deletion
+    if (gameAttachments.length > 0) {
+      const keys = gameAttachments.map((a) => a.blobKey).filter((k): k is string => !!k);
+      if (keys.length > 0) {
+        try {
+          const { bulkDelete } = await import('@/lib/services/blob-storage');
+          await bulkDelete(keys);
+        } catch (error) {
+          // Log but don't fail the request - orphaned blobs can be cleaned up later
+          console.warn(`[deleteGame] Failed to delete ${keys.length} blob files:`, error);
+        }
+      }
+    }
 
     return {
       success: true,
-      deletedResources: resourceIds.length,
-      message: `Game "${game.name}" and ${resourceIds.length} resources deleted`,
+      deletedResources: resourceCount,
+      message: `Game "${game.name}" and ${resourceCount} resources deleted`,
     };
   });
 

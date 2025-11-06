@@ -21,32 +21,53 @@ export async function runMetadataStage(input: ProcessResourceInput) {
       throw new Error('Missing OPENAI_API_KEY');
     }
 
-    const [resourceRow] = await db
-      .select({
-        metadata: resources.processingMetadata,
-        currentRunId: resources.currentRunId,
-        name: resources.name,
-        originalFilename: resources.originalFilename,
-        description: resources.description,
-      })
-      .from(resources)
-      .where(eq(resources.id, input.resourceId))
-      .limit(1);
+    // Use transaction with row-level locking to prevent race conditions
+    const result = await db.transaction(async (tx) => {
+      // Lock the row for this transaction
+      const [resourceRow] = await tx
+        .select({
+          metadata: resources.processingMetadata,
+          currentRunId: resources.currentRunId,
+          name: resources.name,
+          originalFilename: resources.originalFilename,
+          description: resources.description,
+        })
+        .from(resources)
+        .where(eq(resources.id, input.resourceId))
+        .limit(1)
+        .for('update');
 
-    if (!resourceRow) {
-      throw new Error(`Resource ${input.resourceId} not found`);
-    }
+      if (!resourceRow) {
+        throw new Error(`Resource ${input.resourceId} not found`);
+      }
 
-    if (resourceRow.currentRunId && resourceRow.currentRunId !== input.runId) {
-      return {
-        success: false,
-        error: `Resource is being processed by different job: ${resourceRow.currentRunId}`,
-      };
-    }
+      if (resourceRow.currentRunId && resourceRow.currentRunId !== input.runId) {
+        return {
+          success: false,
+          error: `Resource is being processed by different job: ${resourceRow.currentRunId}`,
+          resourceRow: null,
+        };
+      }
 
-    const metadata = parseMetadata(input.resourceId, resourceRow.metadata);
-    if (metadata.stages.metadata) {
-      return { success: true };
+      const metadata = parseMetadata(input.resourceId, resourceRow.metadata);
+      if (metadata.stages.metadata) {
+        return { success: true, skipProcessing: true, resourceRow: null };
+      }
+
+      // Set currentRunId immediately within the transaction
+      await tx
+        .update(resources)
+        .set({
+          currentRunId: input.runId,
+          updatedAt: Date.now(),
+        })
+        .where(eq(resources.id, input.resourceId));
+
+      return { success: true, skipProcessing: false, resourceRow };
+    });
+
+    if (!result.success || result.skipProcessing) {
+      return result;
     }
 
     const structured = await loadStructured(input.resourceId);
@@ -55,13 +76,14 @@ export async function runMetadataStage(input: ProcessResourceInput) {
 
     const { generateResourceMetadata } = await import('@/lib/services/resource-metadata');
     const metadataResult = await generateResourceMetadata(markdownContent, OPENAI_API_KEY, {
-      existingName: resourceRow.name,
-      originalFilename: resourceRow.originalFilename,
+      existingName: result.resourceRow!.name,
+      originalFilename: result.resourceRow!.originalFilename,
     });
 
-    const resolvedName = metadataResult?.name ?? resourceRow.name ?? input.name;
-    const resolvedDescription = metadataResult?.description ?? resourceRow.description ?? null;
+    const resolvedName = metadataResult?.name ?? result.resourceRow!.name ?? input.name;
+    const resolvedDescription = metadataResult?.description ?? result.resourceRow!.description ?? null;
 
+    const metadata = parseMetadata(input.resourceId, null);
     metadata.stages.metadata = true;
     await db
       .update(resources)
