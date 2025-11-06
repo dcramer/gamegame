@@ -62,6 +62,7 @@ export async function POST(request: Request, { params }: Params) {
 
     // Create new job record
     const newJobId = nanoid();
+    const now = Date.now();
     await db.insert(jobs).values({
       id: newJobId,
       type: 'process-resource',
@@ -70,6 +71,8 @@ export async function POST(request: Request, { params }: Params) {
       status: 'pending',
       currentStep: 'Queued for retry',
       progress: 0,
+      createdAt: now,
+      updatedAt: now,
     });
 
     // Update resource status

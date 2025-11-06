@@ -107,6 +107,7 @@ export const createResource = async (input: {
   try {
     // Create job record
     const jobId = nanoid();
+    const now = Date.now();
     await db.insert(jobs).values({
       id: jobId,
       type: 'process-resource',
@@ -115,6 +116,8 @@ export const createResource = async (input: {
       status: 'pending',
       currentStep: 'Queued for processing',
       progress: 0,
+      createdAt: now,
+      updatedAt: now,
     });
 
     // Update resource with job ID
