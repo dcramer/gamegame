@@ -24,7 +24,7 @@ export interface QuestionGenerationOptions {
 
 const DEFAULT_OPTIONS: QuestionGenerationOptions = {
   count: 5,
-  temperature: 0.7,
+  temperature: 1, // gpt-4o-mini only supports temperature: 1
   // model determined at runtime from environment
 };
 

@@ -14,6 +14,9 @@
 
 import { db } from '@/lib/db';
 import { resources, fragments, attachments, embeddings } from '@/lib/db/schema';
+import type { NewFragment } from '@/lib/db/schema/fragments';
+import type { NewEmbedding } from '@/lib/db/schema/embeddings';
+import type { NewAttachment } from '@/lib/db/schema/attachments';
 import { eq, inArray } from 'drizzle-orm';
 import type { StructuredPDFContent, PDFImage } from '@/lib/types/pdf';
 import { nanoid } from 'nanoid';
@@ -74,8 +77,8 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
   await deleteExistingAttachments(input.resourceId);
   await deleteExistingFragments(input.resourceId);
 
-  // Create attachment records
-  const attachmentRecords = structured.pages.flatMap((page) =>
+  // Create attachment records with proper typing
+  const attachmentRecords: NewAttachment[] = structured.pages.flatMap((page) =>
     page.images
       .filter((img) => img.url)
       .map((img) => {
@@ -90,12 +93,12 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
           url: img.url!,
           originalFilename: img.originalFilename ?? null,
           pageNumber: img.pageNumber ?? null,
-          bbox: img.bbox ? JSON.stringify(img.bbox) : null,
+          bbox: img.bbox ?? null, // Drizzle handles JSONB serialization
           caption: img.caption ?? null,
           width: uploaded?.width ?? null,
           height: uploaded?.height ?? null,
           description: img.description ?? null,
-          isGoodQuality: img.isGoodQuality === 'good' ? 1 : img.isGoodQuality === 'bad' ? 0 : null,
+          isGoodQuality: img.isGoodQuality ?? null, // varchar type, not integer
           createdAt: Date.now(),
         };
       })
@@ -368,27 +371,39 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
     })
   );
 
-  // Create fragment records
-  const fragmentRecords = allFragmentsForEmbedding.map((item) => ({
-    id: nanoid(),
-    gameId: input.gameId,
-    resourceId: input.resourceId,
-    type: item.type,
-    attachmentId: item.attachmentId,
-    content: item.content,
-    searchableContent: item.searchableContent,
-    syntheticQuestions: item.syntheticQuestions.length > 0 ? JSON.stringify(item.syntheticQuestions) : null,
-    answerTypes: item.answerTypes.length > 0 ? JSON.stringify(item.answerTypes) : null,
-    resourceName: resourceInfo.name,
-    resourceDescription: resourceInfo.description,
-    resourceType: resourceInfo.resourceType,
-    version: CURRENT_EMBEDDING_VERSION,
-    pageNumber: item.pageNumber ?? null,
-    pageRangeStart: item.pageRange ? item.pageRange[0] : null,
-    pageRangeEnd: item.pageRange ? item.pageRange[1] : null,
-    section: item.section ?? null,
-    images: item.images ? JSON.stringify(item.images) : null,
-  }));
+  // Create a map of fragment index to content embedding
+  const fragmentEmbeddingMap = new Map<number, number[]>();
+  embeddingMap.forEach((mapping, embeddingIndex) => {
+    if (!mapping.isQuestion) {
+      fragmentEmbeddingMap.set(mapping.fragmentIndex, embeddingsData[embeddingIndex].embedding);
+    }
+  });
+
+  // Create fragment records with proper typing
+  const fragmentRecords: NewFragment[] = allFragmentsForEmbedding.map((item, index) => {
+    const embeddingVector = fragmentEmbeddingMap.get(index) || [];
+
+    return {
+      id: nanoid(),
+      gameId: input.gameId,
+      resourceId: input.resourceId,
+      type: item.type as 'text' | 'image' | 'table',
+      attachmentId: item.attachmentId ?? null,
+      content: item.content,
+      embedding: embeddingVector, // Drizzle handles pgvector conversion from number[]
+      searchableContent: item.searchableContent ?? null,
+      syntheticQuestions: item.syntheticQuestions.length > 0 ? item.syntheticQuestions : null,
+      answerTypes: item.answerTypes.length > 0 ? item.answerTypes : null,
+      resourceName: resourceInfo.name ?? null,
+      resourceDescription: resourceInfo.description ?? null,
+      resourceType: resourceInfo.resourceType ?? null,
+      version: CURRENT_EMBEDDING_VERSION,
+      pageNumber: item.pageNumber ?? null,
+      pageRange: item.pageRange ?? null,
+      section: item.section ?? null,
+      images: item.images && item.images.length > 0 ? item.images : null,
+    };
+  });
 
   // Update progress
   await updateJobProgress(input.jobId, `Storing ${fragmentRecords.length} fragments`, 80);
@@ -402,29 +417,42 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
     }
   }
 
-  // Create embedding records
-  const embeddingRecords = embeddingMap.map((mapping, embeddingIndex) => {
+  // Create embedding records with proper typing
+  const embeddingRecords: NewEmbedding[] = embeddingMap.map((mapping, embeddingIndex) => {
     const fragment = fragmentRecords[mapping.fragmentIndex];
+    const sourceItem = allFragmentsForEmbedding[mapping.fragmentIndex];
     const embeddingData = embeddingsData[embeddingIndex];
 
     if (mapping.isQuestion) {
       return {
         id: `${fragment.id}-q${mapping.questionIndex}`,
         fragmentId: fragment.id,
+        gameId: input.gameId,
+        resourceId: input.resourceId,
         type: 'question' as const,
-        embedding: JSON.stringify(embeddingData.embedding),
+        embedding: embeddingData.embedding, // Drizzle handles pgvector conversion from number[]
         questionIndex: mapping.questionIndex!,
         questionText: mapping.questionText!,
+        pageNumber: sourceItem.pageNumber ?? null,
+        section: sourceItem.section ?? null,
+        fragmentType: sourceItem.type as 'text' | 'image' | 'table',
+        version: CURRENT_EMBEDDING_VERSION,
         createdAt: Date.now(),
       };
     } else {
       return {
         id: fragment.id,
         fragmentId: fragment.id,
+        gameId: input.gameId,
+        resourceId: input.resourceId,
         type: 'content' as const,
-        embedding: JSON.stringify(embeddingData.embedding),
+        embedding: embeddingData.embedding, // Drizzle handles pgvector conversion from number[]
         questionIndex: null,
         questionText: null,
+        pageNumber: sourceItem.pageNumber ?? null,
+        section: sourceItem.section ?? null,
+        fragmentType: sourceItem.type as 'text' | 'image' | 'table',
+        version: CURRENT_EMBEDDING_VERSION,
         createdAt: Date.now(),
       };
     }
@@ -450,11 +478,11 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
       content: finalContent,
       version: CURRENT_EMBEDDING_VERSION,
       pdfExtractor: 'mistral',
-      processedAt: new Date(),
+      processedAt: Date.now(), // bigint timestamp
       pageCount: stats.pageCount,
       imageCount: stats.imageCount,
       wordCount: stats.wordCount,
-      updatedAt: new Date(),
+      updatedAt: Date.now(), // bigint timestamp
     })
     .where(eq(resources.id, input.resourceId));
 
