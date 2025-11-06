@@ -12,7 +12,9 @@ import type { Router } from './router';
  * Use this in Client Components
  */
 const link = new ORPCLink({
-  url: '/api/rpc',
+  url: typeof window !== 'undefined'
+    ? new URL('/api/rpc', window.location.origin).toString()
+    : '/api/rpc',
 });
 
 export const orpc = createORPCClient<Router>(link);
