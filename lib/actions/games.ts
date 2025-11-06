@@ -15,6 +15,7 @@ export const getGame = async (input: string) => {
       id: games.id,
       name: games.name,
       slug: games.slug,
+      year: games.year,
       imageUrl: games.imageUrl,
       bggId: games.bggId,
       bggUrl: games.bggUrl,
@@ -90,6 +91,7 @@ export const updateGame = async (
   gameId: string,
   input: {
     name?: string;
+    year?: number | null;
     imageUrl?: string | null;
     bggUrl?: string | null;
   }
@@ -113,6 +115,7 @@ export const updateGame = async (
   // Filter out undefined values
   const parsedInput: Partial<NewGameParams> = {};
   if (input.name !== undefined) parsedInput.name = input.name;
+  if (input.year !== undefined) parsedInput.year = input.year;
   if (input.imageUrl !== undefined) parsedInput.imageUrl = input.imageUrl;
   if (input.bggUrl !== undefined) parsedInput.bggUrl = input.bggUrl;
 

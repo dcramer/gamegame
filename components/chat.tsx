@@ -408,6 +408,14 @@ export function Chat({
     imageUrl: string | null;
     bggUrl: string | null;
     resourceCount?: number;
+    bggGame?: {
+      yearPublished: number | null;
+      minPlayers: number | null;
+      maxPlayers: number | null;
+      playingTime: number | null;
+      designers: string[] | null;
+      publishers: string[] | null;
+    } | null;
   };
 }) {
   const [input, setInput] = useState("");
@@ -575,6 +583,23 @@ export function Chat({
                   className="w-5 h-5 grayscale group-hover:grayscale-0 rounded"
                 />
               </a>
+            )}
+            {game.bggGame && (
+              <div className="flex gap-3 text-muted-foreground text-sm items-center">
+                {game.bggGame.yearPublished && (
+                  <span>{game.bggGame.yearPublished}</span>
+                )}
+                {(game.bggGame.minPlayers || game.bggGame.maxPlayers) && (
+                  <span>
+                    {game.bggGame.minPlayers === game.bggGame.maxPlayers
+                      ? `${game.bggGame.minPlayers} players`
+                      : `${game.bggGame.minPlayers || '?'}-${game.bggGame.maxPlayers || '?'} players`}
+                  </span>
+                )}
+                {game.bggGame.playingTime && (
+                  <span>{game.bggGame.playingTime} min</span>
+                )}
+              </div>
             )}
             <p className="text-muted-foreground text-sm hidden lg:block">
               {game.resourceCount || 0} resources{' '}

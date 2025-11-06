@@ -17,7 +17,10 @@ export default function Form({
   game: {
     id: string;
     name: string;
+    slug: string;
+    year?: number | null;
     imageUrl: string | null;
+    bggId: string | null;
     bggUrl: string | null;
   };
 }) {
@@ -42,17 +45,22 @@ export default function Form({
       onSubmit={async (event) => {
         event.preventDefault();
         setLoading(true);
-        const formData = new FormData(event.currentTarget);
-        if (imageFile) {
-          const newBlob = await upload(imageFile.name, imageFile, {
-            access: "public",
-            handleUploadUrl: "/api/images/upload",
-          });
-          formData.set("imageUrl", newBlob.url);
-        }
+        try {
+          const formData = new FormData(event.currentTarget);
+          if (imageFile) {
+            const newBlob = await upload(imageFile.name, imageFile, {
+              access: "public",
+              handleUploadUrl: "/api/images/upload",
+            });
+            formData.set("imageUrl", newBlob.url);
+          }
 
-        await updateGameForm(game.id, formData);
-        setLoading(false);
+          await updateGameForm(game.id, formData);
+          setLoading(false);
+        } catch (error) {
+          setLoading(false);
+          throw error;
+        }
       }}
       className="grid gap-4"
     >
@@ -68,7 +76,30 @@ export default function Form({
         />
       </div>
       <div className="grid gap-2">
-        <Label htmlFor="bggUrl">BGG Url</Label>
+        <Label htmlFor="slug">Slug</Label>
+        <Input
+          id="slug"
+          type="text"
+          name="slug"
+          value={game.slug}
+          readOnly
+        />
+        <p className="text-xs text-muted-foreground">Auto-generated from name</p>
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="year">Year</Label>
+        <Input
+          id="year"
+          type="number"
+          name="year"
+          defaultValue={game.year ?? ""}
+          placeholder="e.g. 2020"
+          min="1900"
+          max="2100"
+        />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="bggUrl">BGG URL</Label>
         <Input
           id="bggUrl"
           type="text"

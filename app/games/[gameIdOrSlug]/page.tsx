@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { db } from '@/lib/db';
-import { games, resources } from '@/lib/db/schema';
+import { games, resources, bggGames } from '@/lib/db/schema';
 import { eq, or } from 'drizzle-orm';
 import { Chat } from '@/components/chat';
 
@@ -12,6 +12,14 @@ interface Game {
   imageUrl: string | null;
   bggUrl: string | null;
   resourceCount?: number;
+  bggGame?: {
+    yearPublished: number | null;
+    minPlayers: number | null;
+    maxPlayers: number | null;
+    playingTime: number | null;
+    designers: string[] | null;
+    publishers: string[] | null;
+  } | null;
 }
 
 async function getGame(gameIdOrSlug: string): Promise<Game | null> {
@@ -40,9 +48,29 @@ async function getGame(gameIdOrSlug: string): Promise<Game | null> {
     .from(resources)
     .where(eq(resources.gameId, game.id));
 
+  // Get BGG metadata if available
+  let bggGame = null;
+  if (game.bggId) {
+    const [bggData] = await db
+      .select({
+        yearPublished: bggGames.yearPublished,
+        minPlayers: bggGames.minPlayers,
+        maxPlayers: bggGames.maxPlayers,
+        playingTime: bggGames.playingTime,
+        designers: bggGames.designers,
+        publishers: bggGames.publishers,
+      })
+      .from(bggGames)
+      .where(eq(bggGames.id, game.bggId))
+      .limit(1);
+
+    bggGame = bggData || null;
+  }
+
   return {
     ...game,
     resourceCount: resourceCount.length,
+    bggGame,
   };
 }
 

@@ -36,9 +36,11 @@ export default async function Page(
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
         {attachments.map((attachment) => (
-          <Link
+          <a
             key={attachment.id}
-            href={`/admin/games/${params.gameId}/resources/${params.resourceId}/attachments/${attachment.id}`}
+            href={attachment.url}
+            target="_blank"
+            rel="noopener noreferrer"
             className="group relative aspect-square rounded-lg border border-border bg-card hover:border-primary/50 overflow-hidden transition-colors"
           >
             <img
@@ -73,7 +75,7 @@ export default async function Page(
                 p{attachment.pageNumber}
               </div>
             )}
-          </Link>
+          </a>
         ))}
       </div>
     </div>

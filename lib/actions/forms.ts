@@ -20,12 +20,14 @@ const parseOptionalValue = (v: string | undefined) => {
 };
 
 export const updateGameForm = async (gameId: string, formData: FormData) => {
+  const yearValue = formData.get("year") as string;
   const game = await updateGame(gameId, {
     name: (formData.get("name") as string) ?? undefined,
+    year: yearValue ? parseInt(yearValue, 10) : null,
     imageUrl: parseOptionalValue(formData.get("imageUrl") as string),
     bggUrl: parseOptionalValue(formData.get("bggUrl") as string),
   });
-  redirect(`/admin/games/${game.id}`);
+  return game;
 };
 
 export const updateResourceForm = async (

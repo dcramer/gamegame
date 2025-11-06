@@ -97,6 +97,7 @@ export async function createGameFromBGG(bggId: string) {
     // Create the game with BGG data
     const game = await createGame({
       name: details.name,
+      year: details.yearPublished,
       imageUrl,
       bggUrl: `https://boardgamegeek.com/boardgame/${bggId}`,
     });
@@ -152,6 +153,7 @@ export async function syncGameFromBGG(gameId: string) {
     // Update the game
     const updatedGame = await updateGame(gameId, {
       name: details.name,
+      year: details.yearPublished,
       imageUrl: imageUrl ?? game.imageUrl,
     });
 
