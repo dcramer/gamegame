@@ -19,6 +19,7 @@ export function Spinner({ className, size = "md" }: SpinnerProps) {
       )}
       role="status"
       aria-label="loading"
+      aria-live="polite"
     >
       <span className="sr-only">Loading...</span>
     </div>

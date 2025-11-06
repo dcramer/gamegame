@@ -4,21 +4,72 @@ import clsx from 'clsx';
 import { Loader2 } from 'lucide-react';
 import { useTimeout } from '@/hooks/useTimeout';
 
+/**
+ * Status of the save operation.
+ * - 'idle': Default state, no save operation in progress or completed
+ * - 'success': Save completed successfully
+ * - 'error': Save failed with an error
+ *
+ * Note: Loading state is managed separately via the `isLoading` prop.
+ */
 export type SaveStatus = 'idle' | 'success' | 'error';
 
 interface SaveButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  /**
+   * Current status of the save operation.
+   * Used to trigger auto-hide timeout after showing success/error state.
+   */
   status: SaveStatus;
+  /**
+   * Whether the save operation is currently in progress.
+   * Shows a loading spinner and disables the button when true.
+   * Kept separate from status to allow showing loading state without auto-hide timeout.
+   */
   isLoading?: boolean;
+  /**
+   * Time in milliseconds before calling onStatusTimeout.
+   * Only applies when status is 'success' or 'error'.
+   * @default 3000
+   */
   autoHideMs?: number;
+  /**
+   * Callback fired after autoHideMs when status is 'success' or 'error'.
+   * Useful for resetting status back to 'idle'.
+   */
   onStatusTimeout?: () => void;
 }
 
 const DEFAULT_AUTO_HIDE = 3000;
 
 /**
- * A save button that shows a loading spinner while saving.
- * The status prop is used to trigger the onStatusTimeout callback after autoHideMs.
- * This is useful for resetting the status state after showing a flash notification.
+ * A save button that shows loading state and handles status timeout.
+ *
+ * @example
+ * ```tsx
+ * const [status, setStatus] = useState<SaveStatus>('idle');
+ * const [isLoading, setIsLoading] = useState(false);
+ *
+ * const handleSave = async () => {
+ *   setIsLoading(true);
+ *   try {
+ *     await saveData();
+ *     setStatus('success');
+ *   } catch (error) {
+ *     setStatus('error');
+ *   } finally {
+ *     setIsLoading(false);
+ *   }
+ * };
+ *
+ * <SaveButton
+ *   status={status}
+ *   isLoading={isLoading}
+ *   onStatusTimeout={() => setStatus('idle')}
+ *   onClick={handleSave}
+ * >
+ *   Save Changes
+ * </SaveButton>
+ * ```
  */
 export function SaveButton({
   status,

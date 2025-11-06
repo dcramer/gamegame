@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import Heading from '@/components/heading';
 import Layout from '@/components/layout';
 import { db } from '@/lib/db';
@@ -34,9 +35,12 @@ async function getGames(): Promise<Game[]> {
   return gamesList;
 }
 
-export default async function GamesPage() {
+async function GamesContent() {
   const games = await getGames();
+  return <GamesGrid games={games} />;
+}
 
+export default function GamesPage() {
   return (
     <Layout>
       <section className="text-center py-3 lg:py-12">
@@ -48,7 +52,9 @@ export default async function GamesPage() {
         </p>
       </section>
 
-      <GamesGrid games={games} />
+      <Suspense fallback={<div className="text-center py-8">Loading games...</div>}>
+        <GamesContent />
+      </Suspense>
     </Layout>
   );
 }

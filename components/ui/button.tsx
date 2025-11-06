@@ -10,7 +10,7 @@ export interface ButtonProps
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "default", size = "default", asChild = false, children, ...props }, ref) => {
+  ({ className, variant = "default", size = "default", asChild = false, ...props }, ref) => {
     const classes = cn(
       "inline-flex items-center justify-center font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none ring-offset-background cursor-pointer",
       {
@@ -35,22 +35,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       className
     );
 
-    if (asChild && children && React.isValidElement(children)) {
-      const childProps = children.props as Record<string, unknown>;
-      return React.cloneElement(children, {
-        ...childProps,
-        className: cn(classes, childProps.className as string | undefined),
-      } as any);
-    }
+    const Comp = asChild ? Slot : "button";
 
     return (
-      <button
+      <Comp
         className={classes}
         ref={ref}
         {...props}
-      >
-        {children}
-      </button>
+      />
     );
   }
 );

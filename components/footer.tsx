@@ -6,9 +6,26 @@ import { Dices } from "lucide-react";
 import Link from "next/link";
 
 interface FooterProps {
+  /**
+   * Whether to display the admin link.
+   * Set to true in admin layouts to show the admin navigation link.
+   * @default false
+   */
   isAdmin?: boolean;
 }
 
+/**
+ * Site footer with navigation links to GitHub, home page, and optionally admin.
+ *
+ * @example
+ * ```tsx
+ * // Public pages
+ * <Footer />
+ *
+ * // Admin pages
+ * <Footer isAdmin={true} />
+ * ```
+ */
 export default function Footer({ isAdmin }: FooterProps) {
   return (
     <footer className="container mx-auto px-4 py-8 text-center text-muted-foreground font-mono text-xs">

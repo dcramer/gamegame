@@ -372,15 +372,70 @@ if (await isAuthenticated()) { /* ... */ }
 const user = await requireAuth();    // Any authenticated user
 const admin = await requireAdmin();  // Admin only
 
+// Cached verifiers for DAL pattern (recommended for non-blocking streaming)
+const user = await verifySession();      // Returns null if not authenticated
+const admin = await verifyAdminSession(); // Throws if not admin, uses React cache()
+
 // Session management
 await createSession(userId);  // Called after NextAuth login
 await destroySession();       // Logout
 await refreshSession();       // Extend expiration
 ```
 
+**Protected Routes Pattern (Next.js 15 Streaming-Friendly)**:
+
+All authentication checks use `cookies()` which is a dynamic API in Next.js 15. To prevent blocking route rendering, auth checks must be wrapped in Suspense boundaries.
+
+**Pattern 1: Layout-Level Protection (Admin Section)**
+```typescript
+// app/admin/layout.tsx
+import { Suspense } from 'react';
+import { getCurrentUser } from '@/lib/session';
+
+async function AdminAuthGuard({ children }) {
+  const user = await getCurrentUser();
+  if (!user?.isAdmin) redirect('/auth/signin');
+  return <>{children}</>;
+}
+
+export default function Layout({ children }) {
+  return (
+    <Suspense fallback={<LoadingSkeleton />}>
+      <AdminAuthGuard>{children}</AdminAuthGuard>
+    </Suspense>
+  );
+}
+```
+
+**Pattern 2: Reusable Protected Route Components**
+```typescript
+// Use <AdminRoute> or <AuthRoute> from components/protected-route.tsx
+import { AdminRoute } from '@/components/protected-route';
+
+export default function AdminPage() {
+  return (
+    <AdminRoute>
+      <AdminContent />
+    </AdminRoute>
+  );
+}
+
+async function AdminContent() {
+  // This component only renders after auth check passes
+  const data = await fetchData();
+  return <UI data={data} />;
+}
+```
+
+**Key Rules**:
+1. **NEVER call `getCurrentUser()` or `requireAdmin()` directly in a layout without Suspense** - this blocks all children from rendering
+2. **ALWAYS wrap auth checks in Suspense boundaries** - allows page shell to stream while auth is checked
+3. **Use `verifySession()` / `verifyAdminSession()`** for cached auth checks within components (uses React `cache()`)
+4. **Note**: `export const dynamic = 'force-dynamic'` is NOT compatible with Next.js 16's `cacheComponents` experiment - Suspense boundaries already make routes dynamic
+
 **Protected Routes**:
 - API routes: Use `withAdmin()` or `withAuth()` middleware
-- UI routes: Check `await requireAdmin()` in Server Components
+- UI routes: Use `<AdminRoute>` wrapper or Suspense + auth guard pattern
 - Client Components: Use API client (handles auth automatically)
 
 ### File Structure

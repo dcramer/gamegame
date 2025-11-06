@@ -116,6 +116,37 @@ export async function getCurrentUser(): Promise<UserData | null> {
 }
 
 /**
+ * Cached session verifier for Data Access Layer (DAL) pattern
+ * Uses React's cache() to dedupe calls within a single request
+ * Returns null if not authenticated
+ *
+ * This is the recommended function for auth checks in components that
+ * need to be non-blocking and streaming-friendly.
+ */
+export const verifySession = cache(async (): Promise<UserData | null> => {
+  return getSession();
+});
+
+/**
+ * Cached admin session verifier for Data Access Layer (DAL) pattern
+ * Uses React's cache() to dedupe calls within a single request
+ * Throws if not authenticated or not admin
+ *
+ * This is the recommended function for admin-only components that
+ * need to be non-blocking and streaming-friendly.
+ */
+export const verifyAdminSession = cache(async (): Promise<UserData> => {
+  const user = await verifySession();
+  if (!user) {
+    throw new Error('Unauthorized');
+  }
+  if (!user.isAdmin) {
+    throw new Error('Forbidden: Admin access required');
+  }
+  return user;
+});
+
+/**
  * Create a new session for a user (generates JWT and sets cookie)
  */
 export async function createSession(userId: string): Promise<void> {

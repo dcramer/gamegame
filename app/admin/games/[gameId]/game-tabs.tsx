@@ -2,7 +2,12 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  NavigationTabs,
+  NavigationTabsList,
+  NavigationTabsTrigger,
+  NavigationTabsContent,
+} from "@/components/ui/navigation-tabs";
 import { Badge } from "@/components/ui/badge";
 
 interface GameTabsProps {
@@ -27,13 +32,15 @@ export default function GameTabs({ gameId, resourceCount, attachmentCount, child
       : "details";
 
   return (
-    <Tabs>
-      <TabsList className="mb-6 mt-4">
+    <NavigationTabs>
+      <NavigationTabsList className="mb-6 mt-4">
         <Link href={`/admin/games/${gameId}`}>
-          <TabsTrigger active={activeTab === "details"}>Details</TabsTrigger>
+          <NavigationTabsTrigger active={activeTab === "details"}>
+            Details
+          </NavigationTabsTrigger>
         </Link>
         <Link href={`/admin/games/${gameId}/resources`}>
-          <TabsTrigger active={activeTab === "resources"}>
+          <NavigationTabsTrigger active={activeTab === "resources"}>
             <span className="flex items-center gap-2">
               Resources
               {resourceCount > 0 && (
@@ -42,10 +49,10 @@ export default function GameTabs({ gameId, resourceCount, attachmentCount, child
                 </Badge>
               )}
             </span>
-          </TabsTrigger>
+          </NavigationTabsTrigger>
         </Link>
         <Link href={`/admin/games/${gameId}/attachments`}>
-          <TabsTrigger active={activeTab === "attachments"}>
+          <NavigationTabsTrigger active={activeTab === "attachments"}>
             <span className="flex items-center gap-2">
               Attachments
               {attachmentCount > 0 && (
@@ -54,11 +61,11 @@ export default function GameTabs({ gameId, resourceCount, attachmentCount, child
                 </Badge>
               )}
             </span>
-          </TabsTrigger>
+          </NavigationTabsTrigger>
         </Link>
-      </TabsList>
+      </NavigationTabsList>
 
-      <TabsContent className="mt-0">{children}</TabsContent>
-    </Tabs>
+      <NavigationTabsContent className="mt-0">{children}</NavigationTabsContent>
+    </NavigationTabs>
   );
 }
