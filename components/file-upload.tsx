@@ -127,7 +127,7 @@ export function FileUpload({
   if (variant === "button") {
     return (
       <div className={className}>
-        <Button variant="secondary" onClick={triggerFileInput}>
+        <Button onClick={triggerFileInput} variant="outline">
           <Upload className="mr-2 h-4 w-4" />
           {buttonText}
         </Button>

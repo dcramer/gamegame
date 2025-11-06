@@ -13,8 +13,10 @@ export default function GameTabs({ gameId, children }: GameTabsProps) {
   const pathname = usePathname();
 
   // Determine active tab from URL
-  const isAttachmentsTab = pathname.endsWith("/attachments");
-  const isResourcesTab = pathname.endsWith("/resources");
+  // Check for attachments at game level (not resource level)
+  const isAttachmentsTab = pathname.endsWith("/attachments") && !pathname.includes("/resources/");
+  // Check if we're on any resources route (including resource detail pages)
+  const isResourcesTab = pathname.includes("/resources");
   const activeTab = isAttachmentsTab
     ? "attachments"
     : isResourcesTab

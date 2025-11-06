@@ -300,13 +300,13 @@ export default function ResourceList({
                     </div>
                     {resource.error ? (
                       <>
-                        <div className="text-red-400 font-semibold">Failed to upload</div>
-                        <div className="text-xs text-red-400 mt-1">{resource.error}</div>
+                        <div className="text-destructive font-semibold">Failed to upload</div>
+                        <div className="text-xs text-destructive mt-1">{resource.error}</div>
                       </>
                     ) : resource.pending ? (
                       <em>Pending</em>
                     ) : !resource.pending && (resource.status === "processing" || resource.status === "queued") ? (
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Spinner size="sm" />
                         <span>
                           Processing...
@@ -317,7 +317,7 @@ export default function ResourceList({
                       </div>
                     ) : null}
                     {!resource.hasContent && !resource.pending && resource.status !== "processing" && resource.status !== "queued" ? (
-                      <div className="text-red-400">Missing Content</div>
+                      <div className="text-destructive">Missing Content</div>
                     ) : null}
                     {!resource.pending && resource.pdfExtractor && resource.status !== "processing" && resource.status !== "queued" && (
                       <div className="text-xs text-muted-foreground mt-1">
@@ -338,7 +338,7 @@ export default function ResourceList({
                   <TableCell className="text-center gap-2 flex">
                     <Button
                       size="sm"
-                      variant="secondary"
+                      variant="outline"
                       disabled={resource.pending || (!resource.pending && (resource.status === "processing" || resource.status === "queued"))}
                       onClick={async (e) => {
                         e.stopPropagation();

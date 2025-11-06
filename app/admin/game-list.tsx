@@ -93,7 +93,7 @@ export default function GameList({
                     </div>
                   )}
                   {!game.hasResources ? (
-                    <div className="text-red-400">No Resources</div>
+                    <div className="text-destructive">No Resources</div>
                   ) : null}
                 </TableCell>
                 <TableCell className="text-center">
@@ -118,7 +118,7 @@ export default function GameList({
         </TableBody>
       </Table>
       <div className="self-end">
-        <Button asChild size="sm" variant="secondary">
+        <Button asChild size="sm">
           <Link href="/admin/add-game">Add Game</Link>
         </Button>
       </div>

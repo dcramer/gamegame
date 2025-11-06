@@ -141,7 +141,7 @@ export default function Form() {
                 autoFocus
               />
             </div>
-            <Button variant="secondary" type="submit" disabled={isSearching || isCreating} className="min-w-[100px]">
+            <Button type="submit" disabled={isSearching || isCreating} className="min-w-[100px]">
               {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : "Search"}
             </Button>
           </div>
@@ -225,9 +225,9 @@ export default function Form() {
 
         {/* Error Display */}
         {searchError && hasSearched && !isCreating && (
-          <Card className="border-red-500/50 bg-red-500/10">
+          <Card className="border-destructive/50 bg-destructive/10">
             <CardContent className="p-4">
-              <p className="text-sm text-red-500">
+              <p className="text-sm text-destructive">
                 <strong>Search failed:</strong> {searchError}
               </p>
             </CardContent>
@@ -346,7 +346,7 @@ export default function Form() {
         >
           Back to BGG Search
         </Button>
-        <Button variant="secondary" type="submit" className="flex-1" disabled={isLoading}>
+        <Button type="submit" className="flex-1" disabled={isLoading}>
           Add Game
           {isLoading && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
         </Button>

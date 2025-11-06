@@ -8,7 +8,7 @@ import { attachments } from "../db/schema/attachments";
 import { insertResourceSchema, resources } from "../db/schema/resources";
 import { games } from "../db/schema/games";
 import { jobs } from "../db/schema/jobs";
-import { processResourceWorkflow } from "../workflows/process-resource";
+import { processResourceWorkflow } from "@/workflows/process-resource";
 import mime from "mime";
 import { asc, eq, sql } from "drizzle-orm";
 import { extractTextFromPdf } from "../pdf";

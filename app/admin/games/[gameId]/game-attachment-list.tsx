@@ -81,9 +81,9 @@ export default function GameAttachmentList({
                   {attachment.isGoodQuality && (
                     <div className="absolute top-2 right-2">
                       {attachment.isGoodQuality === "good" ? (
-                        <CheckCircle2 className="h-5 w-5 text-green-600 bg-white rounded-full" />
+                        <CheckCircle2 className="h-5 w-5 text-success bg-white dark:bg-black rounded-full" />
                       ) : (
-                        <XCircle className="h-5 w-5 text-red-600 bg-white rounded-full" />
+                        <XCircle className="h-5 w-5 text-destructive bg-white dark:bg-black rounded-full" />
                       )}
                     </div>
                   )}
@@ -104,9 +104,9 @@ export default function GameAttachmentList({
                 {attachment.isGoodQuality && (
                   <div className="flex items-center gap-1">
                     {attachment.isGoodQuality === "good" ? (
-                      <CheckCircle2 className="h-3 w-3 text-green-600" />
+                      <CheckCircle2 className="h-3 w-3 text-success" />
                     ) : (
-                      <XCircle className="h-3 w-3 text-red-600" />
+                      <XCircle className="h-3 w-3 text-destructive" />
                     )}
                     <span className="text-xs text-muted-foreground">
                       {attachment.isGoodQuality}

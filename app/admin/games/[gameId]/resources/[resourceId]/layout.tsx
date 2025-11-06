@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getResource } from "@/lib/actions/resources";
 import { getGame } from "@/lib/actions/games";
 import { PageHeader } from "@/components/page-header";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 import AdminLayout from "@/components/admin-layout";
 import ResourceTabs from "./resource-tabs";
 import ResourceActions from "./resource-actions";
@@ -34,12 +35,21 @@ export default async function Layout(props: {
 
   return (
     <AdminLayout>
-      <ResourceTabs gameId={params.gameId} resourceId={params.resourceId}>
-        <PageHeader
-          title={resource.name}
-          stats={stats}
-        />
+      <Breadcrumbs
+        items={[
+          { label: "Games", href: "/admin" },
+          { label: game.name, href: `/admin/games/${game.id}` },
+          { label: "Resources", href: `/admin/games/${game.id}/resources` },
+          { label: resource.name },
+        ]}
+      />
 
+      <PageHeader
+        title={resource.name}
+        stats={stats}
+      />
+
+      <ResourceTabs gameId={params.gameId} resourceId={params.resourceId}>
         <div className="grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-8">
           {/* Left column - Content */}
           <div>{children}</div>

@@ -148,7 +148,7 @@ export default async function AttachmentsPage(props: { params: Promise<{ gameId:
                       <div className="text-xs line-clamp-2">{attachment.caption}</div>
                     )}
                     {attachment.isGoodQuality === false && (
-                      <div className="text-xs text-yellow-300 mt-1">⚠ Low quality</div>
+                      <div className="text-xs text-warning mt-1">⚠ Low quality</div>
                     )}
                   </div>
                 </div>

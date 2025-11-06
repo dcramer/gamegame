@@ -236,7 +236,7 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
                       </div>
                     )}
                     {job.error && (
-                      <div className="text-xs text-red-500 mt-1" title={job.error}>
+                      <div className="text-xs text-destructive mt-1" title={job.error}>
                         {job.error.length > 50
                           ? `${job.error.slice(0, 50)}...`
                           : job.error}
@@ -261,7 +261,7 @@ export default function JobsClient({ initialJobs }: JobsClientProps) {
                               disabled={isCanceling}
                               onClick={() => handleCancel(job.jobId)}
                             >
-                              <X className="h-4 w-4 text-red-500" />
+                              <X className="h-4 w-4 text-destructive" />
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>Cancel job</TooltipContent>
