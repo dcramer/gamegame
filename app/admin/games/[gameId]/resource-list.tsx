@@ -319,10 +319,9 @@ export default function ResourceList({
                     {!resource.hasContent && !resource.pending && resource.status !== "processing" && resource.status !== "queued" ? (
                       <div className="text-destructive">Missing Content</div>
                     ) : null}
-                    {!resource.pending && resource.pdfExtractor && resource.status !== "processing" && resource.status !== "queued" && (
+                    {!resource.pending && stats && resource.status !== "processing" && resource.status !== "queued" && (
                       <div className="text-xs text-muted-foreground mt-1">
-                        Processed with {resource.pdfExtractor}
-                        {stats && ` - ${stats}`}
+                        {stats}
                       </div>
                     )}
                   </TableCell>
