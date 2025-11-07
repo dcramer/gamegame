@@ -64,10 +64,10 @@ export const list = adminProcedure
       error: run.error || null,
       createdAt: run.createdAt.getTime(),
       completedAt: run.completedAt ? run.completedAt.getTime() : null,
-      gameId: run.gameId,
-      gameName: run.gameName,
-      resourceId: run.resourceId,
-      resourceName: run.resourceName,
+      gameId: run.gameId ?? null,
+      gameName: run.gameName ?? null,
+      resourceId: run.resourceId ?? null,
+      resourceName: run.resourceName ?? null,
     }));
 
     return { jobs: formattedJobs };

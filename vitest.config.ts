@@ -24,6 +24,7 @@ export default defineConfig({
       MISTRAL_API_KEY: 'test-mistral-key',
       AUTH_SECRET: 'test-auth-secret',
       AUTH_RESEND_KEY: 'test-resend-key',
+      SESSION_SECRET: 'test-session-secret-32-chars-minimum',
       NODE_ENV: 'test',
     },
   },

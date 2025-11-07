@@ -24,13 +24,13 @@ const queryClient =
   process.env.NODE_ENV === 'development' && global.__db
     ? global.__db
     : postgres(connectionString, {
-        // CRITICAL: Disable prepared statements for transaction pooling (PgBouncer)
-        // Prepared statements don't work with transaction-mode poolers
-        prepare: false,
+        // Prepared statements: enabled in dev (better performance), disabled in prod (PgBouncer compatibility)
+        prepare: process.env.NODE_ENV !== 'production',
 
         // Connection pool configuration
-        // Keep low since PgBouncer handles the real pooling
-        max: process.env.NODE_ENV === 'production' ? 1 : 3,
+        // Production: 1 connection (PgBouncer handles pooling)
+        // Development: 10 connections (direct to Postgres)
+        max: process.env.NODE_ENV === 'production' ? 1 : 10,
 
         // Lifecycle settings - close idle connections quickly
         idle_timeout: 20,           // Close idle connections after 20s
@@ -61,16 +61,13 @@ if (process.env.NODE_ENV === 'development') {
 export const db = drizzle(queryClient, { schema });
 
 // For migrations - separate client with single connection
-// Migrations need to connect directly to Postgres (port 5434), not through PgBouncer
-// because they may use features incompatible with transaction pooling
-const migrationConnectionString = process.env.MIGRATION_DATABASE_URL || connectionString;
-
+// Same connection string as main client (no more separate MIGRATION_DATABASE_URL)
 const migrationClient =
   process.env.NODE_ENV === 'development' && global.__migrationClient
     ? global.__migrationClient
-    : postgres(migrationConnectionString, {
+    : postgres(connectionString, {
         max: 1,
-        prepare: false,  // Also disable for migrations for consistency
+        prepare: false,  // Disable for migrations (some DDL doesn't work with prepared statements)
       });
 
 if (process.env.NODE_ENV === 'development') {

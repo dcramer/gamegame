@@ -77,7 +77,7 @@ export default function Form({
             updateData.imageUrl = finalImageUrl;
           }
 
-          await orpc.games.update({ id: game.id, ...updateData });
+          await orpc.games.update({ id: game.id, data: updateData });
           router.refresh();
         } catch (error) {
           console.error('Failed to update game:', error);

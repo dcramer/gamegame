@@ -61,26 +61,14 @@ export default function Form() {
       const results = await orpc.bgg.search({ query: searchQuery });
       setSearchResults(results);
 
-      // Lazy-load thumbnails for results that don't have them
+      // Use thumbnails from already-imported games only (from gameImageUrl)
+      const newThumbnails: Record<string, string> = {};
       results.forEach((result: BGGSearchResult) => {
-        if (!result.thumbnailUrl) {
-          // Fetch thumbnail in background (rate-limited on server)
-          fetch(`/api/bgg/games/${result.id}/thumbnail`)
-            .then(res => res.json())
-            .then(data => {
-              if (data.thumbnailUrl) {
-                setThumbnails(prev => ({ ...prev, [result.id]: data.thumbnailUrl }));
-              }
-            })
-            .catch(err => {
-              console.error(`Failed to load thumbnail for ${result.id}:`, err);
-              // Continue without thumbnail - not critical
-            });
-        } else {
-          // Already has thumbnail from cache
-          setThumbnails(prev => ({ ...prev, [result.id]: result.thumbnailUrl! }));
+        if (result.gameImageUrl) {
+          newThumbnails[result.id] = result.gameImageUrl;
         }
       });
+      setThumbnails(newThumbnails);
     } catch (error) {
       console.error("Search error:", error);
       const message = error instanceof Error ? error.message : "Failed to search BoardGameGeek";
@@ -164,11 +152,21 @@ export default function Form() {
                 {/* BGG Search Results */}
                 {searchResults.map((result) => {
                   const thumbnailUrl = thumbnails[result.id];
+                  const isImported = result.isImported;
+
                   return (
                     <button
                       key={result.id}
                       type="button"
-                      onClick={() => handleSelectGame(result)}
+                      onClick={() => {
+                        if (isImported && result.gameId) {
+                          // Navigate to existing game
+                          router.push(`/admin/games/${result.gameId}`);
+                        } else {
+                          // Import new game
+                          handleSelectGame(result);
+                        }
+                      }}
                       className="flex items-center gap-4 p-4 transition-colors cursor-pointer w-full text-left hover:bg-muted/50"
                     >
                       <div className="w-16 h-16 rounded bg-muted flex items-center justify-center shrink-0 overflow-hidden">
@@ -196,10 +194,15 @@ export default function Form() {
                       <p className="text-sm text-muted-foreground truncate mt-0.5">
                         {result.type === "boardgameexpansion" && "Expansion • "}
                         BGG #{result.id}
+                        {isImported && <span className="text-green-600 ml-2">• Already imported</span>}
                       </p>
                     </div>
                     <div className="text-sm shrink-0">
-                      <span className="text-primary">Click to import →</span>
+                      {isImported ? (
+                        <span className="text-green-600">View game →</span>
+                      ) : (
+                        <span className="text-primary">Click to import →</span>
+                      )}
                     </div>
                   </button>
                 );

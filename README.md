@@ -1,192 +1,196 @@
-# GameGame Next.js Migration
+# GameGame
 
-This package is a migration of the Cloudflare Workers implementation (in `../workers/`) back to Next.js and Vercel infrastructure.
+An LLM-powered board game assistant that helps players understand game rules using RAG (Retrieval-Augmented Generation) with hybrid search.
 
-## Migration Status
+## Quick Start
 
-### ✅ Completed
+### Prerequisites
+- Node.js 20+
+- pnpm (`npm install -g pnpm`)
+- Docker and Docker Compose
 
-1. **Package Structure**
-   - Next.js 15 with App Router
-   - TypeScript configuration
-   - Tailwind CSS + shadcn/ui setup
-   - Drizzle ORM for PostgreSQL
-
-2. **Environment Configuration**
-   - `.env.example` with all required variables
-   - `lib/env.mjs` for type-safe environment validation
-
-3. **Database Schemas (PostgreSQL + pgvector)**
-   - **`games`** - Game metadata
-   - **`resources`** - PDF rulebooks with processing status
-   - **`fragments`** - Text/image chunks for RAG search
-   - **`embeddings`** - Vector embeddings (NEW!)
-     - Supports both content embeddings and HyDE question embeddings
-     - Separate table design (cleaner than inline in fragments)
-     - Uses pgvector for similarity search
-   - **`attachments`** - Images extracted from PDFs
-   - **`users`** - User accounts with admin flags
-   - **`bgg_games`** - BoardGameGeek cache
-   - **`jobs`** - Background job tracking (replaces KV)
-
-### 🚧 In Progress
-
-4. **Database Client**
-   - Basic Drizzle client created
-   - Need migration scripts
-
-### ⏳ Pending
-
-5. **AI Services**
-   - Hybrid search (content vectors + question vectors + full-text)
-   - Embedding generation
-   - HyDE question generation
-   - Prompt builder and tools
-
-6. **Storage Layer**
-   - Vercel Blob abstraction
-   - Image processing utilities
-   - Attachment management
-
-7. **PDF Processing**
-   - Mistral OCR integration
-   - Smart chunking
-   - Searchable content enrichment
-   - Vision analysis
-
-8. **Background Jobs** (Vercel Workflows)
-   - 6-stage processing pipeline
-   - Job status tracking
-   - Scheduled cleanup
-
-9. **API Routes**
-   - Auth, games, resources, BGG, attachments
-
-10. **UI Components**
-   - Public pages (home, games, chat)
-   - Admin pages (dashboard, jobs, resources)
-
-## Key Architecture Decisions
-
-### 1. Embeddings Table Design
-
-Unlike the original Next.js implementation (which stored embeddings inline in the `fragments` table), this migration uses a **separate `embeddings` table**:
-
-**Why separate?**
-- Mirrors the Vectorize architecture from workers/
-- Supports multiple embeddings per fragment (content + 5 questions for HyDE)
-- Cleaner separation of concerns
-- Easier to index and query by embedding type
-
-**Schema:**
-```sql
-CREATE TABLE embeddings (
-  id VARCHAR(191) PRIMARY KEY,           -- fragmentId or fragmentId-q0..q4
-  fragment_id VARCHAR(191) NOT NULL,
-  type VARCHAR(50) NOT NULL,             -- 'content' or 'question'
-  embedding vector(1536) NOT NULL,
-  question_index INTEGER,                -- 0-4 for questions, NULL for content
-  question_text TEXT,                    -- The synthetic question
-  ...
-);
-```
-
-**Search Pattern:**
-- Content vectors: `SELECT * FROM embeddings WHERE type = 'content' AND ...`
-- Question vectors: `SELECT * FROM embeddings WHERE type = 'question' AND ...`
-- RRF fusion combines both with full-text search
-
-### 2. Database Differences from Workers
-
-| Workers (D1/SQLite) | Next.js (PostgreSQL) |
-|---------------------|----------------------|
-| `text` (for JSON) | `jsonb` (native JSON) |
-| `integer (mode: 'timestamp')` | `bigint` (Unix ms) |
-| `integer (mode: 'boolean')` | `integer` (0/1) |
-| Vectorize (separate service) | pgvector (same DB) |
-| FTS5 virtual table | tsvector + GIN index |
-
-### 3. Background Jobs: Vercel Workflows
-
-Using Vercel Workflows (Beta) instead of Cloudflare Queues:
-
-**Advantages:**
-- Native Vercel integration
-- Built-in retries and durability
-- Visual debugging
-- Simpler code (no manual queue management)
-
-**Pipeline Stages:**
-1. INGEST - PDF extraction (Mistral OCR)
-2. VISION - Image analysis (GPT-4o vision)
-3. CLEANUP - Markdown cleanup (LLM)
-4. METADATA - Resource name/description generation
-5. EMBED - Generate embeddings (content + HyDE questions)
-6. FINALIZE - Mark resource ready
-
-### 4. Storage: Vercel Blob + KV
-
-- **Vercel Blob**: PDFs, images (replaces R2)
-  - **Local Development**: Falls back to `public/uploads/` if `BLOB_READ_WRITE_TOKEN` is not set
-  - **Production**: Uses Vercel Blob when token is available
-  - Files stored at: `resources/{resourceId}/attachments/{attachmentId}.{ext}`
-- **Vercel KV**: Rate limiting (replaces Cloudflare KV)
-- **PostgreSQL**: Job status (replaces KV)
-
-## Development
+### Setup
 
 ```bash
-# Install dependencies
+# 1. Clone and install dependencies
+git clone <repository-url>
+cd gamegame
 pnpm install
 
-# Set up environment
-cp .env.example .env
-# Edit .env with your values
+# 2. Start PostgreSQL
+docker-compose up -d
 
-# Run database migrations
-pnpm db:generate
-pnpm db:migrate
-
-# Start development server
-pnpm dev
-
-# Open Drizzle Studio (database GUI)
-pnpm db:studio
+# 3. Configure environment variables
+cp .env.example .env.local
 ```
 
-## Next Steps
+Edit `.env.local` and add your API keys:
+```bash
+# Required for core functionality
+OPENAI_API_KEY=sk-...              # From platform.openai.com
+MISTRAL_API_KEY=...                # From console.mistral.ai
+AUTH_SECRET=...                    # Generate: npx auth secret
+SESSION_SECRET=...                 # Generate: openssl rand -base64 32
+AUTH_RESEND_KEY=...                # From resend.com (for magic link emails)
 
-1. Create database migration script
-2. Port AI services from workers/
-3. Port storage layer
-4. Port PDF processing pipeline
-5. Implement Vercel Workflows
-6. Port API routes
-7. Port UI components
-8. Testing and deployment
+# Optional (falls back to local storage)
+BLOB_READ_WRITE_TOKEN=...          # Vercel Blob for file storage
+```
+
+```bash
+# 4. Initialize database (creates databases + runs migrations)
+make setup
+
+# 5. Create an admin user
+make grant-admin
+# Enter your email when prompted
+
+# 6. Start development server
+pnpm dev
+```
+
+Visit http://localhost:3000
+
+### First Login
+
+After starting the dev server, generate a magic link:
+```bash
+pnpm cli users login-url your-email@example.com
+```
+Click the link to sign in.
+
+## Common Commands
+
+### Development
+```bash
+pnpm dev              # Start dev server with Turbopack (http://localhost:3000)
+pnpm build            # Production build
+pnpm lint             # Run ESLint
+pnpm type-check       # TypeScript type check without building
+```
+
+### Database Management
+```bash
+# Daily operations
+make reset-db         # Drop and recreate databases (dev + test)
+pnpm db:studio        # Open Drizzle Studio (GUI for database)
+docker-compose ps     # Check if database is running
+
+# Schema changes
+pnpm db:generate      # Generate new migration from schema changes
+make migrate          # Apply pending migrations
+pnpm db:push          # Push schema directly (dev only, skips migrations)
+```
+
+### CLI Tools
+
+The CLI handles common admin tasks without needing to write SQL:
+
+```bash
+# User management
+pnpm cli users create user@example.com [--admin]
+pnpm cli users grant-admin user@example.com
+pnpm cli users login-url user@example.com
+
+# Game management
+pnpm cli games list
+pnpm cli games create "Game Name" --slug game-slug
+
+# Resource management
+pnpm cli resources reprocess <resource-id> [--from=stage]
+pnpm cli resources reprocess-all [--game=slug]
+pnpm cli resources status <job-id>
+
+# Interactive chat (test RAG system)
+pnpm cli ask <game-slug> "How do I setup the game?"
+```
+
+### Testing
+```bash
+pnpm test             # Run tests in watch mode (TDD)
+pnpm test:run         # Run tests once (CI mode)
+
+# Test database must be running and migrated:
+docker-compose up -d
+make migrate-test
+```
+
+## Documentation
+
+- **[CLAUDE.md](./CLAUDE.md)** - Complete architecture, development guide, and AI assistant context
+- **[docs/testing.md](./docs/testing.md)** - Testing philosophy and guidelines
+- **[docs/api-routes.md](./docs/api-routes.md)** - API documentation
+
+## Tech Stack
+
+- **Framework**: Next.js 16 with App Router, React 19
+- **Database**: PostgreSQL with pgvector extension
+- **ORM**: Drizzle ORM
+- **AI**: OpenAI GPT-4o, Mistral OCR
+- **Storage**: Vercel Blob (falls back to local filesystem in dev)
+- **Auth**: JWT sessions with magic link email authentication
+- **Workflows**: Vercel Workflows for async PDF processing
+- **Styling**: Tailwind CSS v4, Radix UI components
 
 ## Environment Variables
 
-See `.env.example` for required environment variables.
+### Required Variables
 
-Key requirements:
-- `DATABASE_URL` - PostgreSQL connection string (with pgvector extension)
-- `OPENAI_API_KEY` - For embeddings and chat
-- `MISTRAL_API_KEY` - For PDF extraction
-- `BLOB_READ_WRITE_TOKEN` - Vercel Blob storage (optional for local dev, falls back to `public/uploads/`)
-- `AUTH_SECRET` - NextAuth secret
-- `AUTH_RESEND_KEY` - Resend API for magic links
+| Variable | Description | How to Get |
+|----------|-------------|------------|
+| `DATABASE_URL` | PostgreSQL connection | Auto-configured: `postgres://postgres:postgres@localhost:5433/gamegame` |
+| `OPENAI_API_KEY` | OpenAI API key for embeddings and chat | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| `MISTRAL_API_KEY` | Mistral API for PDF OCR | [console.mistral.ai/api-keys](https://console.mistral.ai/api-keys) |
+| `AUTH_SECRET` | NextAuth session encryption | Generate: `npx auth secret` |
+| `SESSION_SECRET` | JWT signing secret (32+ chars) | Generate: `openssl rand -base64 32` |
+| `AUTH_RESEND_KEY` | Resend API for magic link emails | [resend.com/api-keys](https://resend.com/api-keys) |
 
-## Migration Notes
+### Optional Variables
 
-This migration preserves all advanced features from workers/:
-- ✅ HyDE (Hypothetical Document Embeddings)
-- ✅ Hybrid search (semantic + full-text + RRF fusion)
-- ✅ Multi-modal fragments (text + images)
-- ✅ Searchable content enrichment
-- ✅ Image quality analysis
-- ✅ 6-stage processing pipeline
-- ✅ Job status tracking
-- ✅ BGG integration with caching
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob for file storage | Falls back to `./public/uploads` |
+| `KV_URL`, `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Vercel KV for rate limiting | Rate limiting disabled |
+| `NEXT_PUBLIC_APP_URL` | Public app URL | `http://localhost:3000` |
+| `SENTRY_DSN` | Error tracking (production) | Spotlight debugging UI |
 
-The goal is to maintain feature parity while simplifying the developer experience with Next.js and Vercel's mature ecosystem.
+See [.env.example](./.env.example) for complete list with descriptions.
+
+## Troubleshooting
+
+### Database won't start
+```bash
+# Check if port 5433 is already in use
+lsof -i :5433
+
+# Reset Docker containers
+docker-compose down
+docker-compose up -d
+```
+
+### Migrations fail
+```bash
+# Ensure database is running
+docker-compose ps
+
+# Reset database and re-run migrations
+make reset-db
+```
+
+### "Module not found" errors
+```bash
+# Clear Next.js cache and reinstall
+rm -rf .next node_modules
+pnpm install
+```
+
+### Tests fail with database errors
+```bash
+# Ensure test database is created and migrated
+make create-db-test
+make migrate-test
+```
+
+## License
+
+MIT

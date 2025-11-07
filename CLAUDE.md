@@ -13,7 +13,6 @@ GameGame is an LLM-powered board game assistant that helps players understand ga
 pnpm install
 docker-compose up -d          # Start local Postgres
 make setup                    # Install deps and create databases
-pnpm db:migrate              # Run database migrations
 ```
 
 ### Running the Application
@@ -22,17 +21,58 @@ pnpm dev                     # Start dev server with Turbopack
 pnpm build                   # Production build
 pnpm start                   # Start production server
 pnpm lint                    # Run Next.js linter
+pnpm type-check              # Type check without building
 ```
 
 ### Database Operations
 ```bash
 pnpm db:generate             # Generate new migration from schema changes
-pnpm db:migrate              # Apply migrations
+make migrate                 # Apply migrations
 pnpm db:push                 # Push schema directly (dev only)
 pnpm db:studio               # Open Drizzle Studio UI
 make reset-db                # Drop and recreate databases
 make grant-admin             # Grant admin privileges to user (prompts for email)
 ```
+
+### CLI Commands
+
+The CLI automatically loads environment variables from `.env.local` and `.env` files (in that order). **Never** pass environment variables to CLI commands - they're handled automatically via dotenv in `cli/index.ts`.
+
+```bash
+# Games management
+pnpm cli games list
+pnpm cli games create "Game Name" --slug game-name
+
+# Resources management
+pnpm cli resources status <job-id>
+pnpm cli resources reprocess <resource-id> [--from=<stage>]
+pnpm cli resources reprocess-all [--game=<slug>]
+
+# User management
+pnpm cli users create <email> [--admin]
+pnpm cli users grant-admin <email>
+pnpm cli users login-url <email>
+
+# Ask questions
+pnpm cli ask <game-slug> "Your question here"
+```
+
+**Important**:
+- CLI commands always use the environment from `.env.local` / `.env`
+- Never wrap CLI calls with `DATABASE_URL=...` or other env vars
+- All CLI commands automatically exit after completion to prevent hanging connections
+
+### Database Connection
+
+The development environment uses a direct PostgreSQL connection (no PgBouncer):
+
+- **5433** → PostgreSQL (exposed from Docker)
+- **5432** → Internal Docker network (inside container)
+
+**Production deployment** (Vercel):
+- Uses PgBouncer for connection pooling (handles serverless function scaling)
+- Application code automatically disables prepared statements in production
+- See `lib/db/index.ts` for environment-based configuration
 
 ## PDF Extraction
 

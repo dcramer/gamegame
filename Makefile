@@ -11,11 +11,13 @@ reset-db:
 	$(MAKE) drop-db
 	$(MAKE) create-db
 	$(MAKE) migrate
+	$(MAKE) migrate-workflows
 
 reset-test-db:
 	$(MAKE) drop-db-test
 	$(MAKE) create-db-test
 	$(MAKE) migrate-test
+	$(MAKE) migrate-workflows-test
 
 drop-db: drop-db-dev drop-db-test
 
@@ -42,9 +44,12 @@ migrate-test:
 migrate-workflows:
 	WORKFLOW_POSTGRES_URL=postgresql://postgres:postgres@localhost:5433/$(PG_DATABASE) pnpm exec workflow-postgres-setup
 
+migrate-workflows-test:
+	WORKFLOW_POSTGRES_URL=postgresql://postgres:postgres@localhost:5433/$(PG_DATABASE_TEST) pnpm exec workflow-postgres-setup
+
 wipe-node-modules:
 	find . | grep node_modules$ | xargs rm -rf
 
 grant-admin:
 	@read -p "Enter email address: " email; \
-	$(PG_CONTAINER) psql -h 127.0.0.1 -p 5432 -U postgres $(PG_DATABASE) -c "UPDATE users SET admin = TRUE WHERE email = '$$email';"
+	pnpm cli users grant-admin "$$email"

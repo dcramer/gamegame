@@ -160,8 +160,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
     })
   );
 
-  // Update job progress
-  await updateJobProgress(input.runId, 'Generating search questions', 70);
+  // Progress tracking removed - workflows are tracked via resources.processingStage
 
   // Generate HyDE questions
   const { generateQuestionsForFragments } = await import('@/lib/services/hyde');
@@ -188,8 +187,6 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
     })
   );
 
-  // Update job progress
-  await updateJobProgress(input.runId, 'Classifying answer types', 72);
 
   // Generate answer type classifications for text chunks
   const { classifyFragmentsAnswerTypes } = await import('@/lib/services/answer-type-classification');
@@ -325,8 +322,6 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
     })),
   ];
 
-  // Update progress
-  await updateJobProgress(input.runId, `Generating embeddings: ${allFragmentsForEmbedding.length} fragments`, 75);
 
   // Prepare texts to embed (content + questions)
   const textsToEmbed: string[] = [];
@@ -405,8 +400,6 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
     };
   });
 
-  // Update progress
-  await updateJobProgress(input.runId, `Storing ${fragmentRecords.length} fragments`, 80);
 
   // Insert fragments in batches
   const FRAGMENT_BATCH_SIZE = 10;
@@ -559,13 +552,3 @@ async function saveStructured(resourceId: string, structured: StructuredPDFConte
   await uploadBlob(key, buffer, 'application/json');
 }
 
-async function updateJobProgress(runId: string, currentStep: string, progress: number) {
-  const { jobs } = await import('@/lib/db/schema');
-  await db
-    .update(jobs)
-    .set({
-      currentStep,
-      progress,
-    })
-    .where(eq(jobs.id, runId));
-}

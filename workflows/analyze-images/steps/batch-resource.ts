@@ -9,7 +9,13 @@
 import { db } from '@/lib/db';
 import { resources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { loadStructured, saveStructured, parseMetadata, serializeMetadata } from '../../shared/helpers';
+import {
+  loadStructured,
+  saveStructured,
+  parseMetadata,
+  serializeMetadata,
+  hasActiveWorkflowConflict,
+} from '../../shared/helpers';
 import { analyzeBatchStep } from '../../shared/steps/analyze-image';
 
 export interface BatchResourceInput {
@@ -28,7 +34,57 @@ export async function analyzeBatchResourceStep(
   input: BatchResourceInput
 ): Promise<BatchResourceResult> {
   try {
-    // Get resource metadata
+    // Get resource metadata (use transaction for conflict checking)
+    const conflictCheckResult = await db.transaction(async (tx) => {
+      const [resourceRow] = await tx
+        .select({
+          metadata: resources.processingMetadata,
+          currentRunId: resources.currentRunId,
+        })
+        .from(resources)
+        .where(eq(resources.id, input.resourceId))
+        .limit(1)
+        .for('update');
+
+      if (!resourceRow) {
+        return {
+          hasError: true,
+          error: `Resource ${input.resourceId} not found`,
+        };
+      }
+
+      // Check for job conflicts if runId provided
+      if (input.runId) {
+        const hasConflict = await hasActiveWorkflowConflict(
+          input.resourceId,
+          input.runId,
+          resourceRow.currentRunId,
+          tx
+        );
+
+        if (hasConflict) {
+          return {
+            hasError: true,
+            error: `Resource is being processed by another workflow: ${resourceRow.currentRunId}`,
+          };
+        }
+      }
+
+      return {
+        hasError: false,
+        metadata: resourceRow.metadata,
+      };
+    });
+
+    if (conflictCheckResult.hasError) {
+      return {
+        success: false,
+        imagesProcessed: 0,
+        error: conflictCheckResult.error,
+      };
+    }
+
+    // Re-fetch resource metadata after transaction
     const [resourceRow] = await db
       .select({
         metadata: resources.processingMetadata,
@@ -43,15 +99,6 @@ export async function analyzeBatchResourceStep(
         success: false,
         imagesProcessed: 0,
         error: `Resource ${input.resourceId} not found`,
-      };
-    }
-
-    // Check for job conflicts if runId provided
-    if (input.runId && resourceRow.currentRunId && resourceRow.currentRunId !== input.runId) {
-      return {
-        success: false,
-        imagesProcessed: 0,
-        error: `Resource is being processed by different job: ${resourceRow.currentRunId}`,
       };
     }
 

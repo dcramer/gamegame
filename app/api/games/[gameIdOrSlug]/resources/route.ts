@@ -120,6 +120,7 @@ export const POST = withAdmin(async (
     // Create resource record
     const resourceId = nanoid();
     let sourceKey: string | null = null;
+    let uploadedUrl: string | null = null;
 
     // If file is provided, upload to blob storage
     if (file) {
@@ -131,7 +132,8 @@ export const POST = withAdmin(async (
       const extension = file.name.split('.').pop() || 'pdf';
       sourceKey = `resources/${resourceId}/source.${extension}`;
 
-      await uploadBlob(sourceKey, buffer, file.type);
+      // uploadBlob returns the URL (Vercel Blob URL or local path like /uploads/...)
+      uploadedUrl = await uploadBlob(sourceKey, buffer, file.type);
     }
 
     // Create run ID for workflow
@@ -142,7 +144,7 @@ export const POST = withAdmin(async (
       id: resourceId,
       gameId: game.id,
       name,
-      url: url || sourceKey || '',
+      url: url || uploadedUrl || '',
       originalFilename: file?.name || undefined,
       status: 'processing',
       processingStage: 'ingest',

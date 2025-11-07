@@ -29,6 +29,59 @@ export async function markResourceFailed(resourceId: string, error: string) {
 }
 
 // ==========================================
+// Workflow Conflict Resolution
+// ==========================================
+
+/**
+ * Check if a resource is being processed by another workflow.
+ * If the existing workflow is no longer running, clears the currentRunId.
+ *
+ * @returns true if there's an active conflict, false if safe to proceed
+ */
+export async function hasActiveWorkflowConflict(
+  resourceId: string,
+  currentRunId: string,
+  existingRunId: string | null,
+  tx: any
+): Promise<boolean> {
+  if (!existingRunId || existingRunId === currentRunId) {
+    return false; // No conflict
+  }
+
+  // Check if the existing workflow is actually still running
+  try {
+    const { getWorkflowRun } = await import('@/lib/services/workflows');
+    const existingRun = await getWorkflowRun(existingRunId);
+
+    // If workflow is still active, we have a conflict
+    if (existingRun.status === 'running' || existingRun.status === 'pending') {
+      return true;
+    }
+
+    // Workflow is done/failed/cancelled, clear the reference
+    console.log(
+      `[Workflow Conflict] Clearing stale currentRunId ${existingRunId} (status: ${existingRun.status}) for resource ${resourceId}`
+    );
+  } catch (error) {
+    // Workflow not found - it was cleaned up, safe to clear
+    console.log(
+      `[Workflow Conflict] Clearing orphaned currentRunId ${existingRunId} for resource ${resourceId} (workflow not found)`
+    );
+  }
+
+  // Clear the stale currentRunId
+  await tx
+    .update(resources)
+    .set({
+      currentRunId: currentRunId,
+      updatedAt: Date.now(),
+    })
+    .where(eq(resources.id, resourceId));
+
+  return false; // No active conflict
+}
+
+// ==========================================
 // Metadata Helpers
 // ==========================================
 

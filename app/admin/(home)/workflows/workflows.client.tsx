@@ -210,7 +210,10 @@ export default function WorkflowsClient({ initialJobs }: WorkflowsClientProps) {
                   <TableCell className="text-sm text-muted-foreground align-middle">
                     {formatDate(job.createdAt)}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground align-middle">
+                  <TableCell
+                    className="text-sm text-muted-foreground align-middle"
+                    suppressHydrationWarning
+                  >
                     {formatDuration(job.createdAt, job.completedAt ?? undefined)}
                   </TableCell>
                   <TableCell className="align-middle">

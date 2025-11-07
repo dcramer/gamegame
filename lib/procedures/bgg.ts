@@ -60,7 +60,6 @@ export const search = adminProcedure
 
     // Search BGG (always fetches fresh results from BGG API)
     const results = await searchBGGGames(input.query, {
-      fetchThumbnails: false,
       apiKey: process.env.BGG_API_KEY,
     });
 
@@ -140,96 +139,95 @@ export const importGame = adminProcedure
   )
   .output(gameResponseSchema)
   .handler(async ({ input }) => {
-    let uploadedImageKey: string | null = null;
-
-    try {
-      // Check if BGG API key is configured
-      if (!process.env.BGG_API_KEY) {
-        throw new ORPCError({
-          code: 'UNAVAILABLE',
-          message: 'BoardGameGeek API key is not configured',
-        });
-      }
-
-      // Fetch game details from BGG
-      const details = await getBGGGameDetails(input.bggId, {
-        apiKey: process.env.BGG_API_KEY,
+    // Check if BGG API key is configured
+    if (!process.env.BGG_API_KEY) {
+      throw new ORPCError({
+        code: 'UNAVAILABLE',
+        message: 'BoardGameGeek API key is not configured',
       });
-
-      // Download and upload image if available
-      let imageUrl: string | null = null;
-      if (details.imageUrl) {
-        try {
-          const imageBuffer = await downloadImage(details.imageUrl);
-
-          // Detect image type from buffer
-          let extension = 'jpg';
-          let contentType = 'image/jpeg';
-
-          // Check magic bytes to determine actual format
-          if (imageBuffer[0] === 0x89 && imageBuffer[1] === 0x50) {
-            extension = 'png';
-            contentType = 'image/png';
-          } else if (imageBuffer[0] === 0x47 && imageBuffer[1] === 0x49) {
-            extension = 'gif';
-            contentType = 'image/gif';
-          } else if (imageBuffer[0] === 0x52 && imageBuffer[1] === 0x49) {
-            extension = 'webp';
-            contentType = 'image/webp';
-          }
-
-          // Upload to blob storage
-          uploadedImageKey = `games/${nanoid()}.${extension}`;
-          await uploadBlob(uploadedImageKey, imageBuffer, contentType);
-          imageUrl = blobKeyToUrl(uploadedImageKey);
-        } catch (error) {
-          console.error('Failed to download/upload image:', error);
-          // Continue without image
-        }
-      }
-
-      // Check if game with this BGG ID already exists
-      const [existingGame] = await db
-        .select({ id: games.id })
-        .from(games)
-        .where(eq(games.bggId, input.bggId))
-        .limit(1);
-
-      if (existingGame) {
-        throw new ORPCError({
-          code: 'CONFLICT',
-          message: 'Game already imported from BoardGameGeek',
-        });
-      }
-
-      // Generate slug
-      const slug = generateSlug(details.name, details.year);
-
-      // Create game
-      const [game] = await db
-        .insert(games)
-        .values({
-          id: nanoid(),
-          name: details.name,
-          slug,
-          year: details.year,
-          imageUrl,
-          bggId: input.bggId,
-          bggUrl: `https://boardgamegeek.com/boardgame/${input.bggId}`,
-        })
-        .returning();
-
-      return game;
-    } catch (error) {
-      // Clean up uploaded image if game creation failed
-      if (uploadedImageKey) {
-        try {
-          await bulkDelete([uploadedImageKey]);
-        } catch (cleanupError) {
-          console.error('Failed to clean up uploaded image:', cleanupError);
-        }
-      }
-
-      throw error;
     }
+
+    // Fetch game details from BGG
+    const details = await getBGGGameDetails(input.bggId, {
+      apiKey: process.env.BGG_API_KEY,
+    });
+
+    // Check if game with this BGG ID already exists
+    const [existingGame] = await db
+      .select({ id: games.id })
+      .from(games)
+      .where(eq(games.bggId, input.bggId))
+      .limit(1);
+
+    if (existingGame) {
+      throw new ORPCError({
+        code: 'CONFLICT',
+        message: 'Game already imported from BoardGameGeek',
+      });
+    }
+
+    // Generate slug
+    const slug = generateSlug(details.name, details.yearPublished);
+
+    // Create game immediately without image for fast response
+    const [game] = await db
+      .insert(games)
+      .values({
+        id: nanoid(),
+        name: details.name,
+        slug,
+        year: details.yearPublished,
+        imageUrl: null, // Will be updated async
+        bggId: input.bggId,
+        bggUrl: `https://boardgamegeek.com/boardgame/${input.bggId}`,
+      })
+      .returning();
+
+    // Process image asynchronously after returning response
+    // This runs in the background without blocking the response
+    if (details.imageUrl) {
+      Promise.resolve()
+        .then(async () => {
+          try {
+            console.log(`[BGG Import] Starting async image processing for game ${game.id}`);
+            const imageBuffer = await downloadImage(details.imageUrl!);
+
+            // Detect image type from buffer
+            let extension = 'webp'; // Default to webp since downloadImage converts to it
+            let contentType = 'image/webp';
+
+            // Check magic bytes to determine actual format
+            if (imageBuffer[0] === 0x89 && imageBuffer[1] === 0x50) {
+              extension = 'png';
+              contentType = 'image/png';
+            } else if (imageBuffer[0] === 0x47 && imageBuffer[1] === 0x49) {
+              extension = 'gif';
+              contentType = 'image/gif';
+            } else if (imageBuffer[0] === 0x52 && imageBuffer[1] === 0x49) {
+              extension = 'webp';
+              contentType = 'image/webp';
+            }
+
+            // Upload to blob storage
+            const uploadedImageKey = `games/${nanoid()}.${extension}`;
+            await uploadBlob(uploadedImageKey, imageBuffer, contentType);
+            const imageUrl = blobKeyToUrl(uploadedImageKey);
+
+            // Update game with image URL
+            await db.update(games).set({ imageUrl }).where(eq(games.id, game.id));
+
+            console.log(`[BGG Import] Image processed successfully for game ${game.id}`);
+          } catch (error) {
+            console.error(`[BGG Import] Failed to process image for game ${game.id}:`, error);
+            // Image processing failed, but game was already created successfully
+            // User can upload image manually later
+          }
+        })
+        .catch((error) => {
+          // Catch any promise rejection to prevent unhandled rejection warnings
+          console.error(`[BGG Import] Async image processing error for game ${game.id}:`, error);
+        });
+    }
+
+    return game;
   });

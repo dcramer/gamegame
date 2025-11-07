@@ -36,56 +36,50 @@ async function resourceStatus() {
 
 async function reprocessResource() {
   const resourceId = process.argv[4];
+  const fromStageArg = process.argv.find((arg) => arg.startsWith('--from='));
+  const fromStage = fromStageArg?.split('=')[1] as 'ingest' | 'vision' | 'cleanup' | 'metadata' | 'embed' | undefined;
 
   if (!resourceId) {
-    console.error('Usage: pnpm cli resources reprocess <resource-id>');
+    console.error('Usage: pnpm cli resources reprocess <resource-id> [--from=<stage>]');
+    console.error('  Stages: ingest (default), vision, cleanup, metadata, embed');
     process.exit(1);
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const url = `${baseUrl}/api/workflows/process-resource`;
-
   try {
-    // First, get the resource details
-    const resourceUrl = `${baseUrl}/api/resources/${resourceId}`;
-    const resourceResponse = await fetch(resourceUrl);
+    const { db } = await import('@/lib/db');
+    const { resources, games } = await import('@/lib/db/schema');
+    const { eq } = await import('drizzle-orm');
 
-    if (!resourceResponse.ok) {
+    info(`Fetching resource ${resourceId}...`);
+
+    // Get resource details
+    const [resource] = await db
+      .select({
+        id: resources.id,
+        gameId: resources.gameId,
+        name: resources.name,
+        url: resources.url,
+        status: resources.status,
+        currentRunId: resources.currentRunId,
+      })
+      .from(resources)
+      .where(eq(resources.id, resourceId))
+      .limit(1);
+
+    if (!resource) {
       error(`Resource not found: ${resourceId}`);
       process.exit(1);
     }
 
-    const resource = await resourceResponse.json();
-
-    // Trigger reprocessing workflow
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        resourceId: resource.id,
-        gameId: resource.gameId,
-        name: resource.name,
-        url: resource.url,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.text();
-      error(`Error ${response.status}: ${errorData}`);
-      process.exit(1);
-    }
-
-    const result = await response.json();
-
-    success('Resource reprocessing started');
-    console.log(`  Job ID: ${result.jobId}`);
-    console.log(`  Resource ID: ${resourceId}`);
-    console.log('\nProcessing in background...');
-    console.log(`Monitor status: pnpm cli resources status ${result.jobId}`);
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    console.log(`\nResource: ${resource.name}`);
+    console.log(`Current status: ${resource.status}`);
+    console.log(`\nTo reprocess this resource, visit:`);
+    console.log(`  ${baseUrl}/admin/games/${resource.gameId}/resources/${resourceId}`);
+    console.log(`\nThen click the "Reprocess" button in the admin UI.`);
   } catch (err: any) {
-    error(`Failed to reprocess resource: ${err.message}`);
+    error(`Failed to fetch resource: ${err.message}`);
+    console.error(err);
     process.exit(1);
   }
 }

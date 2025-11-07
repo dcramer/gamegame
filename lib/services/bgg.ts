@@ -170,12 +170,11 @@ async function withRetry<T>(
 
 /**
  * Search BoardGameGeek for games by name
- * Always fetches fresh results from BGG API, but uses cache for game details/images
+ * Always fetches fresh results from BGG API (no thumbnails to avoid rate limiting)
  */
 export async function searchBGGGames(
   query: string,
   options: {
-    fetchThumbnails?: boolean; // Default true, fetches thumbnails for top 5 results
     maxResults?: number; // Default 10
     apiKey?: string; // BGG API key (required as of 2025)
     useKV?: boolean; // Use Vercel KV for rate limiting (default true)
@@ -183,7 +182,7 @@ export async function searchBGGGames(
 ): Promise<BGGSearchResult[]> {
   console.log(`Searching BGG for: "${query}"`);
 
-  const { fetchThumbnails = true, maxResults = 10, apiKey, useKV = true } = options;
+  const { maxResults = 10, apiKey, useKV = true } = options;
   const requestQueue = new BGGRequestQueue(useKV);
 
   const results = await requestQueue.enqueue(async () => {
@@ -244,34 +243,8 @@ export async function searchBGGGames(
 
   console.log(`BGG search completed: ${results.length} results`);
 
-  // Fetch thumbnails for top results to help with disambiguation (using cache)
-  if (fetchThumbnails && results.length > 0) {
-    const topResults = results.slice(0, Math.min(5, results.length));
-    console.log(`Fetching thumbnails for ${topResults.length} top results`);
-
-    // Fetch thumbnails for top results
-    for (const result of topResults) {
-      try {
-        // Check if we have it cached in database first (no rate limiting needed)
-        const cachedGame = await db
-          .select({ thumbnailUrl: bggGames.thumbnailUrl })
-          .from(bggGames)
-          .where(eq(bggGames.id, result.id))
-          .limit(1);
-
-        if (cachedGame.length > 0) {
-          result.thumbnailUrl = cachedGame[0].thumbnailUrl || undefined;
-        } else {
-          // Not in DB cache, need to fetch from API (rate limited)
-          const details = await getBGGGameDetails(result.id, { apiKey, useKV });
-          result.thumbnailUrl = details.thumbnailUrl;
-        }
-      } catch (error) {
-        console.error(`Failed to fetch thumbnail for BGG ID ${result.id}:`, error);
-        // Continue without thumbnail
-      }
-    }
-  }
+  // Note: Thumbnails are not fetched during search to avoid rate limiting delays.
+  // They will only be displayed for already-imported games (from database).
 
   return results;
 }

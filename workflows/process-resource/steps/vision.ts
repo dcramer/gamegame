@@ -1,20 +1,19 @@
 /**
  * VISION Step - Analyze images with GPT-4o vision
  *
- * This is now a thin wrapper around the unified analyze-images workflow.
- * The actual logic has been moved to workflows/analyze-images for reusability.
+ * Calls the batch resource analysis step directly.
+ * Note: Steps cannot call workflows, only other steps.
  */
 
 import type { ProcessResourceInput } from '../../shared/types';
-import { analyzeImagesWorkflow } from '../../analyze-images';
+import { analyzeBatchResourceStep } from '../../analyze-images/steps/batch-resource';
 
 export async function runVisionStage(input: ProcessResourceInput) {
   'use step';
 
   try {
-    // Call unified workflow in batch-resource mode
-    const result = await analyzeImagesWorkflow({
-      mode: 'batch-resource',
+    // Call the batch resource step directly
+    const result = await analyzeBatchResourceStep({
       resourceId: input.resourceId,
       gameName: input.gameName,
       runId: input.runId,

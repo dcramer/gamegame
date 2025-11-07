@@ -12,6 +12,7 @@ import {
   saveStructured,
   loadStructured,
   fetchDocumentBuffer,
+  hasActiveWorkflowConflict,
 } from '../../shared/helpers';
 
 export async function runIngestStage(input: ProcessResourceInput) {
@@ -40,10 +41,18 @@ export async function runIngestStage(input: ProcessResourceInput) {
         throw new Error(`Resource ${input.resourceId} not found`);
       }
 
-      if (resourceRow.currentRunId && resourceRow.currentRunId !== input.runId) {
+      // Check for workflow conflicts and clear stale currentRunId references
+      const hasConflict = await hasActiveWorkflowConflict(
+        input.resourceId,
+        input.runId,
+        resourceRow.currentRunId,
+        tx
+      );
+
+      if (hasConflict) {
         return {
           success: false,
-          error: `Resource is being processed by different job: ${resourceRow.currentRunId}`,
+          error: `Resource is being processed by another workflow: ${resourceRow.currentRunId}`,
         };
       }
 
