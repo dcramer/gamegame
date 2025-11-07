@@ -9,13 +9,40 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=postgres
+      - POSTGRES_MAX_CONNECTIONS=200
       # - ALLOW_IP_RANGE=0.0.0.0/0
+    # Expose Postgres directly on 5434 for migrations/admin tools
     ports:
-      - "5433:5432"
+      - "5434:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
       test: "PGPASSWORD=postgres pg_isready -h 127.0.0.1 -U postgres -d postgres"
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      # Connect to postgres service on internal network
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/gamegame
+      - POOL_MODE=transaction
+      - DEFAULT_POOL_SIZE=50        # Connections to Postgres
+      - MAX_CLIENT_CONN=1000        # Max client connections
+      - MIN_POOL_SIZE=10
+      - RESERVE_POOL_SIZE=5
+      - SERVER_IDLE_TIMEOUT=600     # 10 minutes
+      - QUERY_TIMEOUT=60            # 60 seconds per query
+      - AUTH_TYPE=scram-sha-256     # Match Postgres 13+ default auth
+    ports:
+      - "5433:5432"                 # Expose PgBouncer on 5433 (your current port)
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "psql", "-h", "localhost", "-p", "5432", "-U", "postgres", "-d", "gamegame", "-c", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres-data:

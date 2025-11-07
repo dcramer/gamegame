@@ -27,7 +27,7 @@ export const list = publicProcedure
     method: 'GET',
     path: '/games',
   })
-  .output(gameListResponseSchema)
+  .output(z.array(gameResponseSchema.extend({ hasResources: z.boolean() })))
   .handler(async () => {
   const gamesList = await db
     .select({

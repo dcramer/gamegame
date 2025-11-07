@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { ORPCError } from '@orpc/server';
+import { start } from 'workflow/api';
 import { publicProcedure, adminProcedure } from './base';
 import { db } from '@/lib/db';
 import { attachments } from '@/lib/db/schema';
@@ -278,11 +279,11 @@ export const reprocess = adminProcedure
 
     // Call unified workflow in single-attachment mode
     const { analyzeImagesWorkflow } = await import('@/workflows/analyze-images');
-    await analyzeImagesWorkflow({
+    await start(analyzeImagesWorkflow, [{
       mode: 'single-attachment',
       attachmentId: input.id,
       gameId: attachment.gameId,
-    });
+    }]);
 
     // Fetch updated attachment
     const [updated] = await db

@@ -5,11 +5,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { start } from 'workflow/api';
 import { db } from '@/lib/db';
 import { games, resources, fragments } from '@/lib/db/schema';
 import { eq, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
+import { processResourceWorkflow } from '@/workflows/process-resource/index';
 
 /**
  * GET /api/games/:gameIdOrSlug/resources
@@ -132,41 +134,49 @@ export const POST = withAdmin(async (
       await uploadBlob(sourceKey, buffer, file.type);
     }
 
-    // Insert resource
+    // Create run ID for workflow
+    const runId = nanoid();
+
+    // Insert resource with workflow run ID
     await db.insert(resources).values({
       id: resourceId,
       gameId: game.id,
       name,
       url: url || sourceKey || '',
       originalFilename: file?.name || undefined,
-      status: 'pending',
-      processingStage: 'pending',
-      currentRunId: undefined,
+      status: 'processing',
+      processingStage: 'ingest',
+      currentRunId: runId,
       processingMetadata: undefined,
       resourceType: 'rulebook',
     });
 
-    // Trigger processing workflow
-    const workflowUrl = new URL('/api/workflows/process-resource', request.url);
-    const workflowResponse = await fetch(workflowUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        runId: nanoid(),
-        resourceId,
-        gameId: game.id,
-        gameName: game.name,
-        name,
-        url,
-        sourceKey,
-      }),
-    });
+    // Trigger processing workflow using direct invocation
+    const workflowInput = {
+      runId,
+      resourceId,
+      gameId: game.id,
+      gameName: game.name,
+      name,
+      url,
+      sourceKey,
+    };
 
-    if (!workflowResponse.ok) {
-      console.error('[POST resources] Failed to trigger workflow:', await workflowResponse.text());
-    }
+    // Start workflow asynchronously (don't await to avoid blocking the response)
+    start(processResourceWorkflow, [workflowInput]).catch((error) => {
+      console.error('[POST resources] Workflow start error:', error);
+      // Mark resource as failed if workflow fails to start
+      db.update(resources)
+        .set({
+          status: 'failed',
+          processingStage: 'failed',
+          processingMetadata: null,
+          currentRunId: null,
+          updatedAt: Date.now(),
+        })
+        .where(eq(resources.id, resourceId))
+        .catch((err) => console.error('[POST resources] Failed to update resource:', err));
+    });
 
     const [newResource] = await db
       .select()

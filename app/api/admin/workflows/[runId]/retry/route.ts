@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { start } from 'workflow/api';
 import { db } from '@/lib/db';
 import { resources, games } from '@/lib/db/schema';
 import { requireAdmin } from '@/lib/auth/helpers';
@@ -91,7 +92,7 @@ export async function POST(request: Request, { params }: Params) {
     };
 
     // Start workflow in background (don't await)
-    processResourceWorkflow(workflowInput).catch((error) => {
+    start(processResourceWorkflow, [workflowInput]).catch((error) => {
       console.error('[Retry Workflow] Error:', error);
       // Mark resource as failed
       db.update(resources)

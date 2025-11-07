@@ -18,7 +18,8 @@ function makeCallable(procedures: Record<string, any>) {
   const result: Record<string, any> = {};
   for (const [key, proc] of Object.entries(procedures)) {
     if (proc && typeof proc.callable === 'function') {
-      result[key] = proc.callable();
+      // Pass empty context - middleware will populate it
+      result[key] = proc.callable({});
     } else {
       result[key] = proc;
     }

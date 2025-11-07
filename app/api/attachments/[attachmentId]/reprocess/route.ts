@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { start } from 'workflow/api';
 import { db } from '@/lib/db';
 import { attachments } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -75,11 +76,17 @@ export const POST = withAdmin(async (
     }
 
     // Call unified workflow in single-attachment mode
-    await analyzeImagesWorkflow({
-      mode: 'single-attachment',
-      attachmentId,
-      gameId: attachment.gameId,
-    });
+    // Await completion since we need updated data immediately
+    try {
+      await start(analyzeImagesWorkflow, [{
+        mode: 'single-attachment',
+        attachmentId,
+        gameId: attachment.gameId,
+      }]);
+    } catch (workflowError) {
+      console.error('[POST attachments/:attachmentId/reprocess] Workflow error:', workflowError);
+      return errorResponse('Failed to start vision analysis workflow', 500, 'WORKFLOW_ERROR');
+    }
 
     // Fetch updated attachment
     const [updated] = await db

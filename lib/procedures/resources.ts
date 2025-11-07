@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { ORPCError } from '@orpc/server';
+import { start } from 'workflow/api';
 import { publicProcedure, adminProcedure } from './base';
 import { db } from '@/lib/db';
 import { resources, fragments, attachments } from '@/lib/db/schema';
@@ -99,6 +100,7 @@ export const listForGame = publicProcedure
         name: resources.name,
         originalFilename: resources.originalFilename,
         url: resources.url,
+        content: resources.content,
         hasContent: sql<boolean>`${resources.content} != '' AND ${resources.content} is not null`,
         version: resources.version,
         pdfExtractor: resources.pdfExtractor,
@@ -282,6 +284,7 @@ export const reprocess = adminProcedure
         name: resources.name,
         url: resources.url,
         status: resources.status,
+        currentRunId: resources.currentRunId,
       })
       .from(resources)
       .where(eq(resources.id, input.id))
@@ -294,12 +297,16 @@ export const reprocess = adminProcedure
       });
     }
 
-    // Check if resource is already processing
-    if (resource.status === 'processing' || resource.status === 'queued') {
-      throw new ORPCError({
-        code: 'BAD_REQUEST',
-        message: 'Resource is already being processed',
-      });
+    // If resource is currently processing, cancel the existing workflow
+    if ((resource.status === 'processing' || resource.status === 'queued') && resource.currentRunId) {
+      try {
+        const { cancelWorkflowRun } = await import('@/lib/services/workflows');
+        await cancelWorkflowRun(resource.currentRunId);
+        console.log(`[Reprocess Resource] Cancelled existing workflow run: ${resource.currentRunId}`);
+      } catch (cancelError) {
+        console.error('[Reprocess Resource] Failed to cancel existing workflow:', cancelError);
+        // Continue anyway - the new workflow will update the status
+      }
     }
 
     // Get game details
@@ -343,7 +350,7 @@ export const reprocess = adminProcedure
       fromStage: input.fromStage,
     };
 
-    processResourceWorkflow(workflowInput).catch((error) => {
+    start(processResourceWorkflow, [workflowInput]).catch((error) => {
       console.error('[Reprocess Resource] Workflow error:', error);
       // Mark resource as failed
       db.update(resources)
@@ -362,6 +369,8 @@ export const reprocess = adminProcedure
       id: resource.id,
       status: 'processing' as const,
       runId,
-      message: 'Resource queued for reprocessing',
+      message: resource.currentRunId
+        ? 'Cancelled existing job and queued resource for reprocessing'
+        : 'Resource queued for reprocessing',
     };
   });

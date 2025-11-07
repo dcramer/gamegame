@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { ORPCError } from '@orpc/server';
+import { start } from 'workflow/api';
 import { adminProcedure } from './base';
 import { db } from '@/lib/db';
 import { resources, games } from '@/lib/db/schema';
@@ -173,7 +174,7 @@ export const retry = adminProcedure
     };
 
     // Start workflow in background (don't await)
-    processResourceWorkflow(newWorkflowInput).catch((error) => {
+    start(processResourceWorkflow, [newWorkflowInput]).catch((error) => {
       console.error('[Retry Workflow] Error:', error);
     });
 

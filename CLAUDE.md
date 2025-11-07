@@ -552,7 +552,7 @@ See `workflows/AGENTS.md` for detailed architecture documentation and best pract
 - **cleanup-stalled-jobs**: Marks jobs stuck in processing state (>30min) as failed
 - **cleanup-orphaned-blobs**: Removes blob storage files no longer referenced in database
 
-Workflows are invoked by calling the workflow function directly (e.g., `processResourceWorkflow(input)`). The Vercel Workflow DevKit handles all routing automatically via `.well-known/workflow/*` endpoints.
+Workflows are invoked using the `start()` function from `'workflow/api'` (e.g., `await start(processResourceWorkflow, [input])`). The Vercel Workflow DevKit handles all routing automatically via `.well-known/workflow/*` endpoints.
 
 ## Important Notes
 
