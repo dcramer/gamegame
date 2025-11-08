@@ -39,11 +39,15 @@ export default function ResourceForm({
             try {
               const formData = new FormData(event.currentTarget);
               const description = formData.get("description") as string;
+              const author = formData.get("author") as string | null;
+              const attributionUrl = formData.get("attributionUrl") as string | null;
 
               await orpc.resources.update({
                 id: resourceId,
                 name: formData.has("name") ? (formData.get("name") as string) : undefined,
                 description: description?.trim() || null,
+                author: author?.trim() ? author.trim() : null,
+                attributionUrl: attributionUrl?.trim() ? attributionUrl.trim() : null,
               });
 
               router.refresh();

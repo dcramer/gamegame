@@ -12,6 +12,7 @@ import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
 import { updateResourceSchema } from '@/lib/api/schemas';
+import { bulkDelete } from '@/lib/services/blob-storage';
 
 /**
  * GET /api/resources/:resourceId
@@ -31,6 +32,8 @@ export async function GET(
         gameId: resources.gameId,
         name: resources.name,
         originalFilename: resources.originalFilename,
+        author: resources.author,
+        attributionUrl: resources.attributionUrl,
         url: resources.url,
         content: resources.content,
         version: resources.version,
@@ -107,6 +110,12 @@ export const PATCH = withAdmin(async (
     if (data.description !== undefined) {
       updateData.description = data.description;
     }
+    if (data.author !== undefined) {
+      updateData.author = data.author;
+    }
+    if (data.attributionUrl !== undefined) {
+      updateData.attributionUrl = data.attributionUrl;
+    }
 
     const [updated] = await db
       .update(resources)
@@ -172,7 +181,6 @@ export const DELETE = withAdmin(async (
     // Try to delete blob storage files
     if (attachmentList.length > 0) {
       try {
-        const { bulkDelete } = await import('@/lib/services/blob-storage');
         const keys = attachmentList
           .map((a) => a.blobKey)
           .filter((key): key is string => typeof key === 'string' && key.length > 0);

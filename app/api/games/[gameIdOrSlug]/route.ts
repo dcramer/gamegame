@@ -12,6 +12,7 @@ import { eq, or, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
 import { updateGameSchema } from '@/lib/api/schemas';
+import { bulkDelete } from '@/lib/services/blob-storage';
 
 /**
  * GET /api/games/:gameIdOrSlug
@@ -207,12 +208,17 @@ export const DELETE = withAdmin(async (
       if (gameAttachments.length > 0) {
         await db.delete(attachments).where(eq(attachments.gameId, game.id));
 
-        // TODO: Delete from blob storage
-        // const { bulkDelete } = await import('@/lib/services/blob-storage');
-        // const keys = gameAttachments.map((a) => a.blobKey).filter((k): k is string => !!k);
-        // if (keys.length > 0) {
-        //   await bulkDelete(keys);
-        // }
+        const keys = gameAttachments
+          .map((a) => a.blobKey)
+          .filter((k): k is string => typeof k === 'string' && k.length > 0);
+
+        if (keys.length > 0) {
+          try {
+            await bulkDelete(keys);
+          } catch (error) {
+            console.error('[DELETE /api/games/:gameId] Failed to delete attachment blobs:', error);
+          }
+        }
       }
 
       // 4. Delete resources

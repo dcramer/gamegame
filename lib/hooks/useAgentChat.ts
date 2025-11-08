@@ -89,7 +89,7 @@ export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentCha
           messages: [
             {
               role: 'user',
-              parts: [{ type: 'text', text }],
+              content: text,
             },
           ],
         };

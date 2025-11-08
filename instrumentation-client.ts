@@ -14,7 +14,7 @@ Sentry.init({
     Sentry.replayIntegration(),
     // Enable Spotlight integration in development for MCP debugging
     ...(process.env.NODE_ENV === "development"
-      ? [Sentry.spotlightIntegration()]
+      ? [Sentry.spotlightBrowserIntegration()]
       : []),
   ],
 

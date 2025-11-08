@@ -11,6 +11,7 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
 import { updateAttachmentSchema } from '@/lib/api/schemas';
+import { blobKeyToUrl } from '@/lib/services/blob-storage';
 
 /**
  * Helper to safely parse bbox JSON
@@ -56,6 +57,7 @@ export async function GET(
     const [attachment] = await db
       .select({
         id: attachments.id,
+        gameId: attachments.gameId,
         resourceId: attachments.resourceId,
         type: attachments.type,
         blobKey: attachments.blobKey,
@@ -80,7 +82,6 @@ export async function GET(
     }
 
     // Get public URL
-    const { blobKeyToUrl } = await import('@/lib/services/blob-storage');
     const result = {
       ...attachment,
       url: attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null,
@@ -136,7 +137,6 @@ export const PATCH = withAdmin(async (
     }
 
     // Get public URL
-    const { blobKeyToUrl } = await import('@/lib/services/blob-storage');
     const result = {
       ...updated,
       url: updated.blobKey ? blobKeyToUrl(updated.blobKey) : null,

@@ -15,6 +15,9 @@ import {
   attachmentResponseSchema,
   attachmentListResponseSchema,
 } from '@/lib/api/schemas';
+import { blobKeyToUrl } from '@/lib/services/blob-storage';
+import { nanoid } from 'nanoid';
+import { analyzeImagesWorkflow } from '@/workflows/analyze-images';
 
 /**
  * Helper to safely parse bbox JSON
@@ -63,6 +66,7 @@ export const get = publicProcedure
     const [attachment] = await db
       .select({
         id: attachments.id,
+        gameId: attachments.gameId,
         resourceId: attachments.resourceId,
         type: attachments.type,
         blobKey: attachments.blobKey,
@@ -86,8 +90,6 @@ export const get = publicProcedure
       });
     }
 
-    // Get public URL
-    const { blobKeyToUrl } = await import('@/lib/services/blob-storage');
     const result = {
       ...attachment,
       url: attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null,
@@ -115,6 +117,7 @@ export const listForResource = publicProcedure
     const attachmentsList = await db
       .select({
         id: attachments.id,
+        gameId: attachments.gameId,
         resourceId: attachments.resourceId,
         type: attachments.type,
         blobKey: attachments.blobKey,
@@ -132,9 +135,6 @@ export const listForResource = publicProcedure
       .from(attachments)
       .where(eq(attachments.resourceId, input.resourceId))
       .orderBy(attachments.pageNumber, attachments.createdAt);
-
-    // Get public URLs
-    const { blobKeyToUrl } = await import('@/lib/services/blob-storage');
 
     return attachmentsList.map((attachment) => ({
       ...attachment,
@@ -179,9 +179,6 @@ export const listForGame = publicProcedure
       .from(attachments)
       .where(eq(attachments.gameId, input.gameId))
       .orderBy(attachments.pageNumber, attachments.createdAt);
-
-    // Get public URLs
-    const { blobKeyToUrl } = await import('@/lib/services/blob-storage');
 
     return attachmentsList.map((attachment) => ({
       ...attachment,
@@ -229,8 +226,6 @@ export const update = adminProcedure
       });
     }
 
-    // Get public URL
-    const { blobKeyToUrl } = await import('@/lib/services/blob-storage');
     const result = {
       ...updated,
       url: updated.blobKey ? blobKeyToUrl(updated.blobKey) : null,
@@ -262,8 +257,6 @@ export const reprocess = adminProcedure
     })
   )
   .handler(async ({ input }) => {
-    const { nanoid } = await import('nanoid');
-
     // Get attachment from database
     const [attachment] = await db
       .select()
@@ -290,7 +283,6 @@ export const reprocess = adminProcedure
     const runId = nanoid();
 
     // Call unified workflow in single-attachment mode
-    const { analyzeImagesWorkflow } = await import('@/workflows/analyze-images');
     start(analyzeImagesWorkflow, [{
       runId,
       mode: 'single-attachment',

@@ -5,7 +5,7 @@ import { RefreshCw, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { orpc } from "@/lib/procedures/client";
 import { useFlashMessages } from "@/components/flashMessages";
-import { useProcessing } from "@/components/processing-provider";
+import { useWorkflowFlash } from "@/components/workflowFlashMessage";
 
 interface GameActionsProps {
   gameId: string;
@@ -20,7 +20,7 @@ export default function GameActions({
 }: GameActionsProps) {
   const router = useRouter();
   const { flash } = useFlashMessages();
-  const { runTask } = useProcessing();
+  const workflowFlash = useWorkflowFlash();
 
   const handleReprocessAll = async () => {
     if (
@@ -37,9 +37,20 @@ export default function GameActions({
 
       for (const resourceId of resourceIds) {
         try {
-          // TODO: Add reprocess endpoint to API client
-          await fetch(`/api/resources/${resourceId}/reprocess`, { method: 'POST' });
+          const result = await orpc.resources.reprocess({ id: resourceId });
           successCount++;
+
+          if (result.runId) {
+            workflowFlash(
+              result.runId,
+              `Reprocessing resource...`,
+              {
+                displayName: `Resource: ${resourceId}`,
+                onComplete: () => router.refresh(),
+                onError: () => router.refresh(),
+              }
+            );
+          }
         } catch (error) {
           console.error(`Failed to reprocess resource ${resourceId}:`, error);
           failCount++;

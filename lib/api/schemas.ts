@@ -65,6 +65,8 @@ export const createResourceSchema = z.object({
 export const updateResourceSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
+  author: z.string().nullable().optional(),
+  attributionUrl: z.string().url().nullable().optional(),
 });
 
 export const resourceResponseSchema = z.object({
@@ -84,6 +86,8 @@ export const resourceResponseSchema = z.object({
   imageCount: z.number().nullable(),
   wordCount: z.number().nullable(),
   description: z.string().nullable(),
+  author: z.string().nullable().optional(),
+  attributionUrl: z.string().nullable().optional(),
   resourceType: z.string(),
   edition: z.string().nullable(),
   fragmentCount: z.number().optional(),
@@ -91,7 +95,11 @@ export const resourceResponseSchema = z.object({
   updatedAt: timestampSchema,
 });
 
-export const resourceListResponseSchema = z.array(resourceResponseSchema);
+export const resourceListItemSchema = resourceResponseSchema
+  .omit({ content: true })
+  .extend({ hasContent: z.boolean() });
+
+export const resourceListResponseSchema = z.array(resourceListItemSchema);
 
 export const resourceStatsSchema = z.object({
   fragmentCount: z.number(),

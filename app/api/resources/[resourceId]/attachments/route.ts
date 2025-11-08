@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { attachments } from '@/lib/db/schema';
 import { eq, asc } from 'drizzle-orm';
+import { blobKeyToUrl } from '@/lib/services/blob-storage';
 
 /**
  * GET /api/resources/:resourceId/attachments
@@ -23,6 +24,7 @@ export async function GET(
     const attachmentList = await db
       .select({
         id: attachments.id,
+        gameId: attachments.gameId,
         type: attachments.type,
         blobKey: attachments.blobKey,
         mimeType: attachments.mimeType,
@@ -65,7 +67,6 @@ export async function GET(
     };
 
     // Get public URLs for attachments
-    const { blobKeyToUrl } = await import('@/lib/services/blob-storage');
     const parsed = attachmentList.map((attachment) => ({
       ...attachment,
       url: attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null,

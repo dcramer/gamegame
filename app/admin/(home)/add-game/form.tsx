@@ -262,7 +262,7 @@ export default function Form() {
           router.push(`/admin/games/${game.id}`);
         } catch (error) {
           console.error('Failed to create game:', error);
-          flash({ type: 'error', message: 'Failed to create game' });
+          flash('Failed to create game', 'error');
         } finally {
           setLoading(false);
         }

@@ -5,7 +5,6 @@
 
 import { z } from 'zod';
 import { ORPCError } from '@orpc/server';
-import { start } from 'workflow/api';
 import { publicProcedure, adminProcedure } from './base';
 import { db } from '@/lib/db';
 import { resources, fragments, attachments } from '@/lib/db/schema';
@@ -16,6 +15,8 @@ import {
   resourceListResponseSchema,
   successResponseSchema,
 } from '@/lib/api/schemas';
+import { bulkDelete } from '@/lib/services/blob-storage';
+import { reprocessResource } from '@/lib/services/reprocess';
 
 /**
  * Get resource by ID
@@ -38,6 +39,8 @@ export const get = publicProcedure
         gameId: resources.gameId,
         name: resources.name,
         originalFilename: resources.originalFilename,
+        author: resources.author,
+        attributionUrl: resources.attributionUrl,
         url: resources.url,
         content: resources.content,
         version: resources.version,
@@ -91,7 +94,7 @@ export const listForGame = publicProcedure
       gameId: z.string(),
     })
   )
-  .output(z.array(resourceResponseSchema.extend({ hasContent: z.boolean() })))
+  .output(resourceListResponseSchema)
   .handler(async ({ input }) => {
     const resourceList = await db
       .select({
@@ -100,8 +103,9 @@ export const listForGame = publicProcedure
         name: resources.name,
         originalFilename: resources.originalFilename,
         url: resources.url,
-        content: resources.content,
         hasContent: sql<boolean>`${resources.content} != '' AND ${resources.content} is not null`,
+        author: resources.author,
+        attributionUrl: resources.attributionUrl,
         version: resources.version,
         pdfExtractor: resources.pdfExtractor,
         processedAt: resources.processedAt,
@@ -149,6 +153,12 @@ export const update = adminProcedure
     }
     if (input.data.description !== undefined) {
       updateData.description = input.data.description;
+    }
+    if (input.data.author !== undefined) {
+      updateData.author = input.data.author;
+    }
+    if (input.data.attributionUrl !== undefined) {
+      updateData.attributionUrl = input.data.attributionUrl;
     }
 
     const [updated] = await db
@@ -218,7 +228,6 @@ export const deleteResource = adminProcedure
     // Try to delete blob storage files
     if (attachmentList.length > 0) {
       try {
-        const { bulkDelete } = await import('@/lib/services/blob-storage');
         const keys = attachmentList
           .map((a) => a.blobKey)
           .filter((key): key is string => typeof key === 'string' && key.length > 0);
@@ -273,8 +282,6 @@ export const reprocess = adminProcedure
     })
   )
   .handler(async ({ input }) => {
-    const { reprocessResource } = await import('@/lib/services/reprocess');
-
     try {
       return await reprocessResource({
         resourceId: input.id,
