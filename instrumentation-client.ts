@@ -12,6 +12,7 @@ Sentry.init({
   // Add optional integrations for additional features
   integrations: [
     Sentry.replayIntegration(),
+    Sentry.consoleLoggingIntegration({ levels: ["log", "warn", "error"] }),
     // Enable Spotlight integration in development for MCP debugging
     ...(process.env.NODE_ENV === "development"
       ? [Sentry.spotlightBrowserIntegration()]

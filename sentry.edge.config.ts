@@ -9,4 +9,7 @@ import { SharedSentryConfig } from "@/lib/sentry.config";
 Sentry.init({
   ...SharedSentryConfig,
   dsn: process.env.SENTRY_DSN,
+  integrations: [
+    Sentry.consoleLoggingIntegration({ levels: ["log", "warn", "error"] }),
+  ],
 });

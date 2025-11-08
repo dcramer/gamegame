@@ -3,9 +3,14 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs";
+import { ORPCInstrumentation } from "@orpc/otel";
 import { SharedSentryConfig } from "@/lib/sentry.config";
 
 Sentry.init({
   ...SharedSentryConfig,
   dsn: process.env.SENTRY_DSN,
+  openTelemetryInstrumentations: [new ORPCInstrumentation()],
+  integrations: [
+    Sentry.consoleLoggingIntegration({ levels: ["log", "warn", "error"] }),
+  ],
 });

@@ -3,18 +3,30 @@
  * Provides base procedures with authentication middleware
  */
 
+import * as Sentry from '@sentry/nextjs';
 import { os, ORPCError } from '@orpc/server';
 import { getCurrentUser } from '@/lib/session';
+
+const sentryMiddleware = os.middleware(async ({ next }) => {
+  try {
+    return await next();
+  } catch (error) {
+    Sentry.captureException(error);
+    throw error;
+  }
+});
+
+const baseProcedure = os.use(sentryMiddleware);
 
 /**
  * Public procedure - no authentication required
  */
-export const publicProcedure = os;
+export const publicProcedure = baseProcedure;
 
 /**
  * Authenticated procedure - requires valid user session
  */
-export const authedProcedure = os.use(async ({ next }) => {
+export const authedProcedure = baseProcedure.use(async ({ next }) => {
   const user = await getCurrentUser();
 
   if (!user) {

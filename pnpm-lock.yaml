@@ -30,6 +30,9 @@ importers:
       '@orpc/openapi':
         specifier: ^1.10.4
         version: 1.10.4(@opentelemetry/api@1.9.0)(ws@8.18.3(bufferutil@4.0.9))
+      '@orpc/otel':
+        specifier: ^1.10.4
+        version: 1.10.4(@opentelemetry/api@1.9.0)(@opentelemetry/instrumentation@0.204.0(@opentelemetry/api@1.9.0))
       '@orpc/server':
         specifier: 1.10.4
         version: 1.10.4(@opentelemetry/api@1.9.0)(ws@8.18.3(bufferutil@4.0.9))
@@ -1373,6 +1376,12 @@ packages:
 
   '@orpc/openapi@1.10.4':
     resolution: {integrity: sha512-qP1sJpcEiZlLN/DuSekgCcjpPPHKY1ZUNGlEMX8cY5sIeGWkE/FrIw6HJiGgO1/FGqRtYjHAeqd3sIJogopmMA==}
+
+  '@orpc/otel@1.10.4':
+    resolution: {integrity: sha512-iXl0HBVK2i5PoCxhK1MRxKuZWsdD/v1+Oz4LSOqtVulIt5H9/Idb790Eu/R46rwyu/sZ5eJ0PFn2V9xpaFH6vw==}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.9.0'
+      '@opentelemetry/instrumentation': '>=0.203.0'
 
   '@orpc/server@1.10.4':
     resolution: {integrity: sha512-kMWwoPGl9QPpHKtDodYj1p/U602zX3fSrFs/LYhCxboh3NF7NjESb1lhYUD2aZeTKiAqGogy4J+imLuaEGuSAA==}
@@ -7592,6 +7601,12 @@ snapshots:
       - fastify
       - ws
 
+  '@orpc/otel@1.10.4(@opentelemetry/api@1.9.0)(@opentelemetry/instrumentation@0.204.0(@opentelemetry/api@1.9.0))':
+    dependencies:
+      '@opentelemetry/api': 1.9.0
+      '@opentelemetry/instrumentation': 0.204.0(@opentelemetry/api@1.9.0)
+      '@orpc/shared': 1.10.4(@opentelemetry/api@1.9.0)
+
   '@orpc/server@1.10.4(@opentelemetry/api@1.9.0)(ws@8.18.3(bufferutil@4.0.9))':
     dependencies:
       '@orpc/client': 1.10.4(@opentelemetry/api@1.9.0)
@@ -10383,7 +10398,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-module-utils@2.12.1(@typescript-eslint/parser@8.46.3(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3))(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0)(eslint@9.39.1(jiti@2.6.1)))(eslint@9.39.1(jiti@2.6.1)):
+  eslint-module-utils@2.12.1(@typescript-eslint/parser@8.46.3(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3))(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.1(jiti@2.6.1)):
     dependencies:
       debug: 3.2.7
     optionalDependencies:
@@ -10405,7 +10420,7 @@ snapshots:
       doctrine: 2.1.0
       eslint: 9.39.1(jiti@2.6.1)
       eslint-import-resolver-node: 0.3.9
-      eslint-module-utils: 2.12.1(@typescript-eslint/parser@8.46.3(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3))(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0)(eslint@9.39.1(jiti@2.6.1)))(eslint@9.39.1(jiti@2.6.1))
+      eslint-module-utils: 2.12.1(@typescript-eslint/parser@8.46.3(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3))(eslint-import-resolver-node@0.3.9)(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.1(jiti@2.6.1))
       hasown: 2.0.2
       is-core-module: 2.16.1
       is-glob: 4.0.3
