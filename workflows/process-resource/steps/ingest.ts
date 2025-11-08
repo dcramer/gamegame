@@ -56,15 +56,7 @@ export async function runIngestStage(input: ProcessResourceInput) {
         };
       }
 
-      const metadata = parseMetadata(input.resourceId, resourceRow.metadata);
-      if (metadata.stages.ingest) {
-        const structured = await loadStructured(input.resourceId);
-        const hasImages = structured.pages.some((page) => page.images.length > 0);
-        return { success: true, hasImages, skipProcessing: true };
-      }
-
       // Set currentRunId immediately within the transaction
-      metadata.stages.ingest = false; // Will be set to true after processing
       await tx
         .update(resources)
         .set({
@@ -73,10 +65,10 @@ export async function runIngestStage(input: ProcessResourceInput) {
         })
         .where(eq(resources.id, input.resourceId));
 
-      return { success: true, hasImages: false, skipProcessing: false };
+      return { success: true };
     });
 
-    if (!result.success || result.skipProcessing) {
+    if (!result.success) {
       return result;
     }
 
@@ -92,7 +84,6 @@ export async function runIngestStage(input: ProcessResourceInput) {
     await saveStructured(input.resourceId, extraction.structured);
 
     const metadata = parseMetadata(input.resourceId, null);
-    metadata.stages.ingest = true;
     await db
       .update(resources)
       .set({

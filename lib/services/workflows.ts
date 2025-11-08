@@ -43,6 +43,7 @@ export interface WorkflowRunWithDetails extends WorkflowRun {
   resourceName?: string;
   resourceId?: string;
   gameId?: string;
+  inputArgs?: any; // Can be array or object
 }
 
 /**
@@ -91,13 +92,14 @@ export async function cancelWorkflowRun(runId: string): Promise<WorkflowRun> {
 
 /**
  * Extract resourceId and gameId from workflow run input
+ * Works generically for any workflow that includes these fields
  */
 function extractIds(run: WorkflowRun): { resourceId?: string; gameId?: string } {
   // Workflow input is an array of arguments
-  // For process-resource workflow, input[0] is { resourceId, gameId, ... }
   const input = run.input[0] as any;
-  if (!input) return {};
+  if (!input || typeof input !== 'object') return {};
 
+  // Extract fields if they exist (works for any workflow type)
   return {
     resourceId: input.resourceId,
     gameId: input.gameId,
@@ -146,12 +148,26 @@ export async function listWorkflowRunsWithDetails(params?: {
   return runs.map(run => {
     const { resourceId, gameId } = extractIds(run);
 
+    // Debug: log the raw input
+    console.log('[Workflow Input Debug]', {
+      workflowName: run.workflowName,
+      inputArray: run.input,
+      inputLength: run.input?.length,
+      firstArg: run.input?.[0],
+      firstArgType: typeof run.input?.[0],
+    });
+
+    // Workflows always take a single argument: run.input[0]
+    // Pass just the first argument to the frontend
+    const inputArgs = run.input?.[0];
+
     return {
       ...run,
       resourceId,
       gameId,
       resourceName: resourceId ? resourcesMap.get(resourceId)?.name : undefined,
       gameName: gameId ? gamesMap.get(gameId)?.name : undefined,
+      inputArgs,
     };
   });
 }

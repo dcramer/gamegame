@@ -55,8 +55,9 @@ export async function analyzeImageQuality(
 ): Promise<ImageAnalysisResult> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
-  // Convert Buffer to base64
+  // Convert Buffer to base64 and detect MIME type
   const base64 = bufferToBase64(imageBuffer);
+  const mimeType = detectImageMimeType(imageBuffer);
 
   const prompt = buildImageAnalysisPrompt(context);
 
@@ -80,7 +81,7 @@ export async function analyzeImageQuality(
               {
                 type: 'image_url',
                 image_url: {
-                  url: `data:image/jpeg;base64,${base64}`,
+                  url: `data:${mimeType};base64,${base64}`,
                 },
               },
             ],
@@ -199,6 +200,51 @@ function validateAnalysisResult(result: any): ImageAnalysisResult {
     type: result.type,
     ocrText,
   };
+}
+
+/**
+ * Detect image MIME type from buffer magic bytes
+ */
+function detectImageMimeType(buffer: Buffer): string {
+  if (buffer.length < 12) return 'image/jpeg'; // Fallback
+
+  // PNG: \x89PNG\r\n\x1a\n
+  if (
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+
+  // JPEG: \xFF\xD8\xFF
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+
+  // WebP: RIFF....WEBP (check 'WEBP' at offset 8)
+  if (
+    buffer.length >= 12 &&
+    buffer[8] === 0x57 &&
+    buffer[9] === 0x45 &&
+    buffer[10] === 0x42 &&
+    buffer[11] === 0x50
+  ) {
+    return 'image/webp';
+  }
+
+  // GIF: GIF87a or GIF89a
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38) {
+    return 'image/gif';
+  }
+
+  // Default fallback
+  return 'image/jpeg';
 }
 
 /**

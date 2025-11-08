@@ -14,7 +14,7 @@ type FlashMessageOptions = {
   removeAfter?: number | null;
 };
 
-type FlashMessage = {
+export type FlashMessage = {
   id: number;
   message: string | ReactNode;
   type: FlashType;
@@ -47,17 +47,40 @@ export function useFlashMessages() {
 export function Message({
   message,
   type,
-}: Pick<FlashMessage, "message" | "type">) {
+  onDismiss,
+}: Pick<FlashMessage, "message" | "type"> & { onDismiss?: () => void }) {
   return (
     <div
       className={cn(
-        "rounded-md p-3 font-semibold opacity-90",
+        "rounded-md p-3 font-semibold opacity-90 relative pr-10",
         type === "success" ? "bg-green-700 text-green-50" : "",
         type === "error" ? "bg-red-700 text-red-50" : "",
         type === "info" ? "bg-slate-700 text-slate-50" : ""
       )}
     >
       {message}
+      {onDismiss && (
+        <button
+          onClick={onDismiss}
+          className="absolute right-2 top-2 p-1 rounded hover:bg-black/20 transition-colors"
+          aria-label="Dismiss message"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
@@ -137,7 +160,7 @@ export default function FlashMessages({ children }: { children: ReactNode }) {
     >
       <div className="fixed right-0 top-0 z-50 flex max-w-xl flex-col gap-y-4 p-4">
         {messages.map((m) => (
-          <Message {...m} key={m.id} />
+          <Message {...m} key={m.id} onDismiss={m.remove} />
         ))}
       </div>
       {children}

@@ -46,39 +46,42 @@ async function reprocessResource() {
   }
 
   try {
-    const { db } = await import('@/lib/db');
-    const { resources, games } = await import('@/lib/db/schema');
-    const { eq } = await import('drizzle-orm');
+    info(`Reprocessing resource ${resourceId}${fromStage ? ` from stage: ${fromStage}` : ''}...`);
 
-    info(`Fetching resource ${resourceId}...`);
-
-    // Get resource details
-    const [resource] = await db
-      .select({
-        id: resources.id,
-        gameId: resources.gameId,
-        name: resources.name,
-        url: resources.url,
-        status: resources.status,
-        currentRunId: resources.currentRunId,
-      })
-      .from(resources)
-      .where(eq(resources.id, resourceId))
-      .limit(1);
-
-    if (!resource) {
-      error(`Resource not found: ${resourceId}`);
-      process.exit(1);
-    }
+    // Use oRPC client with JWT auth
+    const { createORPCClient } = await import('@orpc/client');
+    const { RPCLink } = await import('@orpc/client/fetch');
+    const { generateCliToken } = await import('../utils/auth');
+    const { Router } = await import('@/lib/procedures/router');
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    console.log(`\nResource: ${resource.name}`);
-    console.log(`Current status: ${resource.status}`);
-    console.log(`\nTo reprocess this resource, visit:`);
-    console.log(`  ${baseUrl}/admin/games/${resource.gameId}/resources/${resourceId}`);
-    console.log(`\nThen click the "Reprocess" button in the admin UI.`);
+    const token = await generateCliToken();
+
+    // Create oRPC client with Bearer token auth
+    const link = new RPCLink({
+      url: `${baseUrl}/api/rpc`,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    const orpc = createORPCClient<typeof Router>(link);
+
+    const result = await orpc.resources.reprocess({
+      id: resourceId,
+      fromStage,
+    });
+
+    success(`Workflow started successfully!`);
+    console.log(`Run ID: ${result.runId}`);
+    console.log(`Status: ${result.status}`);
+    console.log(`Message: ${result.message}`);
+
+    console.log(`\nMonitor progress:`);
+    console.log(`  pnpm cli resources status ${result.runId}`);
+    console.log(`  ${baseUrl}/admin/games/resources/${resourceId}`);
   } catch (err: any) {
-    error(`Failed to fetch resource: ${err.message}`);
+    error(`Failed to reprocess resource: ${err.message}`);
     console.error(err);
     process.exit(1);
   }

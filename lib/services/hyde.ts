@@ -74,16 +74,44 @@ export async function generateQuestionsForFragment(
     }
 
     const data = (await response.json()) as { choices: Array<{ message: { content: string } }> };
-    const result = JSON.parse(data.choices[0].message.content);
+    const content = data.choices[0]?.message?.content;
+
+    if (!content) {
+      console.error('Error generating questions: Empty response from OpenAI', {
+        fragment: {
+          section: fragment.section,
+          pageNumber: fragment.pageNumber,
+          contentLength: fragment.content.length,
+        },
+        response: data,
+      });
+      return [];
+    }
+
+    const result = JSON.parse(content);
 
     // Validate and return questions
     if (!Array.isArray(result.questions)) {
-      throw new Error('Invalid response format: expected questions array');
+      console.error('Error generating questions: Invalid response format', {
+        fragment: {
+          section: fragment.section,
+          pageNumber: fragment.pageNumber,
+          contentLength: fragment.content.length,
+        },
+        result,
+      });
+      return [];
     }
 
     return result.questions.filter((q: unknown): q is string => typeof q === 'string');
   } catch (error) {
-    console.error('Error generating questions:', error);
+    console.error('Error generating questions:', error, {
+      fragment: {
+        section: fragment.section,
+        pageNumber: fragment.pageNumber,
+        contentLength: fragment.content.length,
+      },
+    });
     // Return empty array rather than failing the entire processing
     return [];
   }

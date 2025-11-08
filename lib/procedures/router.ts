@@ -7,7 +7,6 @@ import * as gamesProcedures from './games';
 import * as resourcesProcedures from './resources';
 import * as attachmentsProcedures from './attachments';
 import * as bggProcedures from './bgg';
-import * as workflowsProcedures from './workflows';
 
 /**
  * Convert procedures to callable form for server-side direct invocation
@@ -32,7 +31,6 @@ export const router = {
   resources: resourcesProcedures,
   attachments: attachmentsProcedures,
   bgg: bggProcedures,
-  workflows: workflowsProcedures,
 };
 
 /**
@@ -44,7 +42,6 @@ export const callableRouter = {
   resources: makeCallable(resourcesProcedures),
   attachments: makeCallable(attachmentsProcedures),
   bgg: makeCallable(bggProcedures),
-  workflows: makeCallable(workflowsProcedures),
 };
 
 export type Router = typeof router;

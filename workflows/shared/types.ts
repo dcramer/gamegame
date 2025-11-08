@@ -15,13 +15,6 @@ export interface ProcessResourceInput {
 
 export interface ProcessingMetadata {
   structuredKey: string;
-  stages: {
-    ingest: boolean;
-    vision: boolean;
-    cleanup: boolean;
-    metadata: boolean;
-    embed: boolean;
-  };
 }
 
 export interface CleanupStalledJobsResult {

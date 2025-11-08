@@ -253,8 +253,17 @@ export const reprocess = adminProcedure
       id: z.string(),
     })
   )
-  .output(attachmentResponseSchema)
+  .output(
+    z.object({
+      id: z.string(),
+      status: z.literal('processing'),
+      runId: z.string(),
+      message: z.string(),
+    })
+  )
   .handler(async ({ input }) => {
+    const { nanoid } = await import('nanoid');
+
     // Get attachment from database
     const [attachment] = await db
       .select()
@@ -277,35 +286,24 @@ export const reprocess = adminProcedure
       });
     }
 
+    // Generate run ID for tracking
+    const runId = nanoid();
+
     // Call unified workflow in single-attachment mode
     const { analyzeImagesWorkflow } = await import('@/workflows/analyze-images');
-    await start(analyzeImagesWorkflow, [{
+    start(analyzeImagesWorkflow, [{
+      runId,
       mode: 'single-attachment',
       attachmentId: input.id,
       gameId: attachment.gameId,
-    }]);
+    }]).catch((error) => {
+      console.error('[reprocess attachment] Workflow start error:', error);
+    });
 
-    // Fetch updated attachment
-    const [updated] = await db
-      .select()
-      .from(attachments)
-      .where(eq(attachments.id, input.id))
-      .limit(1);
-
-    if (!updated) {
-      throw new ORPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'Failed to fetch updated attachment',
-      });
-    }
-
-    // Get public URL
-    const { blobKeyToUrl } = await import('@/lib/services/blob-storage');
-    const result = {
-      ...updated,
-      url: updated.blobKey ? blobKeyToUrl(updated.blobKey) : null,
-      bbox: parseBbox(updated.bbox),
+    return {
+      id: attachment.id,
+      status: 'processing' as const,
+      runId,
+      message: 'Image reanalysis started',
     };
-
-    return result;
   });

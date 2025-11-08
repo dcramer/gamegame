@@ -55,11 +55,6 @@ export async function runCleanupStage(input: ProcessResourceInput) {
         };
       }
 
-      const metadata = parseMetadata(input.resourceId, resourceRow.metadata);
-      if (metadata.stages.cleanup) {
-        return { success: true, skipProcessing: true };
-      }
-
       // Set currentRunId immediately within the transaction
       await tx
         .update(resources)
@@ -69,10 +64,10 @@ export async function runCleanupStage(input: ProcessResourceInput) {
         })
         .where(eq(resources.id, input.resourceId));
 
-      return { success: true, skipProcessing: false };
+      return { success: true };
     });
 
-    if (!result.success || result.skipProcessing) {
+    if (!result.success) {
       return result;
     }
 
@@ -95,7 +90,6 @@ export async function runCleanupStage(input: ProcessResourceInput) {
     await saveStructured(input.resourceId, structured);
 
     const metadata = parseMetadata(input.resourceId, null);
-    metadata.stages.cleanup = true;
     await db
       .update(resources)
       .set({

@@ -3,14 +3,9 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs";
+import { SharedSentryConfig } from "@/lib/sentry.config";
 
 Sentry.init({
+  ...SharedSentryConfig,
   dsn: process.env.SENTRY_DSN,
-  // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
-  tracesSampleRate: 1,
-
-  // Setting this option to true will print useful information to the console while you're setting up Sentry.
-  debug: false,
-
-  spotlight: process.env.NODE_ENV === "development",
 });

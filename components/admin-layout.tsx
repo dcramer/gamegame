@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import FlashMessages from "@/components/flashMessages";
+import { WorkflowStatusRestorer } from "@/components/workflowFlashMessage";
 import { Logo } from "@/components/logo";
 import Footer from "@/components/footer";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
   /**
-   * Whether to show the top-level navigation tabs (Games/Workflows).
+   * Whether to show the top-level navigation tabs.
    * Set to false for detail pages that have their own navigation.
    * @default true
    */
@@ -35,21 +36,9 @@ interface AdminLayoutProps {
 export default function AdminLayout({ children, showNavigation = true }: AdminLayoutProps) {
   const pathname = usePathname();
 
-  const isActive = (path: string) => {
-    if (path === "/admin") {
-      // Games tab is active for /admin, /admin/games/*, and /admin/add-game
-      return (
-        pathname === "/admin" ||
-        pathname.startsWith("/admin/games") ||
-        pathname.startsWith("/admin/add-game")
-      );
-    }
-    // Workflows tab is active for /admin/workflows and sub-paths
-    return pathname.startsWith(path);
-  };
-
   return (
     <FlashMessages>
+      <WorkflowStatusRestorer />
       <div className="min-h-screen flex flex-col">
         {/* Header */}
         <header className="border-b border-border">
@@ -62,34 +51,6 @@ export default function AdminLayout({ children, showNavigation = true }: AdminLa
               </Link>
             </div>
           </div>
-
-          {/* Navigation - only shown when showNavigation is true */}
-          {showNavigation && (
-            <nav className="container mx-auto px-4">
-              <div className="flex gap-1 -mb-px">
-                <Link
-                  href="/admin"
-                  className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                    isActive("/admin")
-                      ? "border-primary text-foreground"
-                      : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-                  }`}
-                >
-                  Games
-                </Link>
-                <Link
-                  href="/admin/workflows"
-                  className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                    isActive("/admin/workflows")
-                      ? "border-primary text-foreground"
-                      : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-                  }`}
-                >
-                  Workflows
-                </Link>
-              </div>
-            </nav>
-          )}
         </header>
 
         <main className="container mx-auto px-4 py-6 flex-1">

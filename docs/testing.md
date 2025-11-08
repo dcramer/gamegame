@@ -4,7 +4,9 @@
 
 ## Hard Rules
 
-### 1. Only Mock External APIs
+### 1. Mock External APIs, Not Internal Services
+
+**Philosophy**: Tests should work without internet access but remain meaningful. Mock network boundaries (external APIs), use real implementations for everything else.
 
 ```typescript
 // ✅ DO: Mock external APIs
@@ -12,14 +14,43 @@ import { createMockFetch, openAI } from '@/tests/api-mocks';
 const mockFetch = createMockFetch();
 mockFetch.mockResolvedValueOnce(openAI.chatCompletion({ questions: ['Q1'] }));
 
-// ❌ NEVER: Mock internal services
+// ❌ DON'T: Mock internal services
 vi.mock('@/lib/db');
-vi.mock('@/lib/ai/embeddings');
 vi.mock('@/lib/services/images');
+vi.mock('@/lib/services/blob-storage');
 ```
 
-**What to mock:** OpenAI, Mistral, BGG, Resend (cost/rate limits)
-**What to use real:** PostgreSQL, Vercel KV, Vercel Blob (all available in tests)
+**What to mock:**
+- External APIs with costs: OpenAI, Mistral (embeddings, chat, OCR)
+- External APIs with rate limits: BoardGameGeek
+- Email service: Resend
+
+**What to use real:**
+- PostgreSQL (test database on port 5433)
+- Vercel KV (ephemeral test instance)
+- Vercel Blob / Local filesystem storage
+- All internal services and utilities
+
+**Exception: Optional Real API Tests**
+
+For critical features that depend on LLM behavior (e.g., prompt quality, answer classification), you MAY write tests that use real APIs:
+
+```typescript
+import { vi } from 'vitest';
+
+// Skip test if no API key available
+const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
+
+describe('Answer Quality Evals', () => {
+  it.skipIf(!hasOpenAIKey)('should classify gameplay questions correctly', async () => {
+    // Uses real OpenAI API - no mocking
+    const result = await classifyQuestion('How many players can play?');
+    expect(result.type).toBe('gameplay');
+  });
+});
+```
+
+Use `.skipIf(!hasOpenAIKey)` to make these tests optional. Run them manually or in CI with API keys when validating LLM behavior.
 
 ### 2. Test Behavior, Not Implementation
 
@@ -154,33 +185,69 @@ it('should process PDF and create fragments', async () => {
 ### API Route Test Pattern
 
 ```typescript
-// app/api/games/route.test.ts
+// tests/api/games.test.ts
 import { GET, POST } from '@/app/api/games/route';
 import { NextRequest } from 'next/server';
+import { createTestGame, createTestUser } from '@/tests/fixtures';
+import { cleanupTestDb } from '@/tests/db-helpers';
 
-it('should return games list', async () => {
-  await createTestGame({ name: 'Arcs' });
+// Mock authentication for protected routes
+vi.mock('@/lib/session', () => ({
+  getCurrentUser: vi.fn(),
+  verifyAdminSession: vi.fn(),
+  createSession: vi.fn(),
+}));
 
-  const request = new NextRequest('http://localhost/api/games');
-  const response = await GET(request);
+afterEach(cleanupTestDb);
 
-  expect(response.status).toBe(200);
-  const data = await response.json();
-  expect(data).toHaveLength(1);
-  expect(data[0].name).toBe('Arcs');
+describe('GET /api/games', () => {
+  it('should return games list', async () => {
+    await createTestGame({ name: 'Arcs' });
+
+    const request = new NextRequest('http://localhost/api/games');
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data).toHaveLength(1);
+    expect(data[0].name).toBe('Arcs');
+  });
 });
 
-it('should create game', async () => {
-  const request = new NextRequest('http://localhost/api/games', {
-    method: 'POST',
-    body: JSON.stringify({ name: 'Arcs', slug: 'arcs-2023' }),
+describe('POST /api/games', () => {
+  it('should create game (admin only)', async () => {
+    // Mock admin authentication
+    const { verifyAdminSession } = await import('@/lib/session');
+    const adminUser = await createTestUser({ email: 'admin@example.com', isAdmin: true });
+    vi.mocked(verifyAdminSession).mockResolvedValue({
+      userId: adminUser.id,
+      email: adminUser.email,
+      isAdmin: true,
+    });
+
+    const request = new NextRequest('http://localhost/api/games', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Arcs', slug: 'arcs-2023' }),
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(201);
+    const data = await response.json();
+    expect(data.name).toBe('Arcs');
   });
 
-  const response = await POST(request);
+  it('should reject non-admin users', async () => {
+    const { verifyAdminSession } = await import('@/lib/session');
+    vi.mocked(verifyAdminSession).mockRejectedValue(new Error('Unauthorized'));
 
-  expect(response.status).toBe(201);
-  const data = await response.json();
-  expect(data.name).toBe('Arcs');
+    const request = new NextRequest('http://localhost/api/games', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Arcs' }),
+    });
+
+    await expect(POST(request)).rejects.toThrow('Unauthorized');
+  });
 });
 ```
 
@@ -209,19 +276,6 @@ routeAPICalls(mockFetch, {
   'api.openai.com/v1/chat/completions': openAI.chatCompletion('response'),
   'boardgamegeek.com/xmlapi2/search': bgg.searchResults([...])
 });
-```
-
-**Mock embeddings (common):**
-```typescript
-// For workflows that generate many embeddings, mock the embedding function
-vi.mock('@/lib/ai/embeddings', () => ({
-  generateEmbeddings: vi.fn(async (chunks) => {
-    return chunks.map(() => ({
-      embedding: new Array(1536).fill(0).map(() => Math.random()),
-      tokens: 100,
-    }));
-  }),
-}));
 ```
 
 ## Test Fixtures
@@ -264,6 +318,222 @@ beforeAll(async () => {
 
 **Important:** Use `cleanupTestDb()` in `afterEach` for fast, isolated tests. Only use `resetTestDb()` when you need to reset sequences.
 
+## Authentication Testing
+
+Most API routes use JWT authentication via `withAuth()` or `withAdmin()` middleware. Mock the session module for protected route tests:
+
+```typescript
+import { vi } from 'vitest';
+import { createTestUser } from '@/tests/fixtures';
+
+// Mock session module at top of test file
+vi.mock('@/lib/session', () => ({
+  getCurrentUser: vi.fn(),
+  verifySession: vi.fn(),
+  verifyAdminSession: vi.fn(),
+  createSession: vi.fn(),
+  destroySession: vi.fn(),
+  isAuthenticated: vi.fn(),
+  isAdmin: vi.fn(),
+  requireAuth: vi.fn(),
+  requireAdmin: vi.fn(),
+}));
+
+describe('Protected Route', () => {
+  it('should allow authenticated users', async () => {
+    const { getCurrentUser } = await import('@/lib/session');
+    const user = await createTestUser({ email: 'user@example.com' });
+
+    vi.mocked(getCurrentUser).mockResolvedValue({
+      userId: user.id,
+      email: user.email,
+      isAdmin: false,
+    });
+
+    // Test authenticated route
+  });
+
+  it('should allow admin users only', async () => {
+    const { verifyAdminSession } = await import('@/lib/session');
+    const admin = await createTestUser({ isAdmin: true });
+
+    vi.mocked(verifyAdminSession).mockResolvedValue({
+      userId: admin.id,
+      email: admin.email,
+      isAdmin: true,
+    });
+
+    // Test admin route
+  });
+
+  it('should reject unauthenticated requests', async () => {
+    const { requireAuth } = await import('@/lib/session');
+    vi.mocked(requireAuth).mockRejectedValue(new Error('Unauthorized'));
+
+    // Expect rejection
+  });
+});
+```
+
+**Why mock session?** Session functions use `cookies()` which requires Next.js request context. Mocking avoids complex setup while testing authorization logic.
+
+## Workflow Testing
+
+Vercel Workflows are complex and integration-heavy. Focus on testing individual step functions, not full workflow orchestration.
+
+```typescript
+// workflows/process-resource/steps/ingest.test.ts
+import { describe, it, expect, beforeEach } from 'vitest';
+import { ingestPDF } from './ingest';
+import { createTestGame, createTestResource } from '@/tests/fixtures';
+import { createMockFetch, mistral } from '@/tests/api-mocks';
+import { cleanupTestDb } from '@/tests/db-helpers';
+
+const mockFetch = createMockFetch();
+
+beforeEach(async () => {
+  await cleanupTestDb();
+  mockFetch.mockClear();
+});
+
+it('should extract PDF content using Mistral OCR', async () => {
+  const game = await createTestGame({ name: 'Arcs' });
+  const resource = await createTestResource(game.id, {
+    url: 'https://example.com/rulebook.pdf',
+  });
+
+  // Mock Mistral OCR response
+  mockFetch.mockResolvedValueOnce(
+    mistral.ocrResponse([
+      { markdown: '# Setup\n\nPlace the board in center', images: [] },
+      { markdown: '# Gameplay\n\nRoll dice', images: [] },
+    ])
+  );
+
+  const result = await ingestPDF({ resourceId: resource.id });
+
+  expect(result.content).toContain('# Setup');
+  expect(result.pageCount).toBe(2);
+  expect(mockFetch).toHaveBeenCalledOnce();
+});
+```
+
+**What to test:**
+- ✅ Individual step functions with real database and mocked external APIs
+- ✅ Data transformations and business logic within steps
+- ✅ Error handling in step functions
+
+**What NOT to test:**
+- ❌ Full workflow orchestration (Vercel handles this)
+- ❌ Workflow retry logic and error recovery
+- ❌ Step coordination and state management
+
+**Document-style tests** are acceptable for complex workflows (see `workflows/embed-stage.test.ts`):
+```typescript
+it('should document the timestamp bug fix', () => {
+  // This test documents that Date.now() returns number, not Date object
+  const timestamp = Date.now();
+  expect(typeof timestamp).toBe('number');
+
+  // Background: Database bigint columns need numbers, not Date objects
+  // Fixed at: workflows/embed-stage.ts lines 99, 418, 428
+});
+```
+
+## Blob Storage Testing
+
+Blob storage (Vercel Blob or local filesystem) is available in tests. Use real file uploads/downloads:
+
+```typescript
+import { describe, it, expect } from 'vitest';
+import { uploadAttachment, getAttachmentUrl } from '@/lib/services/blob-storage';
+import { createTestResource } from '@/tests/fixtures';
+
+it('should upload and retrieve attachment', async () => {
+  const resource = await createTestResource(game.id);
+  const imageBuffer = Buffer.from('fake-image-data');
+
+  // Real blob upload
+  const url = await uploadAttachment(
+    resource.id,
+    'attachment-id',
+    imageBuffer,
+    'image/png'
+  );
+
+  expect(url).toContain('attachment-id');
+
+  // Real blob retrieval
+  const retrievedUrl = await getAttachmentUrl('attachment-id');
+  expect(retrievedUrl).toBe(url);
+});
+```
+
+**Note:** Tests use local filesystem storage (in `./public/uploads/`) when `BLOB_READ_WRITE_TOKEN` is not set. Cleanup happens automatically via `cleanupTestDb()`.
+
+## Parallel Test Execution
+
+Tests run in **parallel by default** (Vitest). This is safe because:
+- Each test uses the same shared test database
+- `cleanupTestDb()` runs in `afterEach` to clean all tables
+- Database transactions provide isolation
+
+**When to use `.sequential`:**
+```typescript
+// Use for tests that modify global state or shared resources
+describe.sequential('Rate Limiting', () => {
+  it('should throttle requests', async () => {
+    // Tests that depend on timing or shared rate limit state
+  });
+});
+```
+
+## CI Configuration
+
+Tests run in GitHub Actions CI with the same Docker setup as local development:
+
+```yaml
+# .github/workflows/test.yml (example)
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.5
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - run: pnpm install
+      - run: pnpm db:migrate # Migrate test database
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5433/test_gamegame
+
+      - run: pnpm test:run
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5433/test_gamegame
+          # Optional: Add OPENAI_API_KEY to run eval tests
+```
+
+**Environment differences:**
+- CI uses the same PostgreSQL image (`postgis/postgis:16-3.5`)
+- Test database migrations must run before tests
+- Optional: Set `OPENAI_API_KEY` secret to run `.skipIf(!hasOpenAIKey)` tests
+
 ## What NOT to Test
 
 ❌ **Infrastructure** - Don't test Drizzle, PostgreSQL, Next.js work correctly
@@ -271,6 +541,7 @@ beforeAll(async () => {
 ❌ **Edge cases** - Don't test null, undefined, empty arrays for every function
 ❌ **Implementation** - Don't spy on private methods, internal calls
 ❌ **Redundant** - Don't test same behavior in multiple files
+❌ **Workflow orchestration** - Don't test Vercel Workflow coordination (test steps instead)
 
 ## Quick Reference
 
@@ -315,12 +586,21 @@ make reset-db  # Resets both dev and test databases
 
 ## Summary
 
-1. ✅ Only mock external APIs (OpenAI, Mistral, BGG, Resend)
-2. ✅ Use real local services (PostgreSQL, Vercel KV, Vercel Blob)
+### Core Principles
+1. ✅ Mock external APIs only (OpenAI, Mistral, BGG, Resend) - not internal services
+2. ✅ Use real local services (PostgreSQL, Vercel KV, Vercel Blob storage)
 3. ✅ Test behavior (what), not implementation (how)
-4. ✅ Focus on basics, skip edge cases
-5. ✅ Keep tests fast (<15s total)
+4. ✅ Focus on basics, skip edge cases and infrastructure
+5. ✅ Keep tests fast (<15s total for full suite)
 6. ✅ Clean up with `afterEach(cleanupTestDb)`
 7. ✅ Make tests independent (no shared state)
+
+### Key Patterns
+- **Authentication**: Mock `@/lib/session` module for protected route tests
+- **Workflows**: Test individual step functions, not full orchestration
+- **Blob Storage**: Use real uploads/downloads (local filesystem in tests)
+- **Optional Real APIs**: Use `.skipIf(!hasOpenAIKey)` for LLM eval tests
+- **Parallel Execution**: Tests run in parallel by default (use `.sequential` only when needed)
+- **CI**: Same PostgreSQL setup as local, run migrations before tests
 
 **When in doubt:** Does this prove the system works, or test implementation details?

@@ -54,11 +54,6 @@ export async function runEmbedStage(input: ProcessResourceInput) {
         };
       }
 
-      const metadata = parseMetadata(input.resourceId, resourceRow.metadata);
-      if (metadata.stages.embed) {
-        return { success: true, skipProcessing: true };
-      }
-
       // Set currentRunId immediately within the transaction
       await tx
         .update(resources)
@@ -68,10 +63,10 @@ export async function runEmbedStage(input: ProcessResourceInput) {
         })
         .where(eq(resources.id, input.resourceId));
 
-      return { success: true, skipProcessing: false };
+      return { success: true };
     });
 
-    if (!result.success || result.skipProcessing) {
+    if (!result.success) {
       return result;
     }
 
@@ -82,7 +77,6 @@ export async function runEmbedStage(input: ProcessResourceInput) {
     await runEmbedStageImpl(input, structured);
 
     const metadata = parseMetadata(input.resourceId, null);
-    metadata.stages.embed = true;
     await db
       .update(resources)
       .set({

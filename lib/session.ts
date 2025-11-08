@@ -39,9 +39,22 @@ const COOKIE_OPTIONS = {
 };
 
 /**
- * Get the JWT token from cookie
+ * Get the JWT token from cookie or Authorization header (Bearer token)
  */
-async function getTokenFromCookie(): Promise<string | null> {
+async function getToken(): Promise<string | null> {
+  // First try Authorization header (for CLI/API access)
+  try {
+    const { headers } = await import('next/headers');
+    const headersList = await headers();
+    const authHeader = headersList.get('authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      return authHeader.substring(7);
+    }
+  } catch {
+    // headers() not available in this context
+  }
+
+  // Fall back to cookie
   const cookieStore = await cookies();
   return cookieStore.get(COOKIE_NAME)?.value || null;
 }
@@ -67,7 +80,7 @@ async function deleteTokenCookie(): Promise<void> {
  * Returns null if no token or token is invalid/expired
  */
 export async function getSession(): Promise<SessionData | null> {
-  const token = await getTokenFromCookie();
+  const token = await getToken();
   if (!token) return null;
 
   const payload = await verifyJWT(token);
@@ -227,7 +240,7 @@ export async function requireAdmin(): Promise<UserData> {
  * Returns true if successful, false if no valid session
  */
 export async function refreshSession(): Promise<boolean> {
-  const token = await getTokenFromCookie();
+  const token = await getToken();
   if (!token) return false;
 
   const payload = await verifyJWT(token);

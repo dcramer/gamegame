@@ -88,13 +88,6 @@ export async function hasActiveWorkflowConflict(
 export function defaultMetadata(resourceId: string): ProcessingMetadata {
   return {
     structuredKey: `resources/${resourceId}/structured.json`,
-    stages: {
-      ingest: false,
-      vision: false,
-      cleanup: false,
-      metadata: false,
-      embed: false,
-    },
   };
 }
 
@@ -111,13 +104,6 @@ export function parseMetadata(resourceId: string, value?: string | null): Proces
 
     return {
       structuredKey: typeof parsed.structuredKey === 'string' ? parsed.structuredKey : `resources/${resourceId}/structured.json`,
-      stages: {
-        ingest: parsed.stages?.ingest === true,
-        vision: parsed.stages?.vision === true,
-        cleanup: parsed.stages?.cleanup === true,
-        metadata: parsed.stages?.metadata === true,
-        embed: parsed.stages?.embed === true,
-      },
     };
   } catch {
     return defaultMetadata(resourceId);

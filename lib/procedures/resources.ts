@@ -273,104 +273,26 @@ export const reprocess = adminProcedure
     })
   )
   .handler(async ({ input }) => {
-    const { nanoid } = await import('nanoid');
-    const { processResourceWorkflow } = await import('@/workflows/process-resource/index');
+    const { reprocessResource } = await import('@/lib/services/reprocess');
 
-    // Get resource details
-    const [resource] = await db
-      .select({
-        id: resources.id,
-        gameId: resources.gameId,
-        name: resources.name,
-        url: resources.url,
-        status: resources.status,
-        currentRunId: resources.currentRunId,
-      })
-      .from(resources)
-      .where(eq(resources.id, input.id))
-      .limit(1);
-
-    if (!resource) {
-      throw new ORPCError({
-        code: 'NOT_FOUND',
-        message: 'Resource not found',
+    try {
+      return await reprocessResource({
+        resourceId: input.id,
+        fromStage: input.fromStage,
       });
-    }
-
-    // If resource is currently processing, cancel the existing workflow
-    if ((resource.status === 'processing' || resource.status === 'queued') && resource.currentRunId) {
-      try {
-        const { cancelWorkflowRun } = await import('@/lib/services/workflows');
-        await cancelWorkflowRun(resource.currentRunId);
-        console.log(`[Reprocess Resource] Cancelled existing workflow run: ${resource.currentRunId}`);
-      } catch (cancelError) {
-        console.error('[Reprocess Resource] Failed to cancel existing workflow:', cancelError);
-        // Continue anyway - the new workflow will update the status
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Resource not found') {
+        throw new ORPCError({
+          code: 'NOT_FOUND',
+          message: 'Resource not found',
+        });
       }
+      if (error instanceof Error && error.message === 'Game not found') {
+        throw new ORPCError({
+          code: 'NOT_FOUND',
+          message: 'Game not found',
+        });
+      }
+      throw error;
     }
-
-    // Get game details
-    const { games } = await import('@/lib/db/schema');
-    const [game] = await db
-      .select({ name: games.name })
-      .from(games)
-      .where(eq(games.id, resource.gameId))
-      .limit(1);
-
-    if (!game) {
-      throw new ORPCError({
-        code: 'NOT_FOUND',
-        message: 'Game not found',
-      });
-    }
-
-    // Create new run ID
-    const runId = nanoid();
-
-    // Determine starting stage and update resource status
-    const startingStage = input.fromStage || 'ingest';
-    await db
-      .update(resources)
-      .set({
-        status: 'processing',
-        processingStage: startingStage,
-        currentRunId: runId,
-        updatedAt: Date.now(),
-      })
-      .where(eq(resources.id, input.id));
-
-    // Trigger workflow asynchronously (don't await)
-    const workflowInput = {
-      runId,
-      resourceId: resource.id,
-      gameId: resource.gameId,
-      gameName: game.name,
-      name: resource.name,
-      url: resource.url,
-      fromStage: input.fromStage,
-    };
-
-    start(processResourceWorkflow, [workflowInput]).catch((error) => {
-      console.error('[Reprocess Resource] Workflow error:', error);
-      // Mark resource as failed
-      db.update(resources)
-        .set({
-          status: 'failed',
-          processingStage: 'failed',
-          processingMetadata: null,
-          currentRunId: null,
-          updatedAt: Date.now(),
-        })
-        .where(eq(resources.id, input.id))
-        .catch((err) => console.error('[Reprocess Resource] Failed to update resource:', err));
-    });
-
-    return {
-      id: resource.id,
-      status: 'processing' as const,
-      runId,
-      message: resource.currentRunId
-        ? 'Cancelled existing job and queued resource for reprocessing'
-        : 'Resource queued for reprocessing',
-    };
   });

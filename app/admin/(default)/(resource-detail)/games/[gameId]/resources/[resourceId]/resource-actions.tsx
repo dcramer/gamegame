@@ -5,6 +5,7 @@ import { RefreshCw, Trash2, ExternalLink } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { orpc } from "@/lib/procedures/client";
 import { useFlashMessages } from "@/components/flashMessages";
+import { useWorkflowFlash } from "@/components/workflowFlashMessage";
 
 interface ResourceActionsProps {
   resourceId: string;
@@ -21,6 +22,7 @@ export default function ResourceActions({
 }: ResourceActionsProps) {
   const router = useRouter();
   const { flash } = useFlashMessages();
+  const workflowFlash = useWorkflowFlash();
 
   const handleReprocess = async (fromStage: 'ingest' | 'vision' | 'cleanup' | 'metadata' | 'embed' = 'ingest') => {
     // Map 'fromStage' parameter to user-friendly titles
@@ -33,27 +35,41 @@ export default function ResourceActions({
     };
     const title = jobTitles[fromStage];
 
-    const message = flash(`${title}: ${resourceName}...`, "info", {
-      removeAfter: null,
-    });
-
     try {
       const response = await orpc.resources.reprocess({
         id: resourceId,
         fromStage: fromStage === 'ingest' ? undefined : fromStage
       });
 
-      message.update(
-        `${resourceName} queued for reprocessing`,
-        "success",
-        { removeAfter: 5000 }
-      );
-      router.refresh();
+      if (response.runId) {
+        // Use workflow flash to track reprocessing
+        workflowFlash(
+          response.runId,
+          `${title}: ${resourceName}...`,
+          {
+            displayName: `${title}: ${resourceName}`,
+            onComplete: () => {
+              router.refresh();
+            },
+            onError: (error) => {
+              console.error('Reprocessing failed:', error);
+              router.refresh();
+            }
+          }
+        );
+        router.refresh();
+      } else {
+        // Unexpected immediate completion
+        flash(`${resourceName} reprocessed successfully`, "success", {
+          removeAfter: 5000,
+        });
+        router.refresh();
+      }
     } catch (error) {
       console.error("Reprocess error:", error);
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
-      message.update(`Failed to reprocess: ${errorMessage}`, "error", {
+      flash(`Failed to reprocess: ${errorMessage}`, "error", {
         removeAfter: 8000,
       });
     }

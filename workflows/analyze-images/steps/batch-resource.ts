@@ -102,19 +102,14 @@ export async function analyzeBatchResourceStep(
       };
     }
 
-    // Check if vision stage already completed
     const metadata = parseMetadata(input.resourceId, resourceRow.metadata);
-    if (metadata.stages.vision) {
-      return { success: true, imagesProcessed: 0 };
-    }
 
     // Load structured data
     const structured = await loadStructured(input.resourceId);
     const images = structured.pages.flatMap((page) => page.images);
 
-    // If no images, mark stage complete and return
+    // If no images, skip vision processing and return
     if (images.length === 0) {
-      metadata.stages.vision = true;
       await db
         .update(resources)
         .set({
@@ -174,8 +169,7 @@ export async function analyzeBatchResourceStep(
     // Save updated structured data
     await saveStructured(input.resourceId, structured);
 
-    // Mark vision stage complete
-    metadata.stages.vision = true;
+    // Update processing stage
     await db
       .update(resources)
       .set({

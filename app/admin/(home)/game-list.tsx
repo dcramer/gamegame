@@ -9,6 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableTableRow } from "@/components/ui/clickable-table-row";
 import Link from "next/link";
 import Image from "next/image";
 import { orpc } from "@/lib/procedures/client";
@@ -46,45 +47,33 @@ export default function GameList({
           <TableRow>
             <TableHead className="w-[80px]">Image</TableHead>
             <TableHead>Name</TableHead>
-            <TableHead className="w-[200px] text-center">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {activeGameList.map((game) => {
             return (
-              <TableRow key={game.id}>
+              <ClickableTableRow key={game.id} href={`/admin/games/${game.id}`}>
                 <TableCell>
-                  <Link
-                    href={`/admin/games/${game.id}`}
-                    prefetch={false}
-                  >
-                    {game.imageUrl ? (
-                      <div className="w-16 h-16 relative rounded overflow-hidden bg-muted">
-                        <Image
-                          src={game.imageUrl}
-                          alt={game.name}
-                          fill
-                          sizes="64px"
-                          style={{
-                            objectFit: "cover",
-                          }}
-                        />
-                      </div>
-                    ) : (
-                      <div className="w-16 h-16 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">
-                        No image
-                      </div>
-                    )}
-                  </Link>
+                  {game.imageUrl ? (
+                    <div className="w-16 h-16 relative rounded overflow-hidden bg-muted">
+                      <Image
+                        src={game.imageUrl}
+                        alt={game.name}
+                        fill
+                        sizes="64px"
+                        style={{
+                          objectFit: "cover",
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-16 h-16 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                      No image
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell className="font-medium relative">
-                  <Link
-                    href={`/admin/games/${game.id}`}
-                    prefetch={false}
-                    className="w-full block"
-                  >
-                    {game.name}
-                  </Link>
+                  <div>{game.name}</div>
                   {!!game.bggUrl && (
                     <div className="text-xs text-muted-foreground">
                       <Link href={game.bggUrl} className="hover:underline">
@@ -96,28 +85,7 @@ export default function GameList({
                     <div className="text-destructive">No Resources</div>
                   ) : null}
                 </TableCell>
-                <TableCell className="text-center">
-                  <Button
-                    size="sm"
-                    variant="destructive-outline"
-                    onClick={async (e) => {
-                      e.stopPropagation();
-
-                      try {
-                        await orpc.games.deleteGame({ id: game.id });
-                        setGameList(
-                          activeGameList.filter((g) => g.id !== game.id)
-                        );
-                      } catch (error) {
-                        console.error('Failed to delete game:', error);
-                        alert('Failed to delete game');
-                      }
-                    }}
-                  >
-                    Delete
-                  </Button>
-                </TableCell>
-              </TableRow>
+              </ClickableTableRow>
             );
           })}
         </TableBody>

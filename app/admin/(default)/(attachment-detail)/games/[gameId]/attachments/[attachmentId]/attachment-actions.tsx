@@ -5,6 +5,7 @@ import { RefreshCw, ExternalLink } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { orpc } from "@/lib/procedures/client";
 import { useFlashMessages } from "@/components/flashMessages";
+import { useWorkflowFlash } from "@/components/workflowFlashMessage";
 
 interface AttachmentActionsProps {
   attachmentId: string;
@@ -21,6 +22,7 @@ export default function AttachmentActions({
 }: AttachmentActionsProps) {
   const router = useRouter();
   const { flash } = useFlashMessages();
+  const workflowFlash = useWorkflowFlash();
 
   const handleReanalyze = async () => {
     if (
@@ -31,20 +33,36 @@ export default function AttachmentActions({
       return;
     }
 
-    const message = flash(`Analyzing image...`, "info", {
-      removeAfter: null,
-    });
-
     try {
-      await orpc.attachments.reprocess({ id: attachmentId });
-      message.update(`Image analysis started`, "success", { removeAfter: 5000 });
-      // Refresh after a short delay to let the workflow start
-      setTimeout(() => router.refresh(), 2000);
+      const response = await orpc.attachments.reprocess({ id: attachmentId });
+
+      if (response.runId) {
+        // Use workflow flash to track reanalysis
+        workflowFlash(
+          response.runId,
+          `Analyzing image...`,
+          {
+            displayName: `Image Analysis`,
+            onComplete: () => {
+              router.refresh();
+            },
+            onError: (error) => {
+              console.error('Image analysis failed:', error);
+              router.refresh();
+            }
+          }
+        );
+        router.refresh();
+      } else {
+        // Unexpected immediate completion
+        flash(`Image analysis completed`, "success", { removeAfter: 5000 });
+        router.refresh();
+      }
     } catch (error) {
       console.error("Reanalyze error:", error);
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
-      message.update(`Failed to analyze: ${errorMessage}`, "error", {
+      flash(`Failed to analyze: ${errorMessage}`, "error", {
         removeAfter: 8000,
       });
     }
