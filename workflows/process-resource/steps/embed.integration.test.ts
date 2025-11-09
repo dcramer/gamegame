@@ -74,10 +74,12 @@ describe('Embed Stage Integration', () => {
               level: 1,
               text: 'Setup',
               hierarchy: 'Setup',
+              pageNumber: 1,
             },
           ],
         },
       ],
+      pageCount: 1,
     };
 
     const input = {
@@ -167,10 +169,12 @@ describe('Embed Stage Integration', () => {
               level: 1,
               text: 'Game Board',
               hierarchy: 'Game Board',
+              pageNumber: 1,
             },
           ],
         },
       ],
+      pageCount: 1,
     };
 
     const input = {
@@ -240,6 +244,7 @@ describe('Embed Stage Integration', () => {
           sections: [],
         },
       ],
+      pageCount: 1,
     };
 
     const input = {
@@ -303,6 +308,7 @@ describe('Embed Stage Integration', () => {
           sections: [],
         },
       ],
+      pageCount: 1,
     };
 
     const input = {

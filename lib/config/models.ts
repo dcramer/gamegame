@@ -14,6 +14,8 @@ export interface ModelConfig {
   vision: string;
   /** Model for text reasoning (cleanup, metadata, etc.) */
   reasoning: string;
+  /** Model for intent/answer-type classification */
+  classification: string;
   /** Model for synthetic question generation (HyDE) */
   hyde: string;
   /** Model for search result reranking */
@@ -29,6 +31,7 @@ const DEV_MODELS: ModelConfig = {
   ocr: 'mistral',
   vision: 'gpt-5-mini',
   reasoning: 'gpt-5-mini',
+  classification: 'gpt-5-mini',
   hyde: 'gpt-5-mini',
   reranking: 'gpt-5-mini',
   embedding: 'text-embedding-3-small',
@@ -41,6 +44,7 @@ const PROD_MODELS: ModelConfig = {
   ocr: 'mistral',
   vision: 'gpt-5',
   reasoning: 'gpt-5',
+  classification: 'gpt-5-mini',
   hyde: 'gpt-5',
   reranking: 'gpt-5-mini',
   embedding: 'text-embedding-3-small',

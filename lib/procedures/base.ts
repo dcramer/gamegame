@@ -30,8 +30,7 @@ export const authedProcedure = baseProcedure.use(async ({ next }) => {
   const user = await getCurrentUser();
 
   if (!user) {
-    throw new ORPCError({
-      code: 'UNAUTHORIZED',
+    throw new ORPCError('UNAUTHORIZED', {
       message: 'You must be logged in to access this resource',
     });
   }
@@ -46,8 +45,7 @@ export const authedProcedure = baseProcedure.use(async ({ next }) => {
  */
 export const adminProcedure = authedProcedure.use(async ({ context, next }) => {
   if (!context.user.isAdmin) {
-    throw new ORPCError({
-      code: 'FORBIDDEN',
+    throw new ORPCError('FORBIDDEN', {
       message: 'Admin access required',
     });
   }

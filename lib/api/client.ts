@@ -3,7 +3,7 @@
  * Type-safe wrapper for all API calls with error handling
  */
 
-import type { NewGameParams } from '../actions/games';
+import type { CreateGameInput } from '@/lib/api/schemas';
 
 /**
  * Standard API error response
@@ -78,7 +78,7 @@ export const games = {
   /**
    * Create new game (admin only)
    */
-  create: (data: NewGameParams) =>
+  create: (data: CreateGameInput) =>
     apiFetch<any>('/api/games', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -87,7 +87,7 @@ export const games = {
   /**
    * Update game (admin only)
    */
-  update: (id: string, data: Partial<NewGameParams>) =>
+  update: (id: string, data: Partial<CreateGameInput>) =>
     apiFetch<any>(`/api/games/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),

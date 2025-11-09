@@ -14,7 +14,7 @@ export type AuthenticatedHandler<T = unknown> = (
   request: NextRequest,
   user: UserData,
   context?: T,
-) => Promise<NextResponse> | NextResponse;
+) => Promise<Response> | Response;
 
 /**
  * Standard API handler
@@ -22,7 +22,7 @@ export type AuthenticatedHandler<T = unknown> = (
 export type ApiHandler<T = unknown> = (
   request: NextRequest,
   context?: T,
-) => Promise<NextResponse> | NextResponse;
+) => Promise<Response> | Response;
 
 /**
  * Error response helper
@@ -33,14 +33,19 @@ export function errorResponse(
   code?: string,
   details?: unknown,
 ): NextResponse {
-  return NextResponse.json(
-    {
-      error: message,
-      ...(code && { code }),
-      ...(details && { details }),
-    },
-    { status },
-  );
+  const payload: Record<string, unknown> = {
+    error: message,
+  };
+
+  if (code) {
+    payload.code = code;
+  }
+
+  if (details !== undefined) {
+    payload.details = details;
+  }
+
+  return NextResponse.json(payload, { status });
 }
 
 /**

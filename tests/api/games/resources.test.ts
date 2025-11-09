@@ -9,6 +9,7 @@ import { db } from '@/lib/db';
 import { games, resources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { createNextRequest, createRouteContext } from '@/tests/utils/next-request';
 
 describe.sequential('Game Resources API', () => {
   let testGameId: string;
@@ -36,8 +37,11 @@ describe.sequential('Game Resources API', () => {
 
   describe('GET /api/games/:gameIdOrSlug/resources', () => {
     it('should return empty array when no resources exist', async () => {
-      const request = new Request(`http://localhost/api/games/${testGameSlug}/resources`);
-      const response = await getGameResources(request, { params: { gameIdOrSlug: testGameSlug } });
+      const request = createNextRequest(`http://localhost/api/games/${testGameSlug}/resources`);
+      const response = await getGameResources(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameSlug })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -59,7 +63,7 @@ describe.sequential('Game Resources API', () => {
           originalFilename: null,
           status: 'ready',
           processingStage: 'ready',
-          currentJobId: null,
+          currentRunId: null,
           processingMetadata: null,
           content: 'Test content 1',
           version: 1,
@@ -82,7 +86,7 @@ describe.sequential('Game Resources API', () => {
           originalFilename: null,
           status: 'ready',
           processingStage: 'ready',
-          currentJobId: null,
+          currentRunId: null,
           processingMetadata: null,
           content: 'Test content 2',
           version: 1,
@@ -98,8 +102,11 @@ describe.sequential('Game Resources API', () => {
         },
       ]);
 
-      const request = new Request(`http://localhost/api/games/${testGameSlug}/resources`);
-      const response = await getGameResources(request, { params: { gameIdOrSlug: testGameSlug } });
+      const request = createNextRequest(`http://localhost/api/games/${testGameSlug}/resources`);
+      const response = await getGameResources(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameSlug })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -120,7 +127,7 @@ describe.sequential('Game Resources API', () => {
         originalFilename: null,
         status: 'ready',
         processingStage: 'ready',
-        currentJobId: null,
+        currentRunId: null,
         processingMetadata: null,
         content: 'Test content',
         version: 1,
@@ -135,8 +142,11 @@ describe.sequential('Game Resources API', () => {
         updatedAt: Date.now(),
       });
 
-      const request = new Request(`http://localhost/api/games/${testGameId}/resources`);
-      const response = await getGameResources(request, { params: { gameIdOrSlug: testGameId } });
+      const request = createNextRequest(`http://localhost/api/games/${testGameId}/resources`);
+      const response = await getGameResources(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -145,8 +155,11 @@ describe.sequential('Game Resources API', () => {
     });
 
     it('should return 404 for non-existent game', async () => {
-      const request = new Request('http://localhost/api/games/non-existent/resources');
-      const response = await getGameResources(request, { params: { gameIdOrSlug: 'non-existent' } });
+      const request = createNextRequest('http://localhost/api/games/non-existent/resources');
+      const response = await getGameResources(
+        request,
+        createRouteContext({ gameIdOrSlug: 'non-existent' })
+      );
 
       expect(response.status).toBe(404);
     });
@@ -162,7 +175,7 @@ describe.sequential('Game Resources API', () => {
         originalFilename: null,
         status: 'ready',
         processingStage: 'ready',
-        currentJobId: null,
+        currentRunId: null,
         processingMetadata: null,
         content: 'Test content',
         version: 1,
@@ -177,8 +190,11 @@ describe.sequential('Game Resources API', () => {
         updatedAt: Date.now(),
       });
 
-      const request = new Request(`http://localhost/api/games/${testGameSlug}/resources`);
-      const response = await getGameResources(request, { params: { gameIdOrSlug: testGameSlug } });
+      const request = createNextRequest(`http://localhost/api/games/${testGameSlug}/resources`);
+      const response = await getGameResources(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameSlug })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);

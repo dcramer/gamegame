@@ -9,6 +9,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { POST as uploadImage } from '@/app/api/images/upload/route';
+import { createNextRequest } from '@/tests/utils/next-request';
 
 describe.sequential('Image Upload API', () => {
   beforeEach(async () => {
@@ -18,7 +19,7 @@ describe.sequential('Image Upload API', () => {
   describe('POST /api/images/upload - Development Mode (formData)', () => {
     it('should reject missing file', async () => {
       const formData = new FormData();
-      const request = new Request('http://localhost/api/images/upload', {
+      const request = createNextRequest('http://localhost/api/images/upload', {
         method: 'POST',
         body: formData,
       });
@@ -50,7 +51,7 @@ describe.sequential('Image Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/images/upload', {
+      const request = createNextRequest('http://localhost/api/images/upload', {
         method: 'POST',
         body: formData,
       });
@@ -75,7 +76,7 @@ describe.sequential('Image Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/images/upload', {
+      const request = createNextRequest('http://localhost/api/images/upload', {
         method: 'POST',
         body: formData,
       });
@@ -99,7 +100,7 @@ describe.sequential('Image Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/images/upload', {
+      const request = createNextRequest('http://localhost/api/images/upload', {
         method: 'POST',
         body: formData,
       });
@@ -122,7 +123,7 @@ describe.sequential('Image Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/images/upload', {
+      const request = createNextRequest('http://localhost/api/images/upload', {
         method: 'POST',
         body: formData,
       });
@@ -141,7 +142,7 @@ describe.sequential('Image Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/images/upload', {
+      const request = createNextRequest('http://localhost/api/images/upload', {
         method: 'POST',
         body: formData,
       });
@@ -163,7 +164,7 @@ describe.sequential('Image Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/images/upload', {
+      const request = createNextRequest('http://localhost/api/images/upload', {
         method: 'POST',
         body: formData,
       });
@@ -186,7 +187,7 @@ describe.sequential('Image Upload API', () => {
       // Upload first file
       const formData1 = new FormData();
       formData1.append('file', file);
-      const request1 = new Request('http://localhost/api/images/upload', {
+      const request1 = createNextRequest('http://localhost/api/images/upload', {
         method: 'POST',
         body: formData1,
       });
@@ -196,7 +197,7 @@ describe.sequential('Image Upload API', () => {
       // Upload second file
       const formData2 = new FormData();
       formData2.append('file', file);
-      const request2 = new Request('http://localhost/api/images/upload', {
+      const request2 = createNextRequest('http://localhost/api/images/upload', {
         method: 'POST',
         body: formData2,
       });
@@ -218,7 +219,7 @@ describe.sequential('Image Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/images/upload', {
+      const request = createNextRequest('http://localhost/api/images/upload', {
         method: 'POST',
         body: formData,
       });
@@ -233,7 +234,7 @@ describe.sequential('Image Upload API', () => {
 
   describe('POST /api/images/upload - Production Mode (Vercel Blob)', () => {
     it('should accept empty payload', async () => {
-      const request = new Request('http://localhost/api/images/upload', {
+      const request = createNextRequest('http://localhost/api/images/upload', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -249,7 +250,7 @@ describe.sequential('Image Upload API', () => {
     });
 
     it('should accept request with clientPayload', async () => {
-      const request = new Request('http://localhost/api/images/upload', {
+      const request = createNextRequest('http://localhost/api/images/upload', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -270,7 +271,7 @@ describe.sequential('Image Upload API', () => {
     });
 
     it('should accept any JSON body (Vercel Blob validation)', async () => {
-      const request = new Request('http://localhost/api/images/upload', {
+      const request = createNextRequest('http://localhost/api/images/upload', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',

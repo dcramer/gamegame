@@ -27,6 +27,12 @@ export interface PDFImage {
   description?: string;
   /** Quality assessment: "good" or "bad" */
   isGoodQuality?: "good" | "bad" | null;
+  /** Whether the image is relevant (1) or not (0) */
+  isRelevant?: number | null;
+  /** Detected image type/classification */
+  detectedType?: string | null;
+  /** OCR text extracted from the image */
+  ocrText?: string | null;
 }
 
 /**

@@ -14,15 +14,37 @@
 
 import { db } from '@/lib/db';
 import { resources, fragments, attachments, embeddings } from '@/lib/db/schema';
-import type { NewFragment } from '@/lib/db/schema/fragments';
+import type { NewFragment, ImageMetadata } from '@/lib/db/schema/fragments';
 import type { NewEmbedding } from '@/lib/db/schema/embeddings';
 import type { NewAttachment } from '@/lib/db/schema/attachments';
 import { eq, inArray } from 'drizzle-orm';
 import type { StructuredPDFContent, PDFImage } from '@/lib/types/pdf';
 import { nanoid } from 'nanoid';
 import type { ProcessResourceInput } from './process-resource';
+import type { UploadedImage } from '@/lib/services/blob-storage';
 
 const CURRENT_EMBEDDING_VERSION = 3; // Match workers implementation
+
+type EmbedAttachmentRecord = Omit<NewAttachment, 'id' | 'blobKey' | 'mimeType'> & {
+  id: string;
+  blobKey: string;
+  mimeType: string;
+};
+
+type EmbeddableFragment = {
+  type: 'text' | 'image' | 'table';
+  content: string;
+  searchableContent: string;
+  syntheticQuestions: string[];
+  answerTypes: string[];
+  pageNumber?: number;
+  pageRange?: [number, number] | null;
+  section?: string | null;
+  images: ImageMetadata[] | null;
+  attachmentId: string | null;
+};
+
+type FragmentRecord = NewFragment & { id: string };
 
 export async function runEmbedStageImpl(input: ProcessResourceInput, structured: StructuredPDFContent) {
   const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
@@ -47,7 +69,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
       caption: img.caption,
     }));
 
-  const uploadedImageMap = new Map<string, any>();
+  const uploadedImageMap = new Map<string, UploadedImage>();
 
   if (imagesToUpload.length > 0) {
     const { uploadPDFImages } = await import('@/lib/services/blob-storage');
@@ -78,7 +100,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
   await deleteExistingFragments(input.resourceId);
 
   // Create attachment records with proper typing
-  const attachmentRecords: NewAttachment[] = structured.pages.flatMap((page) =>
+  const attachmentRecords: EmbedAttachmentRecord[] = structured.pages.flatMap((page) =>
     page.images
       .filter((img) => img.url)
       .map((img) => {
@@ -93,7 +115,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
           url: img.url!,
           originalFilename: img.originalFilename ?? null,
           pageNumber: img.pageNumber ?? null,
-          bbox: img.bbox ?? null, // Drizzle handles JSONB serialization
+          bbox: normalizeBbox(img.bbox),
           caption: img.caption ?? null,
           width: uploaded?.width ?? null,
           height: uploaded?.height ?? null,
@@ -221,7 +243,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
       resourceInfo,
       attachmentRecords.map((att) => ({
         id: att.id,
-        description: att.description,
+        description: att.description ?? null,
         detectedType: null,
       }))
     );
@@ -255,9 +277,9 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
       const searchableContent = buildImageSearchableContent(
         image,
         {
-          description: attachment.description,
+          description: attachment.description ?? null,
           detectedType: null,
-          caption: attachment.caption,
+          caption: attachment.caption ?? null,
           ocrText: null,
         },
         page,
@@ -283,43 +305,58 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
   );
 
   // Combine all fragments for embedding
-  const allFragmentsForEmbedding = [
-    ...textFragmentsData.map((item) => ({
-      type: 'text' as const,
-      content: item.chunk.content,
-      searchableContent: item.searchableContent,
-      syntheticQuestions: item.syntheticQuestions,
-      answerTypes: item.answerTypes,
-      pageNumber: item.chunk.pageNumber,
-      pageRange: item.chunk.pageRange,
-      section: item.chunk.section,
-      images: item.chunk.images,
-      attachmentId: null,
-    })),
-    ...imageFragmentsData.map((item) => ({
-      type: 'image' as const,
-      content: item.attachment.description || '',
-      searchableContent: item.searchableContent,
-      syntheticQuestions: [] as string[],
-      answerTypes: [] as string[],
-      pageNumber: item.page.pageNumber,
-      pageRange: null as [number, number] | null,
-      section:
-        item.page.sections.length > 0
-          ? item.page.sections[item.page.sections.length - 1].hierarchy
-          : null,
-      images: item.image.url
-        ? [
-            {
-              id: item.image.id,
-              url: item.image.url,
-              bbox: item.image.bbox,
-              caption: item.image.caption,
-            },
-          ]
-        : null,
-      attachmentId: item.attachment.id,
-    })),
+  const allFragmentsForEmbedding: EmbeddableFragment[] = [
+    ...textFragmentsData.map((item) => {
+      const images: ImageMetadata[] = item.chunk.images.map((image) =>
+        buildFragmentImageMetadata({
+          id: image.id,
+          url: image.url,
+          bbox: image.bbox,
+          caption: image.caption ?? null,
+          description: null,
+        })
+      );
+
+      return {
+        type: 'text' as const,
+        content: item.chunk.content,
+        searchableContent: item.searchableContent,
+        syntheticQuestions: item.syntheticQuestions,
+        answerTypes: item.answerTypes,
+        pageNumber: item.chunk.pageNumber,
+        pageRange: item.chunk.pageRange ?? null,
+        section: item.chunk.section ?? null,
+        images: images.length > 0 ? images : null,
+        attachmentId: null,
+      };
+    }),
+    ...imageFragmentsData.map((item) => {
+      const imageMetadata = item.image.url
+        ? buildFragmentImageMetadata({
+            id: item.image.id,
+            url: item.image.url,
+            bbox: item.image.bbox,
+            caption: item.image.caption ?? null,
+            description: item.image.description ?? item.attachment.description ?? null,
+          })
+        : null;
+
+      return {
+        type: 'image' as const,
+        content: item.attachment.description || '',
+        searchableContent: item.searchableContent,
+        syntheticQuestions: [] as string[],
+        answerTypes: [] as string[],
+        pageNumber: item.page.pageNumber,
+        pageRange: null,
+        section:
+          item.page.sections.length > 0
+            ? item.page.sections[item.page.sections.length - 1].hierarchy
+            : null,
+        images: imageMetadata ? [imageMetadata] : null,
+        attachmentId: item.attachment.id,
+      };
+    }),
   ];
 
 
@@ -375,7 +412,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
   });
 
   // Create fragment records with proper typing
-  const fragmentRecords: NewFragment[] = allFragmentsForEmbedding.map((item, index) => {
+  const fragmentRecords: FragmentRecord[] = allFragmentsForEmbedding.map((item, index) => {
     const embeddingVector = fragmentEmbeddingMap.get(index) || [];
 
     return {
@@ -510,6 +547,39 @@ function resolveMimeType(image: PDFImage, uploaded: any): string | null {
   return null;
 }
 
+function normalizeBbox(bbox?: number[] | null): [number, number, number, number] | null {
+  if (!Array.isArray(bbox) || bbox.length !== 4) {
+    return null;
+  }
+  return [bbox[0], bbox[1], bbox[2], bbox[3]];
+}
+
+function buildFragmentImageMetadata(image: {
+  id: string;
+  url: string;
+  bbox?: number[] | null;
+  caption?: string | null;
+  description?: string | null;
+}): ImageMetadata {
+  const metadata: ImageMetadata = {
+    id: image.id,
+    url: image.url,
+  };
+
+  const normalizedBbox = normalizeBbox(image.bbox);
+  if (normalizedBbox) {
+    metadata.bbox = normalizedBbox;
+  }
+  if (image.caption) {
+    metadata.caption = image.caption;
+  }
+  if (image.description) {
+    metadata.description = image.description;
+  }
+
+  return metadata;
+}
+
 async function deleteExistingAttachments(resourceId: string) {
   const existing = await db
     .select({ id: attachments.id, blobKey: attachments.blobKey })
@@ -551,4 +621,3 @@ async function saveStructured(resourceId: string, structured: StructuredPDFConte
   const buffer = Buffer.from(JSON.stringify(structured));
   await uploadBlob(key, buffer, 'application/json');
 }
-

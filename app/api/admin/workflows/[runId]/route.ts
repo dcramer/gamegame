@@ -11,23 +11,43 @@ import { getWorkflowRun } from '@/lib/services/workflows';
 export const GET = withAdmin(
   async (
     request: NextRequest,
-    user,
-    { params }: { params: Promise<{ runId: string }> }
+    _user,
+    context?: { params: Promise<{ runId: string }> }
   ) => {
-    const { runId } = await params;
+    if (!context) {
+      return NextResponse.json({ error: 'Missing params' }, { status: 400 });
+    }
+    const { runId } = await context.params;
 
     try {
       const workflow = await getWorkflowRun(runId);
+      const output = workflow.output;
+      const outputIsObject =
+        output && typeof output === 'object' && !Array.isArray(output);
+      const outputIndicatesFailure =
+        workflow.status === 'completed' &&
+        outputIsObject &&
+        Object.prototype.hasOwnProperty.call(output, 'success') &&
+        (output as Record<string, unknown>).success === false;
+      const derivedStatus = outputIndicatesFailure ? 'failed' : workflow.status;
+      const outputError =
+        outputIsObject && typeof (output as Record<string, unknown>).error === 'string'
+          ? ((output as Record<string, unknown>).error as string)
+          : undefined;
+      const errorMessage = outputIndicatesFailure
+        ? outputError || workflow.error
+        : workflow.error;
 
       return NextResponse.json({
         runId: workflow.runId,
-        status: workflow.status,
+        status: derivedStatus,
         workflowName: workflow.workflowName,
-        error: workflow.error,
+        error: errorMessage,
         errorCode: workflow.errorCode,
         createdAt: workflow.createdAt.toISOString(),
         startedAt: workflow.startedAt?.toISOString(),
         completedAt: workflow.completedAt?.toISOString(),
+        output,
         input: workflow.input,
       });
     } catch (error) {

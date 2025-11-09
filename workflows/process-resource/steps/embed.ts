@@ -10,7 +10,6 @@ import {
   parseMetadata,
   serializeMetadata,
   loadStructured,
-  hasActiveWorkflowConflict,
 } from '../../shared/helpers';
 
 export async function runEmbedStage(input: ProcessResourceInput) {
@@ -37,21 +36,6 @@ export async function runEmbedStage(input: ProcessResourceInput) {
 
       if (!resourceRow) {
         throw new Error(`Resource ${input.resourceId} not found`);
-      }
-
-      // Check for workflow conflicts and clear stale currentRunId references
-      const hasConflict = await hasActiveWorkflowConflict(
-        input.resourceId,
-        input.runId,
-        resourceRow.currentRunId,
-        tx
-      );
-
-      if (hasConflict) {
-        return {
-          success: false,
-          error: `Resource is being processed by another workflow: ${resourceRow.currentRunId}`,
-        };
       }
 
       // Set currentRunId immediately within the transaction

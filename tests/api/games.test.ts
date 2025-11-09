@@ -18,6 +18,7 @@ import { db } from '@/lib/db';
 import { games, resources, fragments, embeddings, attachments } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { createNextRequest, createRouteContext } from '@/tests/utils/next-request';
 
 describe('Games API', () => {
   let testGameId: string;
@@ -128,7 +129,7 @@ describe('Games API', () => {
 
   describe('POST /api/games', () => {
     it('should create a new game with minimal data', async () => {
-      const request = new Request('http://localhost/api/games', {
+      const request = createNextRequest('http://localhost/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -151,7 +152,7 @@ describe('Games API', () => {
     });
 
     it('should create a new game with full data', async () => {
-      const request = new Request('http://localhost/api/games', {
+      const request = createNextRequest('http://localhost/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -180,7 +181,7 @@ describe('Games API', () => {
     });
 
     it('should extract BGG ID from URL', async () => {
-      const request = new Request('http://localhost/api/games', {
+      const request = createNextRequest('http://localhost/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -199,7 +200,7 @@ describe('Games API', () => {
     });
 
     it('should generate slug from name', async () => {
-      const request = new Request('http://localhost/api/games', {
+      const request = createNextRequest('http://localhost/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -217,7 +218,7 @@ describe('Games API', () => {
     });
 
     it('should reject invalid year', async () => {
-      const request = new Request('http://localhost/api/games', {
+      const request = createNextRequest('http://localhost/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -232,7 +233,7 @@ describe('Games API', () => {
     });
 
     it('should reject missing name', async () => {
-      const request = new Request('http://localhost/api/games', {
+      const request = createNextRequest('http://localhost/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -264,8 +265,11 @@ describe('Games API', () => {
     });
 
     it('should get game by ID', async () => {
-      const request = new Request(`http://localhost/api/games/${testGameId}`);
-      const response = await getGame(request, { params: { gameIdOrSlug: testGameId } });
+      const request = createNextRequest(`http://localhost/api/games/${testGameId}`);
+      const response = await getGame(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -277,8 +281,11 @@ describe('Games API', () => {
     });
 
     it('should get game by slug', async () => {
-      const request = new Request('http://localhost/api/games/test-game');
-      const response = await getGame(request, { params: { gameIdOrSlug: 'test-game' } });
+      const request = createNextRequest('http://localhost/api/games/test-game');
+      const response = await getGame(
+        request,
+        createRouteContext({ gameIdOrSlug: 'test-game' })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -290,15 +297,21 @@ describe('Games API', () => {
     });
 
     it('should return 404 for non-existent game', async () => {
-      const request = new Request('http://localhost/api/games/non-existent');
-      const response = await getGame(request, { params: { gameIdOrSlug: 'non-existent' } });
+      const request = createNextRequest('http://localhost/api/games/non-existent');
+      const response = await getGame(
+        request,
+        createRouteContext({ gameIdOrSlug: 'non-existent' })
+      );
 
       expect(response.status).toBe(404);
     });
 
     it('should include resource count', async () => {
-      const request = new Request(`http://localhost/api/games/${testGameId}`);
-      const response = await getGame(request, { params: { gameIdOrSlug: testGameId } });
+      const request = createNextRequest(`http://localhost/api/games/${testGameId}`);
+      const response = await getGame(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameId })
+      );
       const data = await response.json();
 
       expect(data.resourceCount).toBeDefined();
@@ -323,7 +336,7 @@ describe('Games API', () => {
     });
 
     it('should update game name and regenerate slug', async () => {
-      const request = new Request(`http://localhost/api/games/${testGameId}`, {
+      const request = createNextRequest(`http://localhost/api/games/${testGameId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -331,7 +344,10 @@ describe('Games API', () => {
         }),
       });
 
-      const response = await updateGame(request, { params: { gameIdOrSlug: testGameId } });
+      const response = await updateGame(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -343,7 +359,7 @@ describe('Games API', () => {
     });
 
     it('should update year', async () => {
-      const request = new Request(`http://localhost/api/games/${testGameId}`, {
+      const request = createNextRequest(`http://localhost/api/games/${testGameId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -351,14 +367,17 @@ describe('Games API', () => {
         }),
       });
 
-      const response = await updateGame(request, { params: { gameIdOrSlug: testGameId } });
+      const response = await updateGame(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameId })
+      );
       const data = await response.json();
 
       expect(data.year).toBe(2025);
     });
 
     it('should update BGG URL and extract ID', async () => {
-      const request = new Request(`http://localhost/api/games/${testGameId}`, {
+      const request = createNextRequest(`http://localhost/api/games/${testGameId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -366,7 +385,10 @@ describe('Games API', () => {
         }),
       });
 
-      const response = await updateGame(request, { params: { gameIdOrSlug: testGameId } });
+      const response = await updateGame(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameId })
+      );
       const data = await response.json();
 
       expect(data.bggUrl).toBe('https://boardgamegeek.com/boardgame/99999/test');
@@ -374,13 +396,16 @@ describe('Games API', () => {
     });
 
     it('should return 404 for non-existent game', async () => {
-      const request = new Request('http://localhost/api/games/non-existent', {
+      const request = createNextRequest('http://localhost/api/games/non-existent', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Updated' }),
       });
 
-      const response = await updateGame(request, { params: { gameIdOrSlug: 'non-existent' } });
+      const response = await updateGame(
+        request,
+        createRouteContext({ gameIdOrSlug: 'non-existent' })
+      );
 
       expect(response.status).toBe(404);
     });
@@ -403,11 +428,14 @@ describe('Games API', () => {
     });
 
     it('should delete game without resources', async () => {
-      const request = new Request(`http://localhost/api/games/${testGameId}`, {
+      const request = createNextRequest(`http://localhost/api/games/${testGameId}`, {
         method: 'DELETE',
       });
 
-      const response = await deleteGame(request, { params: { gameIdOrSlug: testGameId } });
+      const response = await deleteGame(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -488,11 +516,14 @@ describe('Games API', () => {
         createdAt: Date.now(),
       });
 
-      const request = new Request(`http://localhost/api/games/${testGameId}`, {
+      const request = createNextRequest(`http://localhost/api/games/${testGameId}`, {
         method: 'DELETE',
       });
 
-      const response = await deleteGame(request, { params: { gameIdOrSlug: testGameId } });
+      const response = await deleteGame(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -514,11 +545,14 @@ describe('Games API', () => {
     });
 
     it('should return 404 for non-existent game', async () => {
-      const request = new Request('http://localhost/api/games/non-existent', {
+      const request = createNextRequest('http://localhost/api/games/non-existent', {
         method: 'DELETE',
       });
 
-      const response = await deleteGame(request, { params: { gameIdOrSlug: 'non-existent' } });
+      const response = await deleteGame(
+        request,
+        createRouteContext({ gameIdOrSlug: 'non-existent' })
+      );
 
       expect(response.status).toBe(404);
     });

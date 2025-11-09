@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { POST as reprocessAttachment } from '@/app/api/attachments/[attachmentId]/reprocess/route';
-import { NextRequest } from 'next/server';
+import { createNextRequest, createRouteContext } from '@/tests/utils/next-request';
 import { db } from '@/lib/db';
 import { attachments } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -91,9 +91,7 @@ describe.sequential('Attachment Reprocess API', () => {
       const { requireAdmin } = await import('@/lib/session');
       (requireAdmin as any).mockRejectedValueOnce(new Error('Unauthorized'));
 
-      const response = await reprocessAttachment(new NextRequest('http://localhost'), {
-        params: Promise.resolve({ attachmentId: testAttachmentId }),
-      });
+      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachmentId }));
       const data = await response.json();
 
       expect(response.status).toBe(401); // Unauthorized
@@ -101,9 +99,7 @@ describe.sequential('Attachment Reprocess API', () => {
     });
 
     it('should reject non-existent attachment', async () => {
-      const response = await reprocessAttachment(new NextRequest('http://localhost'), {
-        params: Promise.resolve({ attachmentId: 'non-existent-id' }),
-      });
+      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: 'non-existent-id' }));
       const data = await response.json();
 
       expect(response.status).toBe(404);
@@ -117,9 +113,7 @@ describe.sequential('Attachment Reprocess API', () => {
         mimeType: 'application/pdf',
       });
 
-      const response = await reprocessAttachment(new NextRequest('http://localhost'), {
-        params: Promise.resolve({ attachmentId: pdfAttachment.id }),
-      });
+      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: pdfAttachment.id }));
       const data = await response.json();
 
       expect(response.status).toBe(400);
@@ -133,9 +127,7 @@ describe.sequential('Attachment Reprocess API', () => {
         mimeType: 'text/plain',
       });
 
-      const response = await reprocessAttachment(new NextRequest('http://localhost'), {
-        params: Promise.resolve({ attachmentId: badAttachment.id }),
-      });
+      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: badAttachment.id }));
       const data = await response.json();
 
       expect(response.status).toBe(400);
@@ -150,16 +142,14 @@ describe.sequential('Attachment Reprocess API', () => {
         .update(attachments)
         .set({
           description: 'A game board showing player positions and resources',
-          isGoodQuality: 'high',
+          isGoodQuality: 'good',
           isRelevant: 1,
           detectedType: 'diagram',
           ocrText: 'Player 1: 5 points',
         })
         .where(eq(attachments.id, testAttachmentId));
 
-      const response = await reprocessAttachment(new NextRequest('http://localhost'), {
-        params: Promise.resolve({ attachmentId: testAttachmentId }),
-      });
+      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachmentId }));
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -172,7 +162,7 @@ describe.sequential('Attachment Reprocess API', () => {
       // Verify response data
       expect(data.id).toBe(testAttachmentId);
       expect(data.description).toBe('A game board showing player positions and resources');
-      expect(data.isGoodQuality).toBe('high');
+      expect(data.isGoodQuality).toBe('good');
       expect(data.isRelevant).toBe(1);
       expect(data.detectedType).toBe('diagram');
       expect(data.ocrText).toBe('Player 1: 5 points');
@@ -190,9 +180,7 @@ describe.sequential('Attachment Reprocess API', () => {
         blobKey: 'test-key.jpg',
       });
 
-      await reprocessAttachment(new NextRequest('http://localhost'), {
-        params: Promise.resolve({ attachmentId: testAttachment.id }),
-      });
+      await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachment.id }));
 
       // Verify workflow was called with correct parameters
       expect(analyzeImagesWorkflow).toHaveBeenCalledWith({
@@ -208,16 +196,14 @@ describe.sequential('Attachment Reprocess API', () => {
         .update(attachments)
         .set({
           description: 'Abstract game art',
-          isGoodQuality: 'medium',
+          isGoodQuality: 'bad',
           isRelevant: 0,
           detectedType: 'artwork',
           ocrText: null,
         })
         .where(eq(attachments.id, testAttachmentId));
 
-      const response = await reprocessAttachment(new NextRequest('http://localhost'), {
-        params: Promise.resolve({ attachmentId: testAttachmentId }),
-      });
+      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachmentId }));
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -229,9 +215,7 @@ describe.sequential('Attachment Reprocess API', () => {
       const { analyzeImagesWorkflow } = await import('@/workflows/analyze-images');
       (analyzeImagesWorkflow as any).mockRejectedValueOnce(new Error('Vision API timeout'));
 
-      const response = await reprocessAttachment(new NextRequest('http://localhost'), {
-        params: Promise.resolve({ attachmentId: testAttachmentId }),
-      });
+      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachmentId }));
       const data = await response.json();
 
       expect(response.status).toBe(500);
@@ -247,9 +231,7 @@ describe.sequential('Attachment Reprocess API', () => {
         blobKey: 'my-blob-key.png',
       });
 
-      const response = await reprocessAttachment(new NextRequest('http://localhost'), {
-        params: Promise.resolve({ attachmentId: testAttachment.id }),
-      });
+      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachment.id }));
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -264,9 +246,7 @@ describe.sequential('Attachment Reprocess API', () => {
         bbox: [100, 200, 400, 600] as any,
       });
 
-      const response = await reprocessAttachment(new NextRequest('http://localhost'), {
-        params: Promise.resolve({ attachmentId: testAttachment.id }),
-      });
+      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachment.id }));
       const data = await response.json();
 
       expect(response.status).toBe(200);

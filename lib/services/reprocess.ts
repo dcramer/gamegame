@@ -37,7 +37,6 @@ export async function reprocessResource(
       gameId: resources.gameId,
       name: resources.name,
       url: resources.url,
-      status: resources.status,
       currentRunId: resources.currentRunId,
     })
     .from(resources)
@@ -48,11 +47,8 @@ export async function reprocessResource(
     throw new Error('Resource not found');
   }
 
-  // If resource is currently processing, cancel the existing workflow
-  if (
-    (resource.status === 'processing' || resource.status === 'queued') &&
-    resource.currentRunId
-  ) {
+  // If there's a workflow already associated, cancel it before starting a new one
+  if (resource.currentRunId) {
     try {
       await cancelWorkflowRun(resource.currentRunId);
       console.log(

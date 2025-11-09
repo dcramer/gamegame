@@ -70,7 +70,7 @@ export async function listWorkflowRuns(params?: {
 
   return {
     runs: result.data,
-    nextCursor: result.cursor,
+    nextCursor: result.cursor ?? undefined,
   };
 }
 

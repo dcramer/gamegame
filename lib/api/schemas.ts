@@ -120,7 +120,7 @@ export const updateAttachmentSchema = z.object({
 export const attachmentResponseSchema = z.object({
   id: idSchema,
   gameId: idSchema,
-  resourceId: idSchema.nullable(),
+  resourceId: idSchema,
   type: z.string(),
   blobKey: z.string().nullable(),
   url: z.string().nullable(),

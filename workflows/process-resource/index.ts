@@ -22,6 +22,13 @@ import { runFinalizeStage } from './steps/finalize';
 import { markJobFailedStep } from './steps/mark-job-failed';
 import type { ProcessResourceInput } from '../shared/types';
 
+function extractErrorMessage(result: { success: boolean } & Record<string, unknown>): string {
+  if ('error' in result && typeof result.error === 'string' && result.error.length > 0) {
+    return result.error;
+  }
+  return 'Unknown workflow error';
+}
+
 export async function processResourceWorkflow(input: ProcessResourceInput) {
   'use workflow';
 
@@ -31,8 +38,9 @@ export async function processResourceWorkflow(input: ProcessResourceInput) {
   if (startStage === 'ingest') {
     const ingestResult = await runIngestStage(input);
     if (!ingestResult.success) {
-      await markJobFailedStep(input.runId, input.resourceId, ingestResult.error!);
-      return { success: false, stage: 'ingest', error: ingestResult.error };
+      const errorMessage = extractErrorMessage(ingestResult);
+      await markJobFailedStep(input.runId, input.resourceId, errorMessage);
+      return { success: false, stage: 'ingest', error: errorMessage };
     }
   }
 
@@ -42,8 +50,9 @@ export async function processResourceWorkflow(input: ProcessResourceInput) {
     // This is handled inside the vision step
     const visionResult = await runVisionStage(input);
     if (!visionResult.success) {
-      await markJobFailedStep(input.runId, input.resourceId, visionResult.error!);
-      return { success: false, stage: 'vision', error: visionResult.error };
+      const errorMessage = extractErrorMessage(visionResult);
+      await markJobFailedStep(input.runId, input.resourceId, errorMessage);
+      return { success: false, stage: 'vision', error: errorMessage };
     }
   }
 
@@ -51,8 +60,9 @@ export async function processResourceWorkflow(input: ProcessResourceInput) {
   if (startStage === 'ingest' || startStage === 'vision' || startStage === 'cleanup') {
     const cleanupResult = await runCleanupStage(input);
     if (!cleanupResult.success) {
-      await markJobFailedStep(input.runId, input.resourceId, cleanupResult.error!);
-      return { success: false, stage: 'cleanup', error: cleanupResult.error };
+      const errorMessage = extractErrorMessage(cleanupResult);
+      await markJobFailedStep(input.runId, input.resourceId, errorMessage);
+      return { success: false, stage: 'cleanup', error: errorMessage };
     }
   }
 
@@ -60,24 +70,29 @@ export async function processResourceWorkflow(input: ProcessResourceInput) {
   if (startStage === 'ingest' || startStage === 'vision' || startStage === 'cleanup' || startStage === 'metadata') {
     const metadataResult = await runMetadataStage(input);
     if (!metadataResult.success) {
-      await markJobFailedStep(input.runId, input.resourceId, metadataResult.error!);
-      return { success: false, stage: 'metadata', error: metadataResult.error };
+      const errorMessage = extractErrorMessage(metadataResult);
+      await markJobFailedStep(input.runId, input.resourceId, errorMessage);
+      return { success: false, stage: 'metadata', error: errorMessage };
     }
   }
 
   // Stage 5: EMBED - Embedding generation (always run if we're at metadata or embed stage)
   const embedResult = await runEmbedStage(input);
   if (!embedResult.success) {
-    await markJobFailedStep(input.runId, input.resourceId, embedResult.error!);
-    return { success: false, stage: 'embed', error: embedResult.error };
+    const errorMessage = extractErrorMessage(embedResult);
+    await markJobFailedStep(input.runId, input.resourceId, errorMessage);
+    return { success: false, stage: 'embed', error: errorMessage };
   }
 
   // Stage 6: FINALIZE - Mark resource ready
   const finalizeResult = await runFinalizeStage(input);
   if (!finalizeResult.success) {
-    await markJobFailedStep(input.runId, input.resourceId, finalizeResult.error!);
-    return { success: false, stage: 'finalize', error: finalizeResult.error };
+    const errorMessage = extractErrorMessage(finalizeResult);
+    await markJobFailedStep(input.runId, input.resourceId, errorMessage);
+    return { success: false, stage: 'finalize', error: errorMessage };
   }
 
   return { success: true };
 }
+
+export type { ProcessResourceInput };

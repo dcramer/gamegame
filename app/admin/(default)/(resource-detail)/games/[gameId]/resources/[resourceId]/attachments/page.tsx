@@ -2,6 +2,7 @@ import { handleServerError } from "@/lib/errors";
 import { serverClient } from "@/lib/procedures/client.server";
 import Link from "next/link";
 import { EmptyState } from "@/components/empty-state";
+import type { AttachmentListResponse, ResourceResponse } from "@/lib/api/schemas";
 
 export const maxDuration = 300;
 
@@ -13,11 +14,12 @@ export default async function Page(
   const params = await props.params;
 
   // Fetch resource and attachments using oRPC server client
-  let resource, attachments;
+  let resource: (ResourceResponse & { fragmentCount: number });
+  let attachments: AttachmentListResponse;
   try {
     [resource, attachments] = await Promise.all([
-      serverClient.resources.get({ id: params.resourceId }),
-      serverClient.attachments.listForResource({ resourceId: params.resourceId }),
+      serverClient.resources.get({ id: params.resourceId }) as Promise<ResourceResponse & { fragmentCount: number }>,
+      serverClient.attachments.listForResource({ resourceId: params.resourceId }) as Promise<AttachmentListResponse>,
     ]);
   } catch (error) {
     handleServerError(error);
@@ -39,14 +41,14 @@ export default async function Page(
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-        {attachments.map((attachment) => (
+        {attachments.map((attachment: AttachmentListResponse[number]) => (
           <Link
             key={attachment.id}
             href={`/admin/games/${params.gameId}/attachments/${attachment.id}`}
             className="group relative aspect-square rounded-lg border border-border bg-card hover:border-primary/50 overflow-hidden transition-colors"
           >
             <img
-              src={attachment.url}
+              src={attachment.url ?? ''}
               alt={attachment.caption || attachment.originalFilename || "Attachment"}
               className="w-full h-full object-cover"
               loading="lazy"

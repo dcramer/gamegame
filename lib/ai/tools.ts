@@ -4,6 +4,46 @@ import { db } from "../db";
 import { resources, attachments } from "../db/schema";
 import { eq } from "drizzle-orm";
 
+const searchResourcesInputSchema = z.object({
+  query: z
+    .string()
+    .describe(
+      "Natural language search query. Use the user's question directly or rephrase it clearly (e.g., 'how do docks work' or 'dock mechanics and rules'). DO NOT keyword stuff."
+    ),
+  resourceType: z
+    .enum(["all", "rulebook", "expansion", "faq", "errata"])
+    .default("all")
+    .describe("Optional: limit to specific resource type"),
+  limit: z
+    .number()
+    .min(1)
+    .max(10)
+    .default(5)
+    .describe(
+      "Number of results to return (1-10). Use 2-3 for simple factual questions (player count, play time), 5 for complex rules questions. Default: 5"
+    ),
+});
+
+type SearchResourcesInput = z.infer<typeof searchResourcesInputSchema>;
+
+const searchMediaInputSchema = z.object({
+  query: z
+    .string()
+    .describe(
+      'What image/diagram to find (e.g., "setup diagram", "game board", "player board")'
+    ),
+});
+
+type SearchMediaInput = z.infer<typeof searchMediaInputSchema>;
+
+const getAttachmentInputSchema = z.object({
+  attachmentId: z
+    .string()
+    .describe("The attachment ID from attachment:// URL"),
+});
+
+type GetAttachmentInput = z.infer<typeof getAttachmentInputSchema>;
+
 /**
  * Get tools for the chat agent
  * Provides search, resource listing, and attachment retrieval capabilities
@@ -17,22 +57,8 @@ export function getTools(
     search_resources: {
       description:
         "Search the rulebook for relevant content. Returns text chunks with page numbers and section context.",
-      inputSchema: z.object({
-        query: z.string().describe("Natural language search query. Use the user's question directly or rephrase it clearly (e.g., 'how do docks work' or 'dock mechanics and rules'). DO NOT keyword stuff."),
-        resourceType: z
-          .enum(["all", "rulebook", "expansion", "faq", "errata"])
-          .default("all")
-          .describe("Optional: limit to specific resource type"),
-        limit: z
-          .number()
-          .min(1)
-          .max(10)
-          .default(5)
-          .describe(
-            "Number of results to return (1-10). Use 2-3 for simple factual questions (player count, play time), 5 for complex rules questions. Default: 5"
-          ),
-      }),
-      execute: async ({ query, resourceType, limit }) => {
+      inputSchema: searchResourcesInputSchema,
+      execute: async ({ query, resourceType, limit }: SearchResourcesInput) => {
         return await findRelevantContent(gameId, query, openaiApiKey, {
           fragmentType: "text",
           resourceType: resourceType === "all" ? undefined : resourceType,
@@ -46,14 +72,8 @@ export function getTools(
     search_media: {
       description:
         "Find diagrams, setup photos, component images, and visual aids from rulebooks. Returns image content blocks that can be directly included in your response. Use when the user wants to SEE something, understand layout visually, identify components, or when text alone is not sufficient.",
-      inputSchema: z.object({
-        query: z
-          .string()
-          .describe(
-            'What image/diagram to find (e.g., "setup diagram", "game board", "player board")'
-          ),
-      }),
-      execute: async ({ query }) => {
+      inputSchema: searchMediaInputSchema,
+      execute: async ({ query }: SearchMediaInput) => {
         const searchResults = await findRelevantContent(gameId, query, openaiApiKey, {
           fragmentType: "image",
           limit: 5, // Fewer images
@@ -127,12 +147,8 @@ export function getTools(
     get_attachment: {
       description:
         "Retrieve an attachment (image, diagram, etc.) by its ID to include in your response. Use this when you find attachment:// references in the knowledge base content.",
-      inputSchema: z.object({
-        attachmentId: z
-          .string()
-          .describe("The attachment ID from attachment:// URL"),
-      }),
-      execute: async ({ attachmentId }) => {
+      inputSchema: getAttachmentInputSchema,
+      execute: async ({ attachmentId }: GetAttachmentInput) => {
         try {
           const [attachment] = await db
             .select({

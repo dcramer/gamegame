@@ -8,14 +8,16 @@ import {
   NavigationTabsTrigger,
   NavigationTabsContent,
 } from "@/components/ui/navigation-tabs";
+import { Badge } from "@/components/ui/badge";
 
 interface ResourceTabsProps {
   gameId: string;
   resourceId: string;
+  attachmentCount: number;
   children: React.ReactNode;
 }
 
-export default function ResourceTabs({ gameId, resourceId, children }: ResourceTabsProps) {
+export default function ResourceTabs({ gameId, resourceId, attachmentCount, children }: ResourceTabsProps) {
   const pathname = usePathname();
 
   // Determine active tab from URL
@@ -32,7 +34,14 @@ export default function ResourceTabs({ gameId, resourceId, children }: ResourceT
         </Link>
         <Link href={`/admin/games/${gameId}/resources/${resourceId}/attachments`}>
           <NavigationTabsTrigger active={activeTab === "attachments"}>
-            Attachments
+            <span className="flex items-center gap-2">
+              Attachments
+              {attachmentCount > 0 && (
+                <Badge variant="secondary" className="text-xs px-1.5 py-0 h-5">
+                  {attachmentCount}
+                </Badge>
+              )}
+            </span>
           </NavigationTabsTrigger>
         </Link>
       </NavigationTabsList>

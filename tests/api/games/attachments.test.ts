@@ -9,6 +9,7 @@ import { db } from '@/lib/db';
 import { games, resources, attachments } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { createNextRequest, createRouteContext } from '@/tests/utils/next-request';
 
 describe.sequential('Game Attachments API', () => {
   let testGameId: string;
@@ -45,7 +46,7 @@ describe.sequential('Game Attachments API', () => {
       originalFilename: null,
       status: 'ready',
       processingStage: 'ready',
-      currentJobId: null,
+      currentRunId: null,
       processingMetadata: null,
       content: 'Test content',
       version: 1,
@@ -63,8 +64,11 @@ describe.sequential('Game Attachments API', () => {
 
   describe('GET /api/games/:gameIdOrSlug/attachments', () => {
     it('should return empty array when no attachments exist', async () => {
-      const request = new Request(`http://localhost/api/games/${testGameSlug}/attachments`);
-      const response = await getGameAttachments(request, { params: { gameIdOrSlug: testGameSlug } });
+      const request = createNextRequest(`http://localhost/api/games/${testGameSlug}/attachments`);
+      const response = await getGameAttachments(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameSlug })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -113,8 +117,11 @@ describe.sequential('Game Attachments API', () => {
         },
       ]);
 
-      const request = new Request(`http://localhost/api/games/${testGameSlug}/attachments`);
-      const response = await getGameAttachments(request, { params: { gameIdOrSlug: testGameSlug } });
+      const request = createNextRequest(`http://localhost/api/games/${testGameSlug}/attachments`);
+      const response = await getGameAttachments(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameSlug })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -144,8 +151,11 @@ describe.sequential('Game Attachments API', () => {
         createdAt: Date.now(),
       });
 
-      const request = new Request(`http://localhost/api/games/${testGameId}/attachments`);
-      const response = await getGameAttachments(request, { params: { gameIdOrSlug: testGameId } });
+      const request = createNextRequest(`http://localhost/api/games/${testGameId}/attachments`);
+      const response = await getGameAttachments(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -154,8 +164,11 @@ describe.sequential('Game Attachments API', () => {
     });
 
     it('should return 404 for non-existent game', async () => {
-      const request = new Request('http://localhost/api/games/non-existent/attachments');
-      const response = await getGameAttachments(request, { params: { gameIdOrSlug: 'non-existent' } });
+      const request = createNextRequest('http://localhost/api/games/non-existent/attachments');
+      const response = await getGameAttachments(
+        request,
+        createRouteContext({ gameIdOrSlug: 'non-existent' })
+      );
 
       expect(response.status).toBe(404);
     });
@@ -180,8 +193,11 @@ describe.sequential('Game Attachments API', () => {
         createdAt: Date.now(),
       });
 
-      const request = new Request(`http://localhost/api/games/${testGameSlug}/attachments`);
-      const response = await getGameAttachments(request, { params: { gameIdOrSlug: testGameSlug } });
+      const request = createNextRequest(`http://localhost/api/games/${testGameSlug}/attachments`);
+      const response = await getGameAttachments(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameSlug })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -249,8 +265,11 @@ describe.sequential('Game Attachments API', () => {
         },
       ]);
 
-      const request = new Request(`http://localhost/api/games/${testGameSlug}/attachments`);
-      const response = await getGameAttachments(request, { params: { gameIdOrSlug: testGameSlug } });
+      const request = createNextRequest(`http://localhost/api/games/${testGameSlug}/attachments`);
+      const response = await getGameAttachments(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameSlug })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);

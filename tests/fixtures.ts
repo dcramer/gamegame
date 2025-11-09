@@ -60,7 +60,7 @@ export async function createTestResource(
     status: 'ready',
     processingStage: null,
     processingMetadata: null,
-    currentJobId: null,
+    currentRunId: null,
     pageCount: 10,
     imageCount: 5,
     wordCount: 1000,
@@ -160,9 +160,7 @@ export async function createTestUser(
     id: nanoid(),
     email: `test-${nanoid(6)}@example.com`,
     name: null,
-    image: null,
     isAdmin: 0, // 0 = false, 1 = true (integer field)
-    emailVerified: null,
     ...data,
   };
 
@@ -180,50 +178,24 @@ export async function createTestBGGGame(
   data?: Partial<typeof schema.bggGames.$inferInsert>
 ): Promise<typeof schema.bggGames.$inferSelect> {
   const bggGameData: typeof schema.bggGames.$inferInsert = {
-    id: nanoid(),
-    bggId: `${Math.floor(Math.random() * 1000000)}`,
-    name: 'Test Board Game',
-    year: 2023,
-    description: 'Test game description',
-    imageUrl: 'https://cf.geekdo-images.com/test.jpg',
-    thumbnailUrl: 'https://cf.geekdo-images.com/thumb.jpg',
-    minPlayers: 2,
-    maxPlayers: 4,
-    playingTime: 60,
-    minAge: 10,
-    designers: ['Test Designer'],
-    publishers: ['Test Publisher'],
+    id: data?.id ?? `${Math.floor(Math.random() * 1000000)}`,
+    name: data?.name ?? 'Test Board Game',
+    yearPublished: data?.yearPublished ?? 2023,
+    description: data?.description ?? 'Test game description',
+    imageUrl: data?.imageUrl ?? 'https://cf.geekdo-images.com/test.jpg',
+    thumbnailUrl: data?.thumbnailUrl ?? 'https://cf.geekdo-images.com/thumb.jpg',
+    minPlayers: data?.minPlayers ?? 2,
+    maxPlayers: data?.maxPlayers ?? 4,
+    playingTime: data?.playingTime ?? 60,
+    publishers: data?.publishers ?? ['Test Publisher'],
+    designers: data?.designers ?? ['Test Designer'],
+    categories: data?.categories ?? ['Strategy'],
+    mechanics: data?.mechanics ?? ['Deck Building'],
     ...data,
   };
 
   const [bggGame] = await db.insert(schema.bggGames).values(bggGameData).returning();
   return bggGame;
-}
-
-/**
- * Create a test job
- *
- * @example
- * const job = await createTestJob({ resourceId: resource.id });
- */
-export async function createTestJob(
-  data?: Partial<typeof schema.jobs.$inferInsert>
-): Promise<typeof schema.jobs.$inferSelect> {
-  const jobData: typeof schema.jobs.$inferInsert = {
-    id: nanoid(),
-    type: 'process-resource',
-    resourceId: nanoid(),
-    gameId: nanoid(),
-    status: 'pending',
-    progress: 0,
-    currentStep: null,
-    error: null,
-    metadata: null,
-    ...data,
-  };
-
-  const [job] = await db.insert(schema.jobs).values(jobData).returning();
-  return job;
 }
 
 /**

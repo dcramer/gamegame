@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { POST as uploadFile } from '@/app/api/upload/route';
+import { createNextRequest } from '@/tests/utils/next-request';
 
 describe.sequential('Upload API', () => {
   beforeEach(async () => {
@@ -15,7 +16,7 @@ describe.sequential('Upload API', () => {
   describe('POST /api/upload', () => {
     it('should reject missing file', async () => {
       const formData = new FormData();
-      const request = new Request('http://localhost/api/upload', {
+      const request = createNextRequest('http://localhost/api/upload', {
         method: 'POST',
         body: formData,
       });
@@ -47,7 +48,7 @@ describe.sequential('Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/upload?type=image', {
+      const request = createNextRequest('http://localhost/api/upload?type=image', {
         method: 'POST',
         body: formData,
       });
@@ -70,7 +71,7 @@ describe.sequential('Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/upload?type=image', {
+      const request = createNextRequest('http://localhost/api/upload?type=image', {
         method: 'POST',
         body: formData,
       });
@@ -91,7 +92,7 @@ describe.sequential('Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/upload?type=image', {
+      const request = createNextRequest('http://localhost/api/upload?type=image', {
         method: 'POST',
         body: formData,
       });
@@ -112,7 +113,7 @@ describe.sequential('Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/upload?type=pdf', {
+      const request = createNextRequest('http://localhost/api/upload?type=pdf', {
         method: 'POST',
         body: formData,
       });
@@ -134,7 +135,7 @@ describe.sequential('Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/upload?type=pdf', {
+      const request = createNextRequest('http://localhost/api/upload?type=pdf', {
         method: 'POST',
         body: formData,
       });
@@ -153,7 +154,7 @@ describe.sequential('Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/upload', {
+      const request = createNextRequest('http://localhost/api/upload', {
         method: 'POST',
         body: formData,
       });
@@ -174,7 +175,7 @@ describe.sequential('Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/upload', {
+      const request = createNextRequest('http://localhost/api/upload', {
         method: 'POST',
         body: formData,
       });

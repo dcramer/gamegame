@@ -40,7 +40,6 @@ export const GET = withAdmin(async (request) => {
       // Game details/images use cache (check cache before downloading)
       // Thumbnails disabled to avoid blocking (use lazy loading endpoint instead)
       const results = await searchBGGGames(query, {
-        fetchThumbnails: false,
         apiKey: process.env.BGG_API_KEY,
       });
 

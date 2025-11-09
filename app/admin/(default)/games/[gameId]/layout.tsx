@@ -8,6 +8,15 @@ import Link from "next/link";
 import GameTabs from "./game-tabs";
 import GameActions from "./game-actions";
 import { handleServerError } from "@/lib/errors";
+import type {
+  AttachmentListResponse,
+  GameResponse,
+  ResourceListResponse,
+} from "@/lib/api/schemas";
+
+type GameData = GameResponse & { resourceCount: number };
+type ResourceList = ResourceListResponse;
+type AttachmentList = AttachmentListResponse;
 
 /**
  * Loading skeleton for game header
@@ -45,10 +54,11 @@ function GameActionsLoading() {
  * Fetches game data and renders header
  */
 async function GameHeader({ gameId }: { gameId: string }) {
-  let game, resourceList;
+  let game: GameData;
+  let resourceList: ResourceList;
   try {
-    game = await serverClient.games.get({ idOrSlug: gameId });
-    resourceList = await serverClient.resources.listForGame({ gameId: game.id });
+    game = await serverClient.games.get({ idOrSlug: gameId }) as GameData;
+    resourceList = await serverClient.resources.listForGame({ gameId: game.id }) as ResourceList;
   } catch (error) {
     return handleServerError(error);
   }
@@ -93,12 +103,14 @@ async function GameHeader({ gameId }: { gameId: string }) {
  * Fetches game tabs data and renders tabs
  */
 async function GameTabsWithData({ gameId, children }: { gameId: string; children: React.ReactNode }) {
-  let game, resourceList, attachmentList;
+  let game: GameData;
+  let resourceList: ResourceList;
+  let attachmentList: AttachmentList;
   try {
-    game = await serverClient.games.get({ idOrSlug: gameId });
+    game = await serverClient.games.get({ idOrSlug: gameId }) as GameData;
     [resourceList, attachmentList] = await Promise.all([
-      serverClient.resources.listForGame({ gameId: game.id }),
-      serverClient.attachments.listForGame({ gameId: game.id }),
+      serverClient.resources.listForGame({ gameId: game.id }) as Promise<ResourceList>,
+      serverClient.attachments.listForGame({ gameId: game.id }) as Promise<AttachmentList>,
     ]);
   } catch (error) {
     return handleServerError(error);
@@ -119,10 +131,11 @@ async function GameTabsWithData({ gameId, children }: { gameId: string; children
  * Fetches game actions data and renders sidebar
  */
 async function GameActionsWithData({ gameId }: { gameId: string }) {
-  let game, resourceList;
+  let game: GameData;
+  let resourceList: ResourceList;
   try {
-    game = await serverClient.games.get({ idOrSlug: gameId });
-    resourceList = await serverClient.resources.listForGame({ gameId: game.id });
+    game = await serverClient.games.get({ idOrSlug: gameId }) as GameData;
+    resourceList = await serverClient.resources.listForGame({ gameId: game.id }) as ResourceList;
   } catch (error) {
     return handleServerError(error);
   }
@@ -132,8 +145,9 @@ async function GameActionsWithData({ gameId }: { gameId: string }) {
       <GameActions
         gameId={game.id}
         gameName={game.name}
-        bggId={game.bggId}
-        resourceIds={resourceList.map((r) => r.id)}
+        resourceIds={resourceList.map(
+          (resource: ResourceList[number]) => resource.id
+        )}
       />
     </div>
   );

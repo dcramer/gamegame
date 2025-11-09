@@ -78,14 +78,15 @@ export const get = publicProcedure
         width: attachments.width,
         height: attachments.height,
         description: attachments.description,
+        isGoodQuality: attachments.isGoodQuality,
+        createdAt: attachments.createdAt,
       })
       .from(attachments)
       .where(eq(attachments.id, input.id))
       .limit(1);
 
     if (!attachment) {
-      throw new ORPCError({
-        code: 'NOT_FOUND',
+      throw new ORPCError('NOT_FOUND', {
         message: 'Attachment not found',
       });
     }
@@ -220,8 +221,7 @@ export const update = adminProcedure
       .returning();
 
     if (!updated) {
-      throw new ORPCError({
-        code: 'NOT_FOUND',
+      throw new ORPCError('NOT_FOUND', {
         message: 'Attachment not found',
       });
     }
@@ -265,16 +265,14 @@ export const reprocess = adminProcedure
       .limit(1);
 
     if (!attachment) {
-      throw new ORPCError({
-        code: 'NOT_FOUND',
+      throw new ORPCError('NOT_FOUND', {
         message: 'Attachment not found',
       });
     }
 
     // Only process images
     if (attachment.type !== 'image' || !attachment.mimeType?.startsWith('image/')) {
-      throw new ORPCError({
-        code: 'BAD_REQUEST',
+      throw new ORPCError('BAD_REQUEST', {
         message: 'Only image attachments can be reprocessed with vision',
       });
     }

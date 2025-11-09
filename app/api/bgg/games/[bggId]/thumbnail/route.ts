@@ -17,14 +17,14 @@ import { withRateLimit } from '@/lib/utils/rate-limit-handler';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { bggId: string } }
+  context: { params: Promise<{ bggId: string }> }
 ) {
+  const { bggId } = await context.params;
+
   return withRateLimit(request, 'bgg', async () => {
     try {
       // Require admin authentication
       await requireAdmin();
-
-      const { bggId } = params;
 
       if (!bggId) {
         return NextResponse.json(
@@ -72,7 +72,7 @@ export async function GET(
         cached: false
       });
     } catch (error) {
-      console.error(`[GET /api/bgg/games/${params.bggId}/thumbnail] Error:`, error);
+      console.error(`[GET /api/bgg/games/${bggId}/thumbnail] Error:`, error);
 
       if (error instanceof Error) {
         return NextResponse.json(

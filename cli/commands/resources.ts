@@ -1,4 +1,5 @@
 import { getJobStatus, getAllResources } from '@/lib/cli/resources';
+import type { CallableRouter } from '@/lib/procedures/router';
 import { error, success, info } from '../utils/output';
 
 async function resourceStatus() {
@@ -19,10 +20,6 @@ async function resourceStatus() {
 
     console.log(`Job: ${job.id}`);
     console.log(`Status: ${job.status}`);
-    console.log(`Progress: ${job.progress}%`);
-    if (job.currentStep) {
-      console.log(`Step: ${job.currentStep}`);
-    }
     if (job.error) {
       console.log(`Error: ${job.error}`);
     }
@@ -52,7 +49,6 @@ async function reprocessResource() {
     const { createORPCClient } = await import('@orpc/client');
     const { RPCLink } = await import('@orpc/client/fetch');
     const { generateCliToken } = await import('../utils/auth');
-    const { Router } = await import('@/lib/procedures/router');
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const token = await generateCliToken();
@@ -65,7 +61,7 @@ async function reprocessResource() {
       },
     });
 
-    const orpc = createORPCClient<typeof Router>(link);
+    const orpc = createORPCClient<CallableRouter>(link);
 
     const result = await orpc.resources.reprocess({
       id: resourceId,

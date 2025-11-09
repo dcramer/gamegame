@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "sentry-spotlight": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@spotlightjs/spotlight@latest",
+        "--stdio-mcp"
+      ],
+      "env": {}
+    }
+  }
+}

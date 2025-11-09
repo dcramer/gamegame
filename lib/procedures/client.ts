@@ -5,7 +5,7 @@
 
 import { createORPCClient } from '@orpc/client';
 import { RPCLink } from '@orpc/client/fetch';
-import type { Router } from './router';
+import type { CallableRouter } from './router';
 
 /**
  * Browser client - makes HTTP requests to /api/rpc
@@ -17,4 +17,4 @@ const link = new RPCLink({
     : '/api/rpc',
 });
 
-export const orpc = createORPCClient<Router>(link);
+export const orpc = createORPCClient<CallableRouter>(link);

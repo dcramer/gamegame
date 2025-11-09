@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { serverClient } from "@/lib/procedures/client.server";
+import { handleServerError } from "@/lib/errors";
 import { PageHeader } from "@/components/page-header";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import ResourceTabs from "./resource-tabs";
@@ -104,13 +105,25 @@ export default async function Layout(props: {
   const params = await props.params;
   const { children } = props;
 
+  let attachmentCount = 0;
+  try {
+    const attachments = await serverClient.attachments.listForResource({ resourceId: params.resourceId });
+    attachmentCount = attachments.length;
+  } catch (error) {
+    handleServerError(error);
+  }
+
   return (
     <>
       <Suspense fallback={<ResourceHeaderLoading />}>
         <ResourceHeader gameId={params.gameId} resourceId={params.resourceId} />
       </Suspense>
 
-      <ResourceTabs gameId={params.gameId} resourceId={params.resourceId}>
+      <ResourceTabs
+        gameId={params.gameId}
+        resourceId={params.resourceId}
+        attachmentCount={attachmentCount}
+      >
         <div className="flex flex-col lg:flex-row gap-8">
           {/* Left column - Content */}
           <div className="flex-1">{children}</div>

@@ -9,6 +9,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { POST as uploadResource } from '@/app/api/resources/upload/route';
+import { createNextRequest } from '@/tests/utils/next-request';
 
 describe.sequential('Resource Upload API', () => {
   beforeEach(async () => {
@@ -18,7 +19,7 @@ describe.sequential('Resource Upload API', () => {
   describe('POST /api/resources/upload - Development Mode (formData)', () => {
     it('should reject missing file', async () => {
       const formData = new FormData();
-      const request = new Request('http://localhost/api/resources/upload', {
+      const request = createNextRequest('http://localhost/api/resources/upload', {
         method: 'POST',
         body: formData,
       });
@@ -39,7 +40,7 @@ describe.sequential('Resource Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/resources/upload', {
+      const request = createNextRequest('http://localhost/api/resources/upload', {
         method: 'POST',
         body: formData,
       });
@@ -62,7 +63,7 @@ describe.sequential('Resource Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/resources/upload', {
+      const request = createNextRequest('http://localhost/api/resources/upload', {
         method: 'POST',
         body: formData,
       });
@@ -85,7 +86,7 @@ describe.sequential('Resource Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/resources/upload', {
+      const request = createNextRequest('http://localhost/api/resources/upload', {
         method: 'POST',
         body: formData,
       });
@@ -105,7 +106,7 @@ describe.sequential('Resource Upload API', () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const request = new Request('http://localhost/api/resources/upload', {
+      const request = createNextRequest('http://localhost/api/resources/upload', {
         method: 'POST',
         body: formData,
       });
@@ -125,7 +126,7 @@ describe.sequential('Resource Upload API', () => {
       // Upload first file
       const formData1 = new FormData();
       formData1.append('file', file);
-      const request1 = new Request('http://localhost/api/resources/upload', {
+      const request1 = createNextRequest('http://localhost/api/resources/upload', {
         method: 'POST',
         body: formData1,
       });
@@ -135,7 +136,7 @@ describe.sequential('Resource Upload API', () => {
       // Upload second file
       const formData2 = new FormData();
       formData2.append('file', file);
-      const request2 = new Request('http://localhost/api/resources/upload', {
+      const request2 = createNextRequest('http://localhost/api/resources/upload', {
         method: 'POST',
         body: formData2,
       });
@@ -150,7 +151,7 @@ describe.sequential('Resource Upload API', () => {
 
   describe('POST /api/resources/upload - Production Mode (Vercel Blob)', () => {
     it('should accept valid clientPayload', async () => {
-      const request = new Request('http://localhost/api/resources/upload', {
+      const request = createNextRequest('http://localhost/api/resources/upload', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -172,7 +173,7 @@ describe.sequential('Resource Upload API', () => {
     });
 
     it('should accept clientPayload as JSON string', async () => {
-      const request = new Request('http://localhost/api/resources/upload', {
+      const request = createNextRequest('http://localhost/api/resources/upload', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -194,7 +195,7 @@ describe.sequential('Resource Upload API', () => {
     });
 
     it('should reject missing gameId in payload', async () => {
-      const request = new Request('http://localhost/api/resources/upload', {
+      const request = createNextRequest('http://localhost/api/resources/upload', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -215,7 +216,7 @@ describe.sequential('Resource Upload API', () => {
     });
 
     it('should reject missing resourceId in payload', async () => {
-      const request = new Request('http://localhost/api/resources/upload', {
+      const request = createNextRequest('http://localhost/api/resources/upload', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -236,7 +237,7 @@ describe.sequential('Resource Upload API', () => {
     });
 
     it('should reject missing name in payload', async () => {
-      const request = new Request('http://localhost/api/resources/upload', {
+      const request = createNextRequest('http://localhost/api/resources/upload', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -257,7 +258,7 @@ describe.sequential('Resource Upload API', () => {
     });
 
     it('should accept empty payload (no clientPayload)', async () => {
-      const request = new Request('http://localhost/api/resources/upload', {
+      const request = createNextRequest('http://localhost/api/resources/upload', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',

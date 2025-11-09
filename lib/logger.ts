@@ -1,79 +1,70 @@
-import pino from "pino";
 import { env } from "./env.mjs";
 
-/**
- * Structured logger using Pino
- *
- * Features:
- * - Structured JSON logging in production
- * - Pretty printing in development
- * - Context-aware logging
- * - Performance optimized
- *
- * Usage:
- * ```ts
- * import { logger } from "@/lib/logger";
- *
- * logger.info("User logged in", { userId: "123" });
- * logger.error({ err: error, userId: "123" }, "Failed to process request");
- * logger.child({ requestId: "abc" }).info("Processing request");
- * ```
- */
-export const logger = pino({
-  level: env.NODE_ENV === "production" ? "info" : "debug",
+type LogLevel = "debug" | "info" | "warn" | "error";
+type LogMetadata = Record<string, unknown>;
+type LogArgs = [string] | [LogMetadata, string?];
 
-  // Note: pino-pretty transport using worker threads doesn't work with Next.js
-  // Use JSON output in all environments. For pretty printing in dev, pipe to pino-pretty CLI:
-  // pnpm dev 2>&1 | pnpm exec pino-pretty
+function emitLog(
+  level: LogLevel,
+  bindings: LogMetadata,
+  ...args: LogArgs
+) {
+  const consoleMethod =
+    level === "debug"
+      ? console.debug
+      : level === "info"
+        ? console.info
+        : level === "warn"
+          ? console.warn
+          : console.error;
 
-  // Base fields for all logs
-  base: {
-    env: env.NODE_ENV,
-  },
+  let message = "";
+  let metadata: LogMetadata | undefined;
 
-  // Redact sensitive fields
-  redact: {
-    paths: [
-      "*.password",
-      "*.token",
-      "*.apiKey",
-      "*.secret",
-      "*.authorization",
-      "req.headers.authorization",
-      "req.headers.cookie",
-    ],
-    remove: true,
-  },
+  if (typeof args[0] === "string") {
+    message = args[0];
+    metadata = bindings;
+  } else {
+    const [meta, maybeMessage] = args;
+    message = maybeMessage ?? "";
+    metadata = { ...bindings, ...meta };
+  }
 
-  // Serialize errors properly
-  serializers: {
-    err: pino.stdSerializers.err,
-    error: pino.stdSerializers.err,
-  },
-});
+  const payload =
+    metadata && Object.keys(metadata).length > 0 ? metadata : undefined;
 
-/**
- * Create a child logger with additional context
- *
- * @example
- * const log = createLogger({ module: "pdf-processor", resourceId: "123" });
- * log.info("Starting PDF processing");
- */
-export function createLogger(bindings: Record<string, unknown>) {
-  return logger.child(bindings);
+  if (payload) {
+    consoleMethod(`[${level}] ${message}`, payload);
+  } else {
+    consoleMethod(`[${level}] ${message}`);
+  }
+}
+
+function createBaseLogger(bindings: LogMetadata = {}) {
+  return {
+    debug: (...args: LogArgs) => emitLog("debug", bindings, ...args),
+    info: (...args: LogArgs) => emitLog("info", bindings, ...args),
+    warn: (...args: LogArgs) => emitLog("warn", bindings, ...args),
+    error: (...args: LogArgs) => emitLog("error", bindings, ...args),
+    child(childBindings: LogMetadata) {
+      return createBaseLogger({ ...bindings, ...childBindings });
+    },
+  };
 }
 
 /**
- * Log timing information for performance monitoring
- *
- * @example
- * const end = logger.time("pdf-extraction");
- * // ... do work ...
- * end({ pages: 42, success: true });
+ * Structured logger with simple console-based transport.
+ * Includes environment metadata so logs can be filtered downstream.
  */
+export const logger = createBaseLogger({ env: env.NODE_ENV });
+
+export function createLogger(bindings: LogMetadata) {
+  return logger.child(bindings);
+}
+
 export function logTiming(operation: string) {
   const start = Date.now();
-  return (metadata?: Record<string, unknown>) => {
+  return (metadata?: LogMetadata) => {
     const duration = Date.now() - start;
     logger.info(
       {
@@ -86,16 +77,9 @@ export function logTiming(operation: string) {
   };
 }
 
-/**
- * Helper to log and throw errors
- * Logs the error with context, then throws it
- *
- * @example
- * throw logAndThrow(new Error("Invalid input"), { userId: "123", input });
- */
 export function logAndThrow(
   error: Error,
-  context?: Record<string, unknown>
+  context?: LogMetadata
 ): never {
   logger.error({ err: error, ...context }, error.message);
   throw error;

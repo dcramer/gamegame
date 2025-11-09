@@ -161,7 +161,7 @@ export const POST = withAdmin(async (
       gameName: game.name,
       name,
       url,
-      sourceKey,
+      sourceKey: sourceKey ?? undefined,
     };
 
     // Start workflow asynchronously (don't await to avoid blocking the response)

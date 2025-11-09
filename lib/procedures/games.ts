@@ -86,8 +86,7 @@ export const get = publicProcedure
       .limit(1);
 
     if (!game) {
-      throw new ORPCError({
-        code: 'NOT_FOUND',
+      throw new ORPCError('NOT_FOUND', {
         message: 'Game not found',
       });
     }
@@ -172,8 +171,7 @@ export const update = adminProcedure
       .limit(1);
 
     if (!existingGame) {
-      throw new ORPCError({
-        code: 'NOT_FOUND',
+      throw new ORPCError('NOT_FOUND', {
         message: 'Game not found',
       });
     }
@@ -236,8 +234,7 @@ export const deleteGame = adminProcedure
       .limit(1);
 
     if (!game) {
-      throw new ORPCError({
-        code: 'NOT_FOUND',
+      throw new ORPCError('NOT_FOUND', {
         message: 'Game not found',
       });
     }

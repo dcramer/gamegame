@@ -14,6 +14,7 @@ import { GET as extractId } from '@/app/api/bgg/extract-id/route';
 import { db } from '@/lib/db';
 import { games } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { createNextRequest, createRouteContext } from '@/tests/utils/next-request';
 
 // Mock the BGG service
 vi.mock('@/lib/services/bgg', () => ({
@@ -38,7 +39,7 @@ describe.sequential('BGG API', () => {
 
   describe('GET /api/bgg/extract-id', () => {
     it('should extract BGG ID from valid URL', async () => {
-      const request = new Request('http://localhost/api/bgg/extract-id?url=https://boardgamegeek.com/boardgame/224517/brass-birmingham');
+      const request = createNextRequest('http://localhost/api/bgg/extract-id?url=https://boardgamegeek.com/boardgame/224517/brass-birmingham');
       const response = await extractId(request);
       const data = await response.json();
 
@@ -47,7 +48,7 @@ describe.sequential('BGG API', () => {
     });
 
     it('should reject invalid BGG URL', async () => {
-      const request = new Request('http://localhost/api/bgg/extract-id?url=https://example.com/not-a-bgg-url');
+      const request = createNextRequest('http://localhost/api/bgg/extract-id?url=https://example.com/not-a-bgg-url');
       const response = await extractId(request);
       const data = await response.json();
 
@@ -56,7 +57,7 @@ describe.sequential('BGG API', () => {
     });
 
     it('should reject missing URL parameter', async () => {
-      const request = new Request('http://localhost/api/bgg/extract-id');
+      const request = createNextRequest('http://localhost/api/bgg/extract-id');
       const response = await extractId(request);
       const data = await response.json();
 
@@ -65,7 +66,7 @@ describe.sequential('BGG API', () => {
     });
 
     it('should reject invalid URL format', async () => {
-      const request = new Request('http://localhost/api/bgg/extract-id?url=not-a-url');
+      const request = createNextRequest('http://localhost/api/bgg/extract-id?url=not-a-url');
       const response = await extractId(request);
       const data = await response.json();
 
@@ -79,7 +80,7 @@ describe.sequential('BGG API', () => {
       const originalKey = process.env.BGG_API_KEY;
       delete process.env.BGG_API_KEY;
 
-      const request = new Request('http://localhost/api/bgg/search?q=brass');
+      const request = createNextRequest('http://localhost/api/bgg/search?q=brass');
       const response = await searchBGG(request);
       const data = await response.json();
 
@@ -90,7 +91,7 @@ describe.sequential('BGG API', () => {
     });
 
     it('should reject short queries', async () => {
-      const request = new Request('http://localhost/api/bgg/search?q=a');
+      const request = createNextRequest('http://localhost/api/bgg/search?q=a');
       const response = await searchBGG(request);
       const data = await response.json();
 
@@ -111,7 +112,7 @@ describe.sequential('BGG API', () => {
         },
       ]);
 
-      const request = new Request('http://localhost/api/bgg/search?q=brass');
+      const request = createNextRequest('http://localhost/api/bgg/search?q=brass');
       const response = await searchBGG(request);
       const data = await response.json();
 
@@ -131,8 +132,11 @@ describe.sequential('BGG API', () => {
       const originalKey = process.env.BGG_API_KEY;
       delete process.env.BGG_API_KEY;
 
-      const request = new Request('http://localhost/api/bgg/games/224517');
-      const response = await getBGGGame(request, { params: { bggId: '224517' } });
+      const request = createNextRequest('http://localhost/api/bgg/games/224517');
+      const response = await getBGGGame(
+        request,
+        createRouteContext({ bggId: '224517' })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(503);
@@ -151,16 +155,24 @@ describe.sequential('BGG API', () => {
         minPlayers: 2,
         maxPlayers: 4,
         playingTime: 120,
+        minPlayTime: null,
+        maxPlayTime: null,
+        minAge: null,
         description: 'Test description',
         imageUrl: 'https://cf.geekdo-images.com/test.jpg',
         thumbnailUrl: null,
         publishers: ['Roxley Games'],
         designers: ['Martin Wallace'],
-        bggUrl: 'https://boardgamegeek.com/boardgame/224517',
+        artists: null,
+        categories: null,
+        mechanics: null,
       });
 
-      const request = new Request('http://localhost/api/bgg/games/224517');
-      const response = await getBGGGame(request, { params: { bggId: '224517' } });
+      const request = createNextRequest('http://localhost/api/bgg/games/224517');
+      const response = await getBGGGame(
+        request,
+        createRouteContext({ bggId: '224517' })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -177,10 +189,13 @@ describe.sequential('BGG API', () => {
       const originalKey = process.env.BGG_API_KEY;
       delete process.env.BGG_API_KEY;
 
-      const request = new Request('http://localhost/api/bgg/games/224517/import', {
+      const request = createNextRequest('http://localhost/api/bgg/games/224517/import', {
         method: 'POST',
       });
-      const response = await importBGGGame(request, { params: { bggId: '224517' } });
+      const response = await importBGGGame(
+        request,
+        createRouteContext({ bggId: '224517' })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(503);
@@ -199,27 +214,33 @@ describe.sequential('BGG API', () => {
         minPlayers: 2,
         maxPlayers: 4,
         playingTime: 60,
+        minPlayTime: null,
+        maxPlayTime: null,
+        minAge: null,
         description: null,
         imageUrl: null, // No image
         thumbnailUrl: null,
         publishers: ['Test Publisher'],
         designers: ['Test Designer'],
-        bggUrl: 'https://boardgamegeek.com/boardgame/12345',
+        artists: null,
+        categories: null,
+        mechanics: null,
       });
 
-      const request = new Request('http://localhost/api/bgg/games/12345/import', {
+      const request = createNextRequest('http://localhost/api/bgg/games/12345/import', {
         method: 'POST',
       });
-      const response = await importBGGGame(request, { params: { bggId: '12345' } });
+      const response = await importBGGGame(
+        request,
+        createRouteContext({ bggId: '12345' })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(201);
       expect(data).toMatchObject({
         name: 'Test Game',
         year: 2020,
-        bggId: '12345',
-        bggUrl: 'https://boardgamegeek.com/boardgame/12345',
-      });
+        bggId: '12345',      });
 
       // Cleanup
       if (data.id) {
@@ -237,27 +258,38 @@ describe.sequential('BGG API', () => {
         minPlayers: 2,
         maxPlayers: 4,
         playingTime: 60,
+        minPlayTime: null,
+        maxPlayTime: null,
+        minAge: null,
         description: null,
         imageUrl: null,
         thumbnailUrl: null,
         publishers: ['Test Publisher'],
         designers: ['Test Designer'],
-        bggUrl: 'https://boardgamegeek.com/boardgame/12345',
+        artists: null,
+        categories: null,
+        mechanics: null,
       });
 
       // First import
-      const request1 = new Request('http://localhost/api/bgg/games/12345/import', {
+      const request1 = createNextRequest('http://localhost/api/bgg/games/12345/import', {
         method: 'POST',
       });
-      const response1 = await importBGGGame(request1, { params: { bggId: '12345' } });
+      const response1 = await importBGGGame(
+        request1,
+        createRouteContext({ bggId: '12345' })
+      );
       const data1 = await response1.json();
       expect(response1.status).toBe(201);
 
       // Second import should fail
-      const request2 = new Request('http://localhost/api/bgg/games/12345/import', {
+      const request2 = createNextRequest('http://localhost/api/bgg/games/12345/import', {
         method: 'POST',
       });
-      const response2 = await importBGGGame(request2, { params: { bggId: '12345' } });
+      const response2 = await importBGGGame(
+        request2,
+        createRouteContext({ bggId: '12345' })
+      );
       const data2 = await response2.json();
 
       expect(response2.status).toBe(409);

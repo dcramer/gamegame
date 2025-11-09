@@ -9,6 +9,7 @@ import { db } from '@/lib/db';
 import { games, resources, attachments } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { createNextRequest, createRouteContext } from '@/tests/utils/next-request';
 
 describe.sequential('Resource Attachments API', () => {
   let testGameId: string;
@@ -43,7 +44,7 @@ describe.sequential('Resource Attachments API', () => {
       originalFilename: null,
       status: 'ready',
       processingStage: 'ready',
-      currentJobId: null,
+      currentRunId: null,
       processingMetadata: null,
       content: 'Test content',
       version: 1,
@@ -61,8 +62,11 @@ describe.sequential('Resource Attachments API', () => {
 
   describe('GET /api/resources/:resourceId/attachments', () => {
     it('should return empty array when no attachments exist', async () => {
-      const request = new Request(`http://localhost/api/resources/${testResourceId}/attachments`);
-      const response = await getAttachments(request, { params: { resourceId: testResourceId } });
+      const request = createNextRequest(`http://localhost/api/resources/${testResourceId}/attachments`);
+      const response = await getAttachments(
+        request,
+        createRouteContext({ resourceId: testResourceId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -90,8 +94,11 @@ describe.sequential('Resource Attachments API', () => {
         createdAt: Date.now(),
       });
 
-      const request = new Request(`http://localhost/api/resources/${testResourceId}/attachments`);
-      const response = await getAttachments(request, { params: { resourceId: testResourceId } });
+      const request = createNextRequest(`http://localhost/api/resources/${testResourceId}/attachments`);
+      const response = await getAttachments(
+        request,
+        createRouteContext({ resourceId: testResourceId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -131,8 +138,11 @@ describe.sequential('Resource Attachments API', () => {
         createdAt: Date.now(),
       });
 
-      const request = new Request(`http://localhost/api/resources/${testResourceId}/attachments`);
-      const response = await getAttachments(request, { params: { resourceId: testResourceId } });
+      const request = createNextRequest(`http://localhost/api/resources/${testResourceId}/attachments`);
+      const response = await getAttachments(
+        request,
+        createRouteContext({ resourceId: testResourceId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -182,8 +192,11 @@ describe.sequential('Resource Attachments API', () => {
         },
       ]);
 
-      const request = new Request(`http://localhost/api/resources/${testResourceId}/attachments`);
-      const response = await getAttachments(request, { params: { resourceId: testResourceId } });
+      const request = createNextRequest(`http://localhost/api/resources/${testResourceId}/attachments`);
+      const response = await getAttachments(
+        request,
+        createRouteContext({ resourceId: testResourceId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);

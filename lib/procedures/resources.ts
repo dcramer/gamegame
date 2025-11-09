@@ -18,6 +18,23 @@ import {
 import { bulkDelete } from '@/lib/services/blob-storage';
 import { reprocessResource } from '@/lib/services/reprocess';
 
+type ResourceRecord = {
+  resourceType: string | null;
+  author?: string | null;
+  attributionUrl?: string | null;
+  description?: string | null;
+};
+
+function normalizeResourceFields<T extends ResourceRecord>(resource: T) {
+  return {
+    ...resource,
+    resourceType: resource.resourceType ?? 'rulebook',
+    author: resource.author ?? null,
+    attributionUrl: resource.attributionUrl ?? null,
+    description: resource.description ?? null,
+  };
+}
+
 /**
  * Get resource by ID
  */
@@ -63,8 +80,7 @@ export const get = publicProcedure
       .limit(1);
 
     if (!resource) {
-      throw new ORPCError({
-        code: 'NOT_FOUND',
+      throw new ORPCError('NOT_FOUND', {
         message: 'Resource not found',
       });
     }
@@ -75,8 +91,10 @@ export const get = publicProcedure
       .from(fragments)
       .where(eq(fragments.resourceId, input.id));
 
+    const normalizedResource = normalizeResourceFields(resource);
+
     return {
-      ...resource,
+      ...normalizedResource,
       fragmentCount,
     };
   });
@@ -125,7 +143,10 @@ export const listForGame = publicProcedure
       .where(eq(resources.gameId, input.gameId))
       .orderBy(resources.name);
 
-    return resourceList;
+    return resourceList.map((resource) => ({
+      ...normalizeResourceFields(resource),
+      hasContent: Boolean(resource.hasContent),
+    }));
   });
 
 /**
@@ -168,13 +189,12 @@ export const update = adminProcedure
       .returning();
 
     if (!updated) {
-      throw new ORPCError({
-        code: 'NOT_FOUND',
+      throw new ORPCError('NOT_FOUND', {
         message: 'Resource not found',
       });
     }
 
-    return updated;
+    return normalizeResourceFields(updated);
   });
 
 /**
@@ -217,8 +237,7 @@ export const deleteResource = adminProcedure
       .returning();
 
     if (result.length === 0) {
-      throw new ORPCError({
-        code: 'NOT_FOUND',
+      throw new ORPCError('NOT_FOUND', {
         message: 'Resource not found',
       });
     }
@@ -289,14 +308,12 @@ export const reprocess = adminProcedure
       });
     } catch (error) {
       if (error instanceof Error && error.message === 'Resource not found') {
-        throw new ORPCError({
-          code: 'NOT_FOUND',
+        throw new ORPCError('NOT_FOUND', {
           message: 'Resource not found',
         });
       }
       if (error instanceof Error && error.message === 'Game not found') {
-        throw new ORPCError({
-          code: 'NOT_FOUND',
+        throw new ORPCError('NOT_FOUND', {
           message: 'Game not found',
         });
       }

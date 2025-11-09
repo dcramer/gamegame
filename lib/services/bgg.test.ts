@@ -70,7 +70,6 @@ describe('BGG Service', () => {
       });
 
       const results = await searchBGGGames('Brass', {
-        fetchThumbnails: false,
         useKV: false, // Disable KV for unit tests
       });
 
@@ -96,7 +95,6 @@ describe('BGG Service', () => {
       });
 
       const results = await searchBGGGames('NonexistentGame12345', {
-        fetchThumbnails: false,
         useKV: false,
       });
 
@@ -110,7 +108,6 @@ describe('BGG Service', () => {
       });
 
       const results = await searchBGGGames('Brass', {
-        fetchThumbnails: false,
         maxResults: 1,
         useKV: false,
       });
@@ -119,39 +116,6 @@ describe('BGG Service', () => {
       expect(results[0].id).toBe('224517');
     });
 
-    it('should fetch thumbnails for top results when enabled', async () => {
-      // Mock search
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: async () => MOCK_SEARCH_BRASS_XML,
-      });
-
-      // Mock database lookup (not found)
-      const { db } = await import('../db');
-      (db.select as any).mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue([]),
-          }),
-        }),
-      });
-
-      // Mock game details for thumbnail
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: async () => MOCK_GAME_DETAILS_BRASS_BIRMINGHAM_XML,
-      });
-
-      const results = await searchBGGGames('Brass', {
-        fetchThumbnails: true,
-        maxResults: 1,
-        useKV: false,
-      });
-
-      expect(results).toHaveLength(1);
-      expect(results[0].thumbnailUrl).toBeDefined();
-      expect(results[0].thumbnailUrl).toContain('https://');
-    });
   });
 
   describe('getBGGGameDetails', () => {

@@ -52,8 +52,7 @@ export const search = adminProcedure
     // Check if BGG API key is configured
     if (!process.env.BGG_API_KEY) {
       console.warn('BGG_API_KEY not configured, BGG search unavailable');
-      throw new ORPCError({
-        code: 'UNAVAILABLE',
+      throw new ORPCError('UNAVAILABLE', {
         message: 'BoardGameGeek API key is not configured',
       });
     }
@@ -111,8 +110,7 @@ export const getGame = adminProcedure
   .handler(async ({ input }) => {
     // Check if BGG API key is configured
     if (!process.env.BGG_API_KEY) {
-      throw new ORPCError({
-        code: 'UNAVAILABLE',
+      throw new ORPCError('UNAVAILABLE', {
         message: 'BoardGameGeek API key is not configured',
       });
     }
@@ -141,8 +139,7 @@ export const importGame = adminProcedure
   .handler(async ({ input }) => {
     // Check if BGG API key is configured
     if (!process.env.BGG_API_KEY) {
-      throw new ORPCError({
-        code: 'UNAVAILABLE',
+      throw new ORPCError('UNAVAILABLE', {
         message: 'BoardGameGeek API key is not configured',
       });
     }
@@ -160,8 +157,7 @@ export const importGame = adminProcedure
       .limit(1);
 
     if (existingGame) {
-      throw new ORPCError({
-        code: 'CONFLICT',
+      throw new ORPCError('CONFLICT', {
         message: 'Game already imported from BoardGameGeek',
       });
     }

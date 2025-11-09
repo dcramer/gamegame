@@ -11,6 +11,7 @@ import { db } from '@/lib/db';
 import { games, resources, fragments } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { createNextRequest, createRouteContext } from '@/tests/utils/next-request';
 
 describe.sequential('Resource Detail API', () => {
   let testGameId: string;
@@ -46,7 +47,7 @@ describe.sequential('Resource Detail API', () => {
       originalFilename: null,
       status: 'ready',
       processingStage: 'ready',
-      currentJobId: null,
+      currentRunId: null,
       processingMetadata: null,
       content: 'Test content',
       version: 1,
@@ -64,8 +65,11 @@ describe.sequential('Resource Detail API', () => {
 
   describe('GET /api/resources/:resourceId', () => {
     it('should get resource with fragment count', async () => {
-      const request = new Request(`http://localhost/api/resources/${testResourceId}`);
-      const response = await getResource(request, { params: { resourceId: testResourceId } });
+      const request = createNextRequest(`http://localhost/api/resources/${testResourceId}`);
+      const response = await getResource(
+        request,
+        createRouteContext({ resourceId: testResourceId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -79,8 +83,11 @@ describe.sequential('Resource Detail API', () => {
     });
 
     it('should return 404 for non-existent resource', async () => {
-      const request = new Request('http://localhost/api/resources/non-existent');
-      const response = await getResource(request, { params: { resourceId: 'non-existent' } });
+      const request = createNextRequest('http://localhost/api/resources/non-existent');
+      const response = await getResource(
+        request,
+        createRouteContext({ resourceId: 'non-existent' })
+      );
 
       expect(response.status).toBe(404);
     });
@@ -88,7 +95,7 @@ describe.sequential('Resource Detail API', () => {
 
   describe('PATCH /api/resources/:resourceId', () => {
     it('should update resource name', async () => {
-      const request = new Request(`http://localhost/api/resources/${testResourceId}`, {
+      const request = createNextRequest(`http://localhost/api/resources/${testResourceId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -96,7 +103,10 @@ describe.sequential('Resource Detail API', () => {
         }),
       });
 
-      const response = await updateResource(request, { params: { resourceId: testResourceId } });
+      const response = await updateResource(
+        request,
+        createRouteContext({ resourceId: testResourceId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -104,7 +114,7 @@ describe.sequential('Resource Detail API', () => {
     });
 
     it('should update resource description', async () => {
-      const request = new Request(`http://localhost/api/resources/${testResourceId}`, {
+      const request = createNextRequest(`http://localhost/api/resources/${testResourceId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -112,7 +122,10 @@ describe.sequential('Resource Detail API', () => {
         }),
       });
 
-      const response = await updateResource(request, { params: { resourceId: testResourceId } });
+      const response = await updateResource(
+        request,
+        createRouteContext({ resourceId: testResourceId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -120,13 +133,16 @@ describe.sequential('Resource Detail API', () => {
     });
 
     it('should return 404 for non-existent resource', async () => {
-      const request = new Request('http://localhost/api/resources/non-existent', {
+      const request = createNextRequest('http://localhost/api/resources/non-existent', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Updated' }),
       });
 
-      const response = await updateResource(request, { params: { resourceId: 'non-existent' } });
+      const response = await updateResource(
+        request,
+        createRouteContext({ resourceId: 'non-existent' })
+      );
 
       expect(response.status).toBe(404);
     });
@@ -134,11 +150,14 @@ describe.sequential('Resource Detail API', () => {
 
   describe('DELETE /api/resources/:resourceId', () => {
     it('should delete resource without fragments', async () => {
-      const request = new Request(`http://localhost/api/resources/${testResourceId}`, {
+      const request = createNextRequest(`http://localhost/api/resources/${testResourceId}`, {
         method: 'DELETE',
       });
 
-      const response = await deleteResource(request, { params: { resourceId: testResourceId } });
+      const response = await deleteResource(
+        request,
+        createRouteContext({ resourceId: testResourceId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -181,11 +200,14 @@ describe.sequential('Resource Detail API', () => {
         images: null,
       });
 
-      const request = new Request(`http://localhost/api/resources/${testResourceId}`, {
+      const request = createNextRequest(`http://localhost/api/resources/${testResourceId}`, {
         method: 'DELETE',
       });
 
-      const response = await deleteResource(request, { params: { resourceId: testResourceId } });
+      const response = await deleteResource(
+        request,
+        createRouteContext({ resourceId: testResourceId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -205,11 +227,14 @@ describe.sequential('Resource Detail API', () => {
     });
 
     it('should return 404 for non-existent resource', async () => {
-      const request = new Request('http://localhost/api/resources/non-existent', {
+      const request = createNextRequest('http://localhost/api/resources/non-existent', {
         method: 'DELETE',
       });
 
-      const response = await deleteResource(request, { params: { resourceId: 'non-existent' } });
+      const response = await deleteResource(
+        request,
+        createRouteContext({ resourceId: 'non-existent' })
+      );
 
       expect(response.status).toBe(404);
     });

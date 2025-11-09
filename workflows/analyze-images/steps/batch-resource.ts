@@ -14,7 +14,7 @@ import {
   saveStructured,
   parseMetadata,
   serializeMetadata,
-  hasActiveWorkflowConflict,
+  stripDataUriBase64,
 } from '../../shared/helpers';
 import { analyzeBatchStep } from '../../shared/steps/analyze-image';
 
@@ -34,61 +34,9 @@ export async function analyzeBatchResourceStep(
   input: BatchResourceInput
 ): Promise<BatchResourceResult> {
   try {
-    // Get resource metadata (use transaction for conflict checking)
-    const conflictCheckResult = await db.transaction(async (tx) => {
-      const [resourceRow] = await tx
-        .select({
-          metadata: resources.processingMetadata,
-          currentRunId: resources.currentRunId,
-        })
-        .from(resources)
-        .where(eq(resources.id, input.resourceId))
-        .limit(1)
-        .for('update');
-
-      if (!resourceRow) {
-        return {
-          hasError: true,
-          error: `Resource ${input.resourceId} not found`,
-        };
-      }
-
-      // Check for job conflicts if runId provided
-      if (input.runId) {
-        const hasConflict = await hasActiveWorkflowConflict(
-          input.resourceId,
-          input.runId,
-          resourceRow.currentRunId,
-          tx
-        );
-
-        if (hasConflict) {
-          return {
-            hasError: true,
-            error: `Resource is being processed by another workflow: ${resourceRow.currentRunId}`,
-          };
-        }
-      }
-
-      return {
-        hasError: false,
-        metadata: resourceRow.metadata,
-      };
-    });
-
-    if (conflictCheckResult.hasError) {
-      return {
-        success: false,
-        imagesProcessed: 0,
-        error: conflictCheckResult.error,
-      };
-    }
-
-    // Re-fetch resource metadata after transaction
     const [resourceRow] = await db
       .select({
         metadata: resources.processingMetadata,
-        currentRunId: resources.currentRunId,
       })
       .from(resources)
       .where(eq(resources.id, input.resourceId))
@@ -126,7 +74,7 @@ export async function analyzeBatchResourceStep(
     const imagesToAnalyze = images
       .filter((img) => img.base64)
       .map((img) => ({
-        buffer: Buffer.from(img.base64!, 'base64'),
+        buffer: Buffer.from(stripDataUriBase64(img.base64!), 'base64'),
         context: {
           gameName: input.gameName,
           pageNumber: img.pageNumber ?? 1,
@@ -156,7 +104,7 @@ export async function analyzeBatchResourceStep(
           image.description = result.description;
           image.isGoodQuality = result.quality;
           // Store additional fields for later use
-          image.isRelevant = result.relevant;
+          image.isRelevant = result.relevant ? 1 : 0;
           image.detectedType = result.type;
           if (result.ocrText) {
             image.ocrText = result.ocrText;

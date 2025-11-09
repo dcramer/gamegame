@@ -73,15 +73,65 @@ export async function generateQuestionsForFragment(
       throw new Error(`OpenAI API error: ${response.status} ${errorText}`);
     }
 
-    const data = (await response.json()) as { choices: Array<{ message: { content: string } }> };
-    const result = JSON.parse(data.choices[0].message.content);
+    const data = (await response.json()) as {
+      choices: Array<{ message: { content?: unknown; parsed?: unknown } }>;
+    };
+
+    const choice = data.choices[0];
+    const parsedPayload = choice?.message?.parsed as { questions?: unknown } | undefined;
+
+    if (parsedPayload && Array.isArray(parsedPayload.questions)) {
+      return parsedPayload.questions.filter(
+        (q): q is string => typeof q === 'string' && q.trim().length > 0
+      );
+    }
+
+    const content = extractMessageContent(choice?.message?.content);
+
+    if (!content) {
+      console.error('Error generating questions: Empty response from OpenAI', {
+        fragment: {
+          section: fragment.section,
+          pageNumber: fragment.pageNumber,
+          contentLength: fragment.content.length,
+        },
+        response: data,
+      });
+      return [];
+    }
+
+    let result: any;
+    try {
+      result = JSON.parse(content);
+    } catch (parseError) {
+      console.error('Error generating questions: Invalid JSON payload', {
+        fragment: {
+          section: fragment.section,
+          pageNumber: fragment.pageNumber,
+          contentLength: fragment.content.length,
+        },
+        content,
+        parseError,
+      });
+      return [];
+    }
 
     // Validate and return questions
     if (!Array.isArray(result.questions)) {
-      throw new Error('Invalid response format: expected questions array');
+      console.error('Error generating questions: Invalid response format', {
+        fragment: {
+          section: fragment.section,
+          pageNumber: fragment.pageNumber,
+          contentLength: fragment.content.length,
+        },
+        result,
+      });
+      return [];
     }
 
-    return result.questions.filter((q: unknown): q is string => typeof q === 'string');
+    return result.questions.filter(
+      (q: unknown): q is string => typeof q === 'string' && q.trim().length > 0
+    );
   } catch (error) {
     console.error('Error generating questions:', error);
     // Return empty array rather than failing the entire processing
@@ -168,4 +218,32 @@ export async function generateQuestionsForFragments(
   }
 
   return results;
+}
+
+function extractMessageContent(content: unknown): string | null {
+  if (!content) return null;
+
+  if (typeof content === 'string') {
+    const trimmed = content.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (Array.isArray(content)) {
+    const parts = content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part && typeof part === 'object') {
+          if (typeof (part as any).text === 'string') return (part as any).text;
+          if (typeof (part as any).content === 'string') return (part as any).content;
+        }
+        return null;
+      })
+      .filter((part): part is string => typeof part === 'string' && part.trim().length > 0);
+
+    if (parts.length > 0) {
+      return parts.join('\n').trim();
+    }
+  }
+
+  return null;
 }

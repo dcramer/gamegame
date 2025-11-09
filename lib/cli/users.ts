@@ -14,6 +14,13 @@ export interface User {
   isAdmin: number;
 }
 
+function normalizeUser<T extends { isAdmin: number | null }>(user: T): Omit<T, 'isAdmin'> & { isAdmin: number } {
+  return {
+    ...user,
+    isAdmin: user.isAdmin ?? 0,
+  };
+}
+
 export async function getUserByEmail(email: string): Promise<User | null> {
   const [user] = await db
     .select({
@@ -26,7 +33,7 @@ export async function getUserByEmail(email: string): Promise<User | null> {
     .where(eq(users.email, email))
     .limit(1);
 
-  return user || null;
+  return user ? normalizeUser(user) : null;
 }
 
 export async function createUserForCLI(input: {
@@ -41,8 +48,6 @@ export async function createUserForCLI(input: {
       email: input.email.toLowerCase(),
       name: input.name || null,
       isAdmin: input.isAdmin ? 1 : 0,
-      emailVerified: null,
-      image: null,
     })
     .returning({
       id: users.id,
@@ -51,7 +56,7 @@ export async function createUserForCLI(input: {
       isAdmin: users.isAdmin,
     });
 
-  return user;
+  return normalizeUser(user);
 }
 
 export async function grantAdminForCLI(email: string): Promise<User> {
@@ -70,5 +75,5 @@ export async function grantAdminForCLI(email: string): Promise<User> {
     throw new Error(`User not found: ${email}`);
   }
 
-  return user;
+  return normalizeUser(user);
 }

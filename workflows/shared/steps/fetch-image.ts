@@ -8,6 +8,8 @@
  */
 'use step';
 
+import { stripDataUriBase64 } from '../helpers';
+
 export interface FetchImageInput {
   source:
     | { type: 'blobKey'; blobKey: string }
@@ -42,7 +44,8 @@ export async function fetchImageStep(input: FetchImageInput): Promise<FetchImage
       }
 
       case 'base64': {
-        buffer = Buffer.from(input.source.base64, 'base64');
+        const payload = stripDataUriBase64(input.source.base64);
+        buffer = Buffer.from(payload, 'base64');
         break;
       }
 

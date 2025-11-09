@@ -24,26 +24,18 @@ interface LogoProps {
  * ```
  */
 export function Logo({ size = "default", className }: LogoProps) {
+  const iconClass = size === "sm" ? "w-6 h-6" : "w-8 h-8";
+  const textClass =
+    size === "sm" ? "text-xl lg:text-2xl" : "text-2xl lg:text-4xl";
+
   return (
     <Link
       href="/"
       prefetch={false}
       className={cn("flex items-center space-x-2", className)}
     >
-      <Dices
-        className={cn({
-          "w-6 h-6": size === "sm",
-          "w-8 h-8": size === "default",
-          "w-8 h-8": size === "lg",
-        })}
-      />
-      <h1
-        className={cn("font-bold", {
-          "text-xl lg:text-2xl": size === "sm",
-          "text-2xl lg:text-4xl": size === "default",
-          "text-2xl lg:text-4xl": size === "lg",
-        })}
-      >
+      <Dices className={cn(iconClass)} />
+      <h1 className={cn("font-bold", textClass)}>
         gamegame
       </h1>
     </Link>

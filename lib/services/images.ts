@@ -103,16 +103,22 @@ export async function createAttachmentRecord(
   mimeType: string,
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0]
 ): Promise<{ id: string; url: string; originalFilename?: string; bbox?: number[]; caption?: string; pageNumber?: number }> {
+  const bbox =
+    Array.isArray(image.bbox) && image.bbox.length === 4
+      ? (image.bbox as [number, number, number, number])
+      : undefined;
+
   const [attachment] = await tx
     .insert(attachments)
     .values({
       gameId,
       resourceId,
       type: "image",
+      blobKey: blobUrl,
       url: blobUrl,
       originalFilename: image.originalFilename,
       pageNumber: image.pageNumber,
-      bbox: image.bbox,
+      bbox,
       caption: image.caption,
       mimeType,
       description: image.description,

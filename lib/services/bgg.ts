@@ -274,15 +274,21 @@ export async function getBGGGameDetails(
         return {
           id: game.id,
           name: game.name,
-          description: game.description || '',
+          description: game.description ?? null,
           yearPublished: game.yearPublished,
           minPlayers: game.minPlayers,
           maxPlayers: game.maxPlayers,
           playingTime: game.playingTime,
+          minPlayTime: null,
+          maxPlayTime: null,
+          minAge: null,
           imageUrl: game.imageUrl,
           thumbnailUrl: game.thumbnailUrl,
-          publishers: game.publishers ?? [],
-          designers: game.designers ?? [],
+          publishers: game.publishers ?? null,
+          designers: game.designers ?? null,
+          artists: null,
+          categories: game.categories ?? null,
+          mechanics: game.mechanics ?? null,
         };
       } else {
         console.log('BGG game found in cache but stale, fetching fresh data from API');
@@ -334,7 +340,10 @@ export async function getBGGGameDetails(
         const name = primaryName?.['@_value'] || names[0]?.['@_value'] || 'Unknown';
 
         // Extract description
-        const description = item.description || '';
+        const description =
+          typeof item.description === 'string' && item.description.trim().length > 0
+            ? item.description
+            : null;
 
         // Extract year
         const yearPublished = parseIntSafe(item.yearpublished?.['@_value']);
@@ -345,6 +354,9 @@ export async function getBGGGameDetails(
 
         // Extract playing time
         const playingTime = parseIntSafe(item.playingtime?.['@_value']);
+        const minPlayTime = parseIntSafe(item.minplaytime?.['@_value']);
+        const maxPlayTime = parseIntSafe(item.maxplaytime?.['@_value']);
+        const minAge = parseIntSafe(item.minage?.['@_value']);
 
         // Extract images (handle // prefix)
         let imageUrl = item.image || null;
@@ -357,18 +369,39 @@ export async function getBGGGameDetails(
           thumbnailUrl = `https:${thumbnailUrl}`;
         }
 
-        // Extract publishers
+        // Extract linked metadata
         const links = Array.isArray(item.link) ? item.link : item.link ? [item.link] : [];
         const publishers = links
           .filter((link: any) => link['@_type'] === 'boardgamepublisher')
           .map((link: any) => link['@_value'])
-          .slice(0, 5); // Limit to 5 publishers
+          .slice(0, 5);
 
         // Extract designers
         const designers = links
           .filter((link: any) => link['@_type'] === 'boardgamedesigner')
           .map((link: any) => link['@_value'])
           .slice(0, 5); // Limit to 5 designers
+
+        const artists = links
+          .filter((link: any) => link['@_type'] === 'boardgameartist')
+          .map((link: any) => link['@_value'])
+          .slice(0, 5);
+
+        const categories = links
+          .filter((link: any) => link['@_type'] === 'boardgamecategory')
+          .map((link: any) => link['@_value'])
+          .slice(0, 10);
+
+        const mechanics = links
+          .filter((link: any) => link['@_type'] === 'boardgamemechanic')
+          .map((link: any) => link['@_value'])
+          .slice(0, 10);
+
+        const publisherList = publishers.length ? publishers : null;
+        const designerList = designers.length ? designers : null;
+        const artistList = artists.length ? artists : null;
+        const categoryList = categories.length ? categories : null;
+        const mechanicList = mechanics.length ? mechanics : null;
 
         return {
           id: bggId,
@@ -378,10 +411,16 @@ export async function getBGGGameDetails(
           minPlayers,
           maxPlayers,
           playingTime,
+          minPlayTime,
+          maxPlayTime,
+          minAge,
           imageUrl,
           thumbnailUrl,
-          publishers,
-          designers,
+          publishers: publisherList,
+          designers: designerList,
+          artists: artistList,
+          categories: categoryList,
+          mechanics: mechanicList,
         };
       },
       {
@@ -404,6 +443,8 @@ export async function getBGGGameDetails(
         minPlayers: details.minPlayers,
         maxPlayers: details.maxPlayers,
         playingTime: details.playingTime,
+        categories: details.categories,
+        mechanics: details.mechanics,
         imageUrl: details.imageUrl,
         thumbnailUrl: details.thumbnailUrl,
         publishers: details.publishers,
@@ -418,6 +459,8 @@ export async function getBGGGameDetails(
           minPlayers: details.minPlayers,
           maxPlayers: details.maxPlayers,
           playingTime: details.playingTime,
+          categories: details.categories,
+          mechanics: details.mechanics,
           imageUrl: details.imageUrl,
           thumbnailUrl: details.thumbnailUrl,
           publishers: details.publishers,

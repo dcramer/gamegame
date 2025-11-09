@@ -10,6 +10,7 @@ import { db } from '@/lib/db';
 import { games, resources, attachments } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { createNextRequest, createRouteContext } from '@/tests/utils/next-request';
 
 describe.sequential('Attachments API', () => {
   let testGameId: string;
@@ -45,7 +46,7 @@ describe.sequential('Attachments API', () => {
       originalFilename: null,
       status: 'ready',
       processingStage: 'ready',
-      currentJobId: null,
+      currentRunId: null,
       processingMetadata: null,
       content: 'Test content',
       version: 1,
@@ -83,8 +84,11 @@ describe.sequential('Attachments API', () => {
 
   describe('GET /api/attachments/:attachmentId', () => {
     it('should get attachment with URL and parsed bbox', async () => {
-      const request = new Request(`http://localhost/api/attachments/${testAttachmentId}`);
-      const response = await getAttachment(request, { params: { attachmentId: testAttachmentId } });
+      const request = createNextRequest(`http://localhost/api/attachments/${testAttachmentId}`);
+      const response = await getAttachment(
+        request,
+        createRouteContext({ attachmentId: testAttachmentId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -103,8 +107,11 @@ describe.sequential('Attachments API', () => {
     });
 
     it('should return 404 for non-existent attachment', async () => {
-      const request = new Request('http://localhost/api/attachments/non-existent');
-      const response = await getAttachment(request, { params: { attachmentId: 'non-existent' } });
+      const request = createNextRequest('http://localhost/api/attachments/non-existent');
+      const response = await getAttachment(
+        request,
+        createRouteContext({ attachmentId: 'non-existent' })
+      );
 
       expect(response.status).toBe(404);
     });
@@ -112,7 +119,7 @@ describe.sequential('Attachments API', () => {
 
   describe('PATCH /api/attachments/:attachmentId', () => {
     it('should update attachment description', async () => {
-      const request = new Request(`http://localhost/api/attachments/${testAttachmentId}`, {
+      const request = createNextRequest(`http://localhost/api/attachments/${testAttachmentId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -120,7 +127,10 @@ describe.sequential('Attachments API', () => {
         }),
       });
 
-      const response = await updateAttachment(request, { params: { attachmentId: testAttachmentId } });
+      const response = await updateAttachment(
+        request,
+        createRouteContext({ attachmentId: testAttachmentId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -129,7 +139,7 @@ describe.sequential('Attachments API', () => {
     });
 
     it('should update attachment filename', async () => {
-      const request = new Request(`http://localhost/api/attachments/${testAttachmentId}`, {
+      const request = createNextRequest(`http://localhost/api/attachments/${testAttachmentId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -137,7 +147,10 @@ describe.sequential('Attachments API', () => {
         }),
       });
 
-      const response = await updateAttachment(request, { params: { attachmentId: testAttachmentId } });
+      const response = await updateAttachment(
+        request,
+        createRouteContext({ attachmentId: testAttachmentId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -145,13 +158,16 @@ describe.sequential('Attachments API', () => {
     });
 
     it('should return 404 for non-existent attachment', async () => {
-      const request = new Request('http://localhost/api/attachments/non-existent', {
+      const request = createNextRequest('http://localhost/api/attachments/non-existent', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ description: 'Test' }),
       });
 
-      const response = await updateAttachment(request, { params: { attachmentId: 'non-existent' } });
+      const response = await updateAttachment(
+        request,
+        createRouteContext({ attachmentId: 'non-existent' })
+      );
 
       expect(response.status).toBe(404);
     });

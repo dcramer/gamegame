@@ -45,3 +45,4 @@ export const callableRouter = {
 };
 
 export type Router = typeof router;
+export type CallableRouter = typeof callableRouter;

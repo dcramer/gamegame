@@ -23,7 +23,7 @@ export async function setupTestDb(): Promise<void> {
   try {
     // Test connection and get database name
     const result = await db.execute(sql`SELECT current_database()`);
-    const dbName = (result.rows[0] as any).current_database;
+    const dbName = (result[0] as any).current_database;
     console.log(`✓ Connected to test database: ${dbName}`);
 
     // Verify it's the test database
@@ -100,7 +100,7 @@ export async function resetTestDb(): Promise<void> {
  */
 export async function getTableCount(tableName: string): Promise<number> {
   const result = await db.execute(sql.raw(`SELECT COUNT(*) as count FROM ${tableName}`));
-  return Number((result.rows[0] as any).count);
+  return Number((result[0] as any).count);
 }
 
 /**
