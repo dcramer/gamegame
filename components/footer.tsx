@@ -1,8 +1,7 @@
 'use client';
 
 import { GITHUB_URL } from "@/constants";
-import { GitHubLogoIcon } from "@radix-ui/react-icons";
-import { Dices } from "lucide-react";
+import { Dices, Github } from "lucide-react";
 import Link from "next/link";
 
 interface FooterProps {
@@ -35,7 +34,7 @@ export default function Footer({ isAdmin }: FooterProps) {
           href={GITHUB_URL}
           className="flex items-center gap-1 hover:underline"
         >
-          <GitHubLogoIcon className="w-4 h-4" />
+          <Github className="w-4 h-4" />
           GitHub
         </Link>
         <span>&middot;</span>

@@ -1,8 +1,13 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { createContext, useContext, useState, type ReactNode } from "react";
-import { useIntervalEffect } from "@react-hookz/web";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 
 const ALIVE_TIME = 5000; // ms
 
@@ -93,11 +98,15 @@ function isNotExpired(message: FlashMessage) {
 export default function FlashMessages({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<FlashMessage[]>([]);
 
-  useIntervalEffect(() => {
+  useEffect(() => {
     setMessages((messages) => {
       return messages.filter(isNotExpired);
     });
-  }, 1000);
+    const intervalId = setInterval(() => {
+      setMessages((messages) => messages.filter(isNotExpired));
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, []);
 
   return (
     <FlashContext.Provider
