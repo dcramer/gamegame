@@ -88,14 +88,15 @@ export async function POST(
           content: msg.content,
         })),
         tools,
+        stopWhen: [],
         experimental_telemetry: {
           isEnabled: true,
           functionId: 'chat',
         },
       });
 
-      // Return streaming response (Vercel AI SDK handles SSE automatically)
-      return result.toTextStreamResponse();
+      // Return streaming SSE response for the CLI/clients consuming AI SDK events
+      return result.toUIMessageStreamResponse();
     } catch (error) {
       if (error instanceof z.ZodError) {
         return NextResponse.json(

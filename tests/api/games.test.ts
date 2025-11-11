@@ -170,7 +170,7 @@ describe('Games API', () => {
       expect(data).toMatchObject({
         name: 'Arcs',
         year: 2024,
-        slug: 'arcs',
+        slug: 'arcs-2024',
         imageUrl: 'https://example.com/arcs.jpg',
         bggUrl: 'https://boardgamegeek.com/boardgame/356298/arcs',
         bggId: '356298',
@@ -354,11 +354,11 @@ describe('Games API', () => {
       expect(data).toMatchObject({
         id: testGameId,
         name: 'Updated Game',
-        slug: 'updated-game',
+        slug: 'updated-game-2024',
       });
     });
 
-    it('should update year', async () => {
+    it('should update year and regenerate slug', async () => {
       const request = createNextRequest(`http://localhost/api/games/${testGameId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -373,7 +373,34 @@ describe('Games API', () => {
       );
       const data = await response.json();
 
-      expect(data.year).toBe(2025);
+      expect(data).toMatchObject({
+        year: 2025,
+        slug: 'test-game-2025',
+      });
+    });
+
+    it('should remove year suffix when year is cleared', async () => {
+      // First set a year so slug picks up suffix
+      await db.update(games).set({ year: 2026, slug: 'test-game-2026' }).where(eq(games.id, testGameId));
+
+      const request = createNextRequest(`http://localhost/api/games/${testGameId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          year: null,
+        }),
+      });
+
+      const response = await updateGame(
+        request,
+        createRouteContext({ gameIdOrSlug: testGameId })
+      );
+      const data = await response.json();
+
+      expect(data).toMatchObject({
+        year: null,
+        slug: 'test-game',
+      });
     });
 
     it('should update BGG URL and extract ID', async () => {

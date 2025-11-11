@@ -97,18 +97,25 @@ export async function askCommand() {
           const json = JSON.parse(data);
 
           // Handle different event types from Vercel AI SDK
-          if (json.type === 'text-delta' && json.textDelta) {
-            process.stdout.write(json.textDelta);
-            answer += json.textDelta;
-          } else if (json.type === 'tool-call' && showVerbose) {
-            console.log(`\n[Tool] ${json.toolName}`);
-            if (json.args) {
-              console.log(`  Args: ${JSON.stringify(json.args)}`);
+          if (json.type === 'text-delta') {
+            const chunk = json.textDelta ?? json.delta ?? '';
+            if (chunk) {
+              process.stdout.write(chunk);
+              answer += chunk;
             }
-          } else if (json.type === 'tool-result' && showVerbose) {
-            console.log(`  Result: ${JSON.stringify(json.result).slice(0, 100)}...`);
-          } else if (json.type === 'finish' && showVerbose) {
-            console.log(`\n\n[Finish] Usage: ${JSON.stringify(json.usage)}`);
+          } else if (showVerbose && json.type === 'tool-input-available') {
+            console.log(`\n[Tool] ${json.toolName}`);
+            if (json.input) {
+              console.log(`  Args: ${JSON.stringify(json.input)}`);
+            }
+          } else if (showVerbose && json.type === 'tool-output-available') {
+            const outputPreview = typeof json.output === 'string'
+              ? json.output
+              : JSON.stringify(json.output);
+            console.log(`  Result: ${outputPreview.slice(0, 100)}...`);
+          } else if (showVerbose && json.type === 'finish') {
+            const usage = json.usage ? JSON.stringify(json.usage) : 'n/a';
+            console.log(`\n\n[Finish] Usage: ${usage}`);
           }
         } catch (parseError) {
           // Ignore parse errors for malformed chunks

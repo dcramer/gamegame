@@ -12,6 +12,7 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
 import { createGameSchema, gameListResponseSchema } from '@/lib/api/schemas';
+import { generateSlug } from '@/lib/api/helpers';
 
 /**
  * GET /api/games
@@ -56,8 +57,8 @@ export const POST = withAdmin(async (request) => {
     const body = await request.json();
     const data = createGameSchema.parse(body);
 
-    // Generate slug from name
-    const slug = generateSlug(data.name);
+    // Generate slug from name (include year if provided)
+    const slug = generateSlug(data.name, data.year ?? null);
 
     // Extract BGG ID from URL if provided
     let bggId: string | null = null;
@@ -96,13 +97,3 @@ export const POST = withAdmin(async (request) => {
     return errorResponse('Failed to create game', 500, 'INTERNAL_ERROR');
   }
 });
-
-/**
- * Generate URL-safe slug from name
- */
-function generateSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}

@@ -11,15 +11,7 @@ import { getBGGGameDetails, downloadImage } from '@/lib/services/bgg';
 import { nanoid } from 'nanoid';
 import { withAdmin, errorResponse, successResponse, withRateLimit } from '@/lib/api/middleware';
 import { uploadBlob, blobKeyToUrl, bulkDelete } from '@/lib/services/blob-storage';
-
-function generateSlug(name: string, year?: number | null): string {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-
-  return year ? `${slug}-${year}` : slug;
-}
+import { generateSlug } from '@/lib/api/helpers';
 
 /**
  * POST /api/bgg/games/:bggId/import

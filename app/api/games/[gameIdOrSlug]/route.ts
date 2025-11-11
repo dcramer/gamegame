@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
 import { updateGameSchema } from '@/lib/api/schemas';
 import { bulkDelete } from '@/lib/services/blob-storage';
+import { generateSlug } from '@/lib/api/helpers';
 
 /**
  * GET /api/games/:gameIdOrSlug
@@ -106,9 +107,16 @@ export const PATCH = withAdmin(async (
 
     if (data.name !== undefined) {
       updateData.name = data.name;
-      updateData.slug = generateSlug(data.name);
     }
-    if (data.year !== undefined) updateData.year = data.year;
+    if (data.year !== undefined) {
+      updateData.year = data.year;
+    }
+
+    if (data.name !== undefined || data.year !== undefined) {
+      const nextName = data.name ?? existingGame.name;
+      const nextYear = data.year !== undefined ? data.year : existingGame.year;
+      updateData.slug = generateSlug(nextName, nextYear);
+    }
     if (data.imageUrl !== undefined) updateData.imageUrl = data.imageUrl;
     if (data.bggUrl !== undefined) {
       updateData.bggUrl = data.bggUrl;
@@ -238,13 +246,3 @@ export const DELETE = withAdmin(async (
     return errorResponse('Failed to delete game', 500, 'INTERNAL_ERROR');
   }
 });
-
-/**
- * Generate URL-safe slug from name
- */
-function generateSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}

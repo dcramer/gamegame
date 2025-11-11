@@ -13,15 +13,7 @@ import { searchBGGGames, getBGGGameDetails, downloadImage } from '@/lib/services
 import { nanoid } from 'nanoid';
 import { uploadBlob, blobKeyToUrl, bulkDelete } from '@/lib/services/blob-storage';
 import { bggGameSchema, gameResponseSchema } from '@/lib/api/schemas';
-
-function generateSlug(name: string, year?: number | null): string {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-
-  return year ? `${slug}-${year}` : slug;
-}
+import { generateSlug } from '@/lib/api/helpers';
 
 /**
  * Search BGG for games (admin only, rate limited by middleware)

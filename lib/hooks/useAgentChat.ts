@@ -25,6 +25,8 @@ export type ChatMessage =
       timestamp: number;
     };
 
+type ToolCallMessage = Extract<ChatMessage, { type: 'tool-call' }>;
+
 export interface ChatMetadata {
   performance?: any;
   model?: string;
@@ -60,6 +62,7 @@ export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentCha
   const [status, setStatus] = useState<ChatStatus>('idle');
   const [error, setError] = useState<Error | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const assistantBufferRef = useRef('');
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -78,12 +81,85 @@ export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentCha
       setMessages((prev) => [...prev, userMessage]);
       setStatus('loading');
       setError(null);
+      assistantBufferRef.current = '';
 
       // Create abort controller for this request
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
 
+      const appendAssistantChunk = (chunk: string) => {
+        if (!chunk) return;
+        assistantBufferRef.current += chunk;
+      };
+
+      const flushAssistantBuffer = () => {
+        const pending = assistantBufferRef.current;
+        if (!pending) return;
+        assistantBufferRef.current = '';
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `assistant-${Date.now()}`,
+            type: 'assistant',
+            content: pending,
+            timestamp: Date.now(),
+          },
+        ]);
+      };
+
       try {
+
+        const ensureToolCallMessage = (toolCallId: string, toolName: string) => {
+          setMessages((prev) => {
+            const exists = prev.some((msg) => msg.type === 'tool-call' && msg.id === toolCallId);
+            if (exists) {
+              return prev;
+            }
+
+            return [
+              ...prev,
+              {
+                id: toolCallId,
+                type: 'tool-call',
+                name: toolName,
+                timestamp: Date.now(),
+                status: 'running' as const,
+              },
+            ];
+          });
+        };
+
+        const updateToolCallMessage = (toolCallId: string, updates: Partial<ToolCallMessage>) => {
+          setMessages((prev) =>
+            prev.map((msg) => {
+              if (msg.type === 'tool-call' && msg.id === toolCallId) {
+                return {
+                  ...msg,
+                  ...updates,
+                };
+              }
+              return msg;
+            })
+          );
+        };
+
+        const completeToolCallMessage = (toolCallId: string) => {
+          const completedAt = Date.now();
+          setMessages((prev) =>
+            prev.map((msg) => {
+              if (msg.type === 'tool-call' && msg.id === toolCallId) {
+                const durationMs = msg.durationMs ?? completedAt - msg.timestamp;
+                return {
+                  ...msg,
+                  status: 'completed' as const,
+                  durationMs,
+                };
+              }
+              return msg;
+            })
+          );
+        };
+
         // Build request body in the format expected by chat-handler
         const requestBody = {
           messages: [
@@ -151,84 +227,60 @@ export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentCha
               const event = JSON.parse(data);
 
               switch (event.type) {
-                case 'tool-call-start':
-                  {
-                    // Append tool-call message in 'running' state
-                    const toolCallMessage: ChatMessage = {
-                      id: event.toolCallId,
-                      type: 'tool-call',
-                      name: event.toolName,
-                      args: event.args,
-                      timestamp: Date.now(),
-                      status: 'running',
-                    };
-                    setMessages((prev) => [...prev, toolCallMessage]);
-                  }
-                  break;
-
-                case 'tool-call-end':
-                  {
-                    // Update existing tool-call message to 'completed' with duration
-                    setMessages((prev) =>
-                      prev.map((msg) =>
-                        msg.type === 'tool-call' && msg.id === event.toolCallId
-                          ? { ...msg, status: 'completed' as const, durationMs: event.durationMs }
-                          : msg
-                      )
-                    );
-                    // Clear thinking state when a tool completes
-                    setIsThinking(false);
-                  }
-                  break;
-
-                case 'thinking':
-                  // Model is reasoning between tool calls
+                case 'reasoning-start':
                   setIsThinking(true);
                   break;
-
-                case 'text-delta':
-                  // Agent is generating response, not thinking anymore
+                case 'reasoning-end':
                   setIsThinking(false);
-                  if (event.textDelta) {
-                    // Append to or create assistant message
-                    setMessages((prev) => {
-                      const lastMsg = prev[prev.length - 1];
-                      if (lastMsg?.type === 'assistant') {
-                        // Append to existing assistant message
-                        return [
-                          ...prev.slice(0, -1),
-                          {
-                            ...lastMsg,
-                            content: lastMsg.content + event.textDelta,
-                          },
-                        ];
-                      }
-                      // Create new assistant message
-                      return [
-                        ...prev,
-                        {
-                          id: `assistant-${Date.now()}`,
-                          type: 'assistant',
-                          content: event.textDelta,
-                          timestamp: Date.now(),
-                        },
-                      ];
-                    });
+                  break;
+                case 'tool-input-start':
+                  ensureToolCallMessage(event.toolCallId, event.toolName || 'tool');
+                  setIsThinking(true);
+                  break;
+                case 'tool-input-available':
+                  ensureToolCallMessage(event.toolCallId, event.toolName || 'tool');
+                  if (event.input) {
+                    updateToolCallMessage(event.toolCallId, { args: event.input });
                   }
                   break;
-
-                case 'finish':
-                  // Agent is done - clear thinking state
+                case 'tool-output-available':
+                case 'tool-output-error':
+                  completeToolCallMessage(event.toolCallId);
                   setIsThinking(false);
+                  break;
+                case 'tool-call-start':
+                  ensureToolCallMessage(event.toolCallId, event.toolName || 'tool');
+                  setIsThinking(true);
+                  break;
+                case 'tool-call-end':
+                  completeToolCallMessage(event.toolCallId);
+                  setIsThinking(false);
+                  break;
+                case 'text-delta':
+                  setIsThinking(false);
+                  appendAssistantChunk(event.textDelta ?? event.delta ?? '');
+                  break;
+                case 'text-start':
+                  setIsThinking(false);
+                  break;
+                case 'text-end':
+                  flushAssistantBuffer();
+                  break;
+                case 'finish':
+                  setIsThinking(false);
+                  flushAssistantBuffer();
                   if (event.messageMetadata) {
                     setMetadata(event.messageMetadata);
                   }
                   break;
-
+                case 'message-metadata':
+                  if (event.messageMetadata) {
+                    setMetadata(event.messageMetadata);
+                  }
+                  break;
                 case 'error':
-                  // Clear thinking on error
                   setIsThinking(false);
-                  throw new Error(event.error || 'Unknown error occurred');
+                  throw new Error(event.error || event.errorText || 'Unknown error occurred');
               }
             } catch (err) {
               // Skip invalid JSON lines, but rethrow actual errors from event handling
@@ -256,6 +308,8 @@ export function useAgentChat({ api, onError }: UseAgentChatOptions): UseAgentCha
           onError?.(err);
         }
       } finally {
+        // Ensure any buffered assistant output is committed
+        flushAssistantBuffer();
         // Clean up: mark any still-running tool calls as completed
         // This prevents spinners from showing forever if stream ends unexpectedly
         setMessages((prev) =>

@@ -18,6 +18,7 @@ import {
   successResponseSchema,
   type GameResponse,
 } from '@/lib/api/schemas';
+import { generateSlug } from '@/lib/api/helpers';
 
 /**
  * List all games with resource counts
@@ -114,8 +115,8 @@ export const create = adminProcedure
   .input(createGameSchema)
   .output(gameResponseSchema)
   .handler(async ({ input }) => {
-    // Generate slug from name
-    const slug = generateSlug(input.name);
+    // Generate slug from name (include year when provided)
+    const slug = generateSlug(input.name, input.year ?? null);
 
     // Extract BGG ID from URL if provided
     let bggId: string | null = null;
@@ -183,9 +184,16 @@ export const update = adminProcedure
 
     if (input.data.name !== undefined) {
       updateData.name = input.data.name;
-      updateData.slug = generateSlug(input.data.name);
     }
-    if (input.data.year !== undefined) updateData.year = input.data.year;
+    if (input.data.year !== undefined) {
+      updateData.year = input.data.year;
+    }
+    if (input.data.name !== undefined || input.data.year !== undefined) {
+      const nextName = input.data.name ?? existingGame.name;
+      const nextYear =
+        input.data.year !== undefined ? input.data.year : existingGame.year;
+      updateData.slug = generateSlug(nextName, nextYear);
+    }
     if (input.data.imageUrl !== undefined) updateData.imageUrl = input.data.imageUrl;
     if (input.data.bggUrl !== undefined) {
       updateData.bggUrl = input.data.bggUrl;
@@ -283,13 +291,3 @@ export const deleteGame = adminProcedure
       message: `Game "${game.name}" and ${resourceCount} resources deleted`,
     };
   });
-
-/**
- * Generate URL-safe slug from name
- */
-function generateSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
