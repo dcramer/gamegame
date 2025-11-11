@@ -1,3 +1,5 @@
+import { Suspense } from 'react';
+
 import { getCurrentUser } from '@/lib/session';
 import { redirect } from 'next/navigation';
 
@@ -19,6 +21,14 @@ async function AdminAuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AdminLayoutFallback() {
+  return (
+    <div className="p-6 text-sm text-muted-foreground">
+      Checking admin access...
+    </div>
+  );
+}
+
 /**
  * Admin layout - wraps admin pages with authentication check
  */
@@ -27,5 +37,9 @@ export default function Layout({
 }: {
   children: React.ReactNode;
 }) {
-  return <AdminAuthGuard>{children}</AdminAuthGuard>;
+  return (
+    <Suspense fallback={<AdminLayoutFallback />}>
+      <AdminAuthGuard>{children}</AdminAuthGuard>
+    </Suspense>
+  );
 }

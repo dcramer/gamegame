@@ -24,7 +24,6 @@ export async function setupTestDb(): Promise<void> {
     // Test connection and get database name
     const result = await db.execute(sql`SELECT current_database()`);
     const dbName = (result[0] as any).current_database;
-    console.log(`✓ Connected to test database: ${dbName}`);
 
     // Verify it's the test database
     if (!dbName.includes('test')) {

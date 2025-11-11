@@ -23,12 +23,6 @@ import { createNextRequest, createRouteContext } from '@/tests/utils/next-reques
 describe('Games API', () => {
   let testGameId: string;
 
-  beforeEach(async () => {
-    // Clean up any test games
-    await db.delete(games).where(eq(games.name, 'Test Game'));
-    await db.delete(games).where(eq(games.name, 'Updated Game'));
-  });
-
   describe('GET /api/games', () => {
     it('should return empty array when no games exist', async () => {
       // Delete all games first
