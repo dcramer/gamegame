@@ -7,6 +7,7 @@ Vitest now boots with a global [MSW](https://mswjs.io/) server (see `tests/mocks
 - Requests to `localhost`, `127.0.0.1`, and `[::1]` are allowed so local helpers (e.g. the test Postgres instance) can still be reached.
 - Everything else is blocked unless a test opts in.
 - `networkServer.resetHandlers()` is run after every test so mocks stay isolated.
+- OpenAI chat + embeddings endpoints have baseline handlers so most tests can run without extra setup. Override them by calling `networkServer.use(...)` in your test when you need custom behaviour.
 
 ## Adding mocks
 

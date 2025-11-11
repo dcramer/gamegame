@@ -8,7 +8,7 @@
  */
 'use step';
 
-import { stripDataUriBase64 } from '../helpers';
+import { stripDataUriBase64 } from '@/workflows/support/helpers';
 
 export interface FetchImageInput {
   source:

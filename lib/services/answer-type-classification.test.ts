@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ANSWER_TYPES, classifyFragmentAnswerTypes } from './answer-type-classification';
+import { mockOpenAIError } from '@/tests/mocks/network';
 
 describe('answer-type-classification', () => {
   it('should export 25 answer type categories', () => {
@@ -38,15 +39,21 @@ describe('answer-type-classification', () => {
       resourceType: 'rulebook' as const,
     };
 
-    // Use invalid API key to trigger error
+    // Mock API error
+    mockOpenAIError(500, 'Internal Server Error');
+
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
     const result = await classifyFragmentAnswerTypes(
       fragment,
       resource,
-      'invalid-key'
+      'test-api-key'
     );
 
     // Should gracefully return empty array instead of throwing
     expect(Array.isArray(result)).toBe(true);
     expect(result.length).toBe(0);
+
+    consoleSpy.mockRestore();
   });
 });

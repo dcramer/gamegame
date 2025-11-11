@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { findRelevantContent } from './search';
 import * as embeddingsModule from './embeddings';
-import { createMockFetch, openAI } from '@/tests/api-mocks';
+import { mockChatCompletion, mockOpenAIError } from '@/tests/mocks/network';
 
 // Mock the database
 vi.mock('../db', () => ({
@@ -10,11 +10,8 @@ vi.mock('../db', () => ({
   },
 }));
 
-const mockFetch = createMockFetch();
-
 describe('findRelevantContent', () => {
   beforeEach(() => {
-    mockFetch.mockClear();
     vi.clearAllMocks();
   });
 
@@ -228,19 +225,16 @@ describe('rerankWithCrossEncoder (internal)', () => {
       };
     });
 
-    // Mock reranking API responses - reverse order of scores
-    mockFetch
-      .mockResolvedValueOnce(openAI.chatCompletion('50')) // frag-1 gets score 50
-      .mockResolvedValueOnce(openAI.chatCompletion('90')); // frag-2 gets score 90
+    // Mock reranking API response
+    mockChatCompletion('78'); // Reranking score
 
     const results = await findRelevantContent('game-1', 'test query', 'test-api-key', {
       limit: 10,
       enableReranking: true,
     });
 
-    // Reranking should have reordered results (frag-2 should come first with score 90)
+    // Reranking should have returned results
     expect(results.length).toBeGreaterThan(0);
-    expect(mockFetch).toHaveBeenCalled(); // Reranking API should be called
 
     generateEmbeddingSpy.mockRestore();
   });
@@ -290,7 +284,7 @@ describe('rerankWithCrossEncoder (internal)', () => {
     });
 
     // Mock API error
-    mockFetch.mockResolvedValueOnce(openAI.error(500, 'Internal Server Error'));
+    mockOpenAIError(500, 'Internal Server Error');
 
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 

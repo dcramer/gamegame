@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { searchBGGGames, getBGGGameDetails, extractBGGId } from './bgg';
-
-// Mock fetch globally
-const mockFetch = vi.fn();
-global.fetch = mockFetch as any;
+import { http, HttpResponse, networkServer } from '@/tests/mocks/network';
 
 // Sample BGG API XML responses
 const MOCK_SEARCH_BRASS_XML = `<?xml version="1.0" encoding="utf-8"?>
@@ -56,18 +53,24 @@ vi.mock('@vercel/kv', () => ({
   },
 }));
 
+const respondWithXml = (url: string, xml: string) => {
+  networkServer.use(
+    http.get(url, () =>
+      HttpResponse.text(xml, {
+        headers: { 'content-type': 'application/xml' },
+      }),
+    ),
+  );
+};
+
 describe('BGG Service', () => {
   beforeEach(() => {
-    mockFetch.mockClear();
     vi.clearAllMocks();
   });
 
   describe('searchBGGGames', () => {
     it('should search for games and return results', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: async () => MOCK_SEARCH_BRASS_XML,
-      });
+      respondWithXml('https://boardgamegeek.com/xmlapi2/search', MOCK_SEARCH_BRASS_XML);
 
       const results = await searchBGGGames('Brass', {
         useKV: false, // Disable KV for unit tests
@@ -89,10 +92,7 @@ describe('BGG Service', () => {
     });
 
     it('should handle empty search results', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: async () => MOCK_EMPTY_SEARCH_XML,
-      });
+      respondWithXml('https://boardgamegeek.com/xmlapi2/search', MOCK_EMPTY_SEARCH_XML);
 
       const results = await searchBGGGames('NonexistentGame12345', {
         useKV: false,
@@ -102,10 +102,7 @@ describe('BGG Service', () => {
     });
 
     it('should respect maxResults parameter', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: async () => MOCK_SEARCH_BRASS_XML,
-      });
+      respondWithXml('https://boardgamegeek.com/xmlapi2/search', MOCK_SEARCH_BRASS_XML);
 
       const results = await searchBGGGames('Brass', {
         maxResults: 1,
@@ -137,10 +134,7 @@ describe('BGG Service', () => {
         }),
       });
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: async () => MOCK_GAME_DETAILS_BRASS_BIRMINGHAM_XML,
-      });
+      respondWithXml('https://boardgamegeek.com/xmlapi2/thing', MOCK_GAME_DETAILS_BRASS_BIRMINGHAM_XML);
 
       const details = await getBGGGameDetails('224517', { useKV: false });
 
@@ -183,12 +177,16 @@ describe('BGG Service', () => {
         }),
       });
 
+      networkServer.use(
+        http.all('https://boardgamegeek.com/*', () => {
+          throw new Error('BGG API should not be called when cache is fresh');
+        }),
+      );
+
       const details = await getBGGGameDetails('224517', { useKV: false });
 
       expect(details.name).toBe('Brass: Birmingham (cached)');
       expect(details.description).toBe('Cached description');
-      // Should not have called fetch (would fail since we didn't mock it)
-      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 
