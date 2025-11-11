@@ -241,7 +241,14 @@ export default function ResourceList({
                 >
                   <TableCell>
                     <div>
-                      <strong>{resource.name}</strong>
+                      <Link
+                        href={`/admin/games/${gameId}/resources/${resource.id}`}
+                        className="font-semibold text-primary hover:underline"
+                        onClick={(event) => event.stopPropagation()}
+                        onAuxClick={(event) => event.stopPropagation()}
+                      >
+                        {resource.name}
+                      </Link>
                     </div>
                     {resource.error ? (
                       <>
