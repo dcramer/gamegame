@@ -35,6 +35,8 @@ describe.sequential('BGG API', () => {
     // Also clean up by slug to avoid conflicts
     await db.delete(games).where(eq(games.slug, 'test-game-2020'));
     await db.delete(games).where(eq(games.slug, 'brass-birmingham'));
+
+    process.env.BGG_API_KEY = 'test-bgg-key';
   });
 
   describe('GET /api/bgg/extract-id', () => {
@@ -85,7 +87,7 @@ describe.sequential('BGG API', () => {
       const data = await response.json();
 
       expect(response.status).toBe(503);
-      expect(data.error).toBe('BGG_API_KEY_MISSING');
+      expect(data.code).toBe('BGG_API_KEY_MISSING');
 
       process.env.BGG_API_KEY = originalKey;
     });
@@ -140,7 +142,7 @@ describe.sequential('BGG API', () => {
       const data = await response.json();
 
       expect(response.status).toBe(503);
-      expect(data.error).toBe('BGG_API_KEY_MISSING');
+      expect(data.code).toBe('BGG_API_KEY_MISSING');
 
       process.env.BGG_API_KEY = originalKey;
     });
@@ -199,7 +201,7 @@ describe.sequential('BGG API', () => {
       const data = await response.json();
 
       expect(response.status).toBe(503);
-      expect(data.error).toBe('BGG_API_KEY_MISSING');
+      expect(data.code).toBe('BGG_API_KEY_MISSING');
 
       process.env.BGG_API_KEY = originalKey;
     });

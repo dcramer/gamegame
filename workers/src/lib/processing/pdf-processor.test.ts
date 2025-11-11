@@ -71,7 +71,7 @@ Players then choose their starting positions.`,
 };
 
 /**
- * Mock HyDE responses - what GPT-4o-mini would return
+ * Mock HyDE responses - what GPT-5-mini would return
  */
 const mockHydeResponses = [
   {

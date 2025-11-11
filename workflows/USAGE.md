@@ -306,7 +306,7 @@ it('should be idempotent', async () => {
 Track workflow progress using the job status system:
 
 ```typescript
-import { updateJobProgress } from '@/workflows/shared/helpers';
+import { updateJobProgress } from '@/workflows/support/helpers';
 
 export async function longRunningStep(jobId: string) {
   'use step';
@@ -436,7 +436,7 @@ Test workflows in isolation:
 import { describe, it, expect, afterEach } from 'vitest';
 import { cleanupTestDb } from '@/tests/db-helpers';
 import { createTestGame, createTestResource } from '@/tests/fixtures';
-import { runIngestStage } from '@/workflows/process-resource/steps/ingest';
+import { runIngestStage } from '@/workflows/steps/resource-processing/ingest.step';
 
 afterEach(cleanupTestDb);
 

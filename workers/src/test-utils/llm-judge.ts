@@ -22,7 +22,7 @@ export interface EvalCriteria {
 
 /**
  * LLM-as-a-judge evaluation for agent answers
- * Uses GPT-4o-mini to evaluate answer quality against criteria
+ * Uses GPT-5-mini to evaluate answer quality against criteria
  */
 export async function judgeAnswer({
   question,
@@ -70,9 +70,9 @@ Respond with JSON following this exact schema:
 Be strict but fair. Grade based on accuracy and completeness.`;
 
   const result = await generateText({
-    model: openai('gpt-4o-mini'),
+    model: openai('gpt-5-mini'),
     prompt,
-    temperature: 0.1, // Low temperature for consistent judging
+    temperature: 1,
   });
 
   // Parse the JSON response

@@ -126,7 +126,7 @@ make migrate-test
 - **Framework**: Next.js 16 with App Router, React 19
 - **Database**: PostgreSQL with pgvector extension
 - **ORM**: Drizzle ORM
-- **AI**: OpenAI GPT-4o, Mistral OCR
+- **AI**: OpenAI GPT-5, Mistral OCR
 - **Storage**: Vercel Blob (falls back to local filesystem in dev)
 - **Auth**: JWT sessions with magic link email authentication
 - **Workflows**: Vercel Workflows for async PDF processing

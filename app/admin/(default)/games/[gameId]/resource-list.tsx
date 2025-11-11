@@ -21,6 +21,10 @@ import { upload } from "@/lib/uploads/client";
 import { useFlashMessages } from "@/components/flashMessages";
 import { useWorkflowFlash } from "@/components/workflowFlashMessage";
 import { useProcessing } from "@/components/processing-provider";
+import {
+  getStageDisplayName,
+  getStageMessages,
+} from "@/lib/reprocess/stages";
 
 type PendingResource = {
   id: string;
@@ -124,10 +128,14 @@ export default function ResourceList({
       uploadMessage.remove();
 
       if (result.currentRunId) {
-        // Use workflow flash to track processing
         workflowFlash(
           result.currentRunId,
-          `Processing ${resource.name}...`,
+          {
+            pending: `Processing ${resource.name}...`,
+            success: `Processing completed for ${resource.name}`,
+            failure: (error) => `Processing failed for ${resource.name}: ${error}`,
+            cancelled: `Processing cancelled for ${resource.name}`,
+          },
           {
             displayName: `Resource: ${resource.name}`,
             onComplete: () => {
@@ -279,40 +287,50 @@ export default function ResourceList({
                       onClick={async (e) => {
                         e.stopPropagation();
 
+                        const stageMessages = getStageMessages('ingest', resource.name);
+                        const displayName = getStageDisplayName('ingest', resource.name);
+                        const optimisticMessage = flash(stageMessages.starting, "info", {
+                          removeAfter: null,
+                        });
+
                         try {
                           const result = await orpc.resources.reprocess({ id: resource.id });
 
                           if (result.runId) {
-                            // Use workflow flash to track reprocessing
                             workflowFlash(
                               result.runId,
-                              `Reprocessing ${resource.name}...`,
                               {
-                                displayName: `Resource: ${resource.name}`,
+                                pending: stageMessages.pending,
+                                success: stageMessages.success,
+                                failure: (error) => stageMessages.failure(error),
+                                cancelled: stageMessages.cancelled,
+                              },
+                              {
+                                displayName,
+                                existingMessage: optimisticMessage,
                                 onComplete: () => {
                                   router.refresh();
                                 },
                                 onError: (error) => {
                                   console.error('Resource reprocessing failed:', error);
                                   router.refresh();
-                                }
+                                },
                               }
                             );
 
                             // Refresh to show processing status
                             router.refresh();
                           } else {
-                            // Unexpected immediate completion
-                            flash(
-                              `Resource ${resource.name} reprocessed successfully.`,
-                              "success",
-                              { removeAfter: 5000 }
-                            );
+                            optimisticMessage.update(stageMessages.success, "success", {
+                              removeAfter: 5000,
+                            });
                             router.refresh();
                           }
                         } catch (err: unknown) {
-                          flash(
-                            `Error reprocessing ${resource.name}.`,
+                          const errorMessage =
+                            err instanceof Error ? err.message : "Unknown error";
+                          optimisticMessage.update(
+                            stageMessages.failure(errorMessage),
                             "error",
                             { removeAfter: 8000 }
                           );

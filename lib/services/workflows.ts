@@ -1,5 +1,5 @@
-import { createWorld } from '@workflow/core/runtime';
-import type { World, WorkflowRun as CoreWorkflowRun } from '@workflow/world';
+import { getWorld } from '@workflow/core/runtime';
+import type { WorkflowRun as CoreWorkflowRun } from '@workflow/world';
 import { db } from '@/lib/db';
 import { games } from '@/lib/db/schema/games';
 import { resources } from '@/lib/db/schema/resources';
@@ -55,7 +55,7 @@ export async function listWorkflowRuns(params?: {
   limit?: number;
   cursor?: string;
 }): Promise<{ runs: WorkflowRun[]; nextCursor?: string }> {
-  const world = createWorld();
+  const world = getWorld();
 
   const result = await world.runs.list({
     workflowName: params?.workflowName,
@@ -78,7 +78,7 @@ export async function listWorkflowRuns(params?: {
  * Get a specific workflow run by ID
  */
 export async function getWorkflowRun(runId: string): Promise<WorkflowRun> {
-  const world = createWorld();
+  const world = getWorld();
   return await world.runs.get(runId);
 }
 
@@ -86,7 +86,7 @@ export async function getWorkflowRun(runId: string): Promise<WorkflowRun> {
  * Cancel a workflow run
  */
 export async function cancelWorkflowRun(runId: string): Promise<WorkflowRun> {
-  const world = createWorld();
+  const world = getWorld();
   return await world.runs.cancel(runId);
 }
 

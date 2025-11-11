@@ -14,8 +14,6 @@ import { getModel } from '../config/models';
 export interface QuestionGenerationOptions {
   /** Number of questions to generate (default: 3-5) */
   count?: number;
-  /** Temperature for generation (default: 0.7 for variety) */
-  temperature?: number;
   /** Model to use (default: from environment config) */
   model?: string;
   /** Environment to determine model selection (development/production) */
@@ -24,14 +22,13 @@ export interface QuestionGenerationOptions {
 
 const DEFAULT_OPTIONS: QuestionGenerationOptions = {
   count: 5,
-  temperature: 1, // gpt-4o-mini only supports temperature: 1
   // model determined at runtime from environment
 };
 
 /**
  * Generate questions that a fragment could answer
  *
- * Uses configured LLM (GPT-5 in prod, GPT-4o-mini in dev) to generate
+ * Uses configured LLM (GPT-5 in prod, GPT-5-mini in dev) to generate
  * natural language questions that players might ask, which this fragment
  * content can answer.
  */
@@ -63,7 +60,7 @@ export async function generateQuestionsForFragment(
         model,
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' },
-        temperature: opts.temperature,
+        temperature: 1,
         max_completion_tokens: 500,
       }),
     });

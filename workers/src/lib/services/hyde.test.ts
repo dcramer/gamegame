@@ -81,23 +81,22 @@ describe('generateQuestionsForFragment', () => {
     const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
 
     expect(callBody.model).toBe('gpt-5-mini');
-    expect(callBody.temperature).toBe(0.7);
+    expect(callBody.temperature).toBe(1);
     expect(callBody.response_format).toEqual({ type: 'json_object' });
   });
 
-  it('should respect custom options', async () => {
+  it('should respect custom model/count options while keeping temperature fixed', async () => {
     mockFetch.mockResolvedValueOnce(openAI.chatCompletion({ questions: [] }));
 
     await generateQuestionsForFragment(mockFragment, mockResource, 'test-api-key', {
       count: 3,
-      temperature: 0.5,
-      model: 'gpt-4o',
+      model: 'gpt-5',
     });
 
     const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
 
-    expect(callBody.model).toBe('gpt-4o');
-    expect(callBody.temperature).toBe(0.5);
+    expect(callBody.model).toBe('gpt-5');
+    expect(callBody.temperature).toBe(1);
 
     const prompt = callBody.messages[0].content;
     expect(prompt).toContain('generate 3 specific questions');

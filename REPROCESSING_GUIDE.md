@@ -33,7 +33,7 @@ GameGame implements a sophisticated 5-stage reprocessing system that allows admi
 
 **Use cases:**
 - Image descriptions are incomplete or inaccurate
-- GPT-4o quality improved and want better captions
+- GPT-5 quality improved and want better captions
 - Want to re-analyze diagrams without re-extracting text
 
 **Prerequisites:** Must have completed at least ingest stage previously
@@ -519,7 +519,7 @@ WHERE id = 'abc123';
 ## Processing Stages Explained
 
 ### Stage 1: INGEST
-**Executed by:** `lib/workflows/process-resource/steps/ingest.ts`
+**Executed by:** `workflows/steps/resource-processing/ingest.step.ts`
 **What it does:**
 - Fetches PDF from URL or blob storage
 - Calls Mistral OCR API to extract text and images
@@ -536,9 +536,9 @@ WHERE id = 'abc123';
 ---
 
 ### Stage 2: VISION
-**Executed by:** `lib/workflows/process-resource/steps/vision.ts`
+**Executed by:** `workflows/steps/resource-processing/vision.step.ts`
 **What it does:**
-- Analyzes extracted images with GPT-4o vision
+- Analyzes extracted images with GPT-5 vision
 - Generates descriptive captions for diagrams, tables, screenshots
 - Uses game name for context
 - Caches vision results in structured JSON
@@ -551,7 +551,7 @@ WHERE id = 'abc123';
 ---
 
 ### Stage 3: CLEANUP
-**Executed by:** `lib/workflows/process-resource/steps/cleanup.ts`
+**Executed by:** `workflows/steps/resource-processing/cleanup.step.ts`
 **What it does:**
 - Processes markdown with LLM
 - Fixes formatting issues (line breaks, table alignment, etc)
@@ -566,7 +566,7 @@ WHERE id = 'abc123';
 ---
 
 ### Stage 4: METADATA
-**Executed by:** `lib/workflows/process-resource/steps/metadata.ts`
+**Executed by:** `workflows/steps/resource-processing/metadata.step.ts`
 **What it does:**
 - Extracts document title and description using LLM
 - Updates resource name/description fields
@@ -580,7 +580,7 @@ WHERE id = 'abc123';
 ---
 
 ### Stage 5: EMBED
-**Executed by:** `lib/workflows/process-resource/steps/embed.ts`
+**Executed by:** `workflows/steps/resource-processing/embed.step.ts`
 **What it does:**
 - Chunks content using `RecursiveCharacterTextSplitter`
 - Generates embeddings for each chunk via OpenAI
@@ -595,7 +595,7 @@ WHERE id = 'abc123';
 ---
 
 ### Stage 6: FINALIZE
-**Executed by:** `lib/workflows/process-resource/steps/finalize.ts`
+**Executed by:** `workflows/steps/resource-processing/finalize.step.ts`
 **What it does:**
 - Verifies all data was written correctly
 - Marks resource as 'ready'
@@ -614,7 +614,7 @@ WHERE id = 'abc123';
 | Stage | Typical Time | Notes |
 |-------|-------------|-------|
 | INGEST | 3-10 min | Mistral OCR, depends on PDF size |
-| VISION | 2-5 min | GPT-4o vision API calls, parallel batch |
+| VISION | 2-5 min | GPT-5 vision API calls, parallel batch |
 | CLEANUP | 30 sec-2 min | LLM processing, usually fast |
 | METADATA | 10-30 sec | Single LLM call per resource |
 | EMBED | 1-3 min | OpenAI embeddings API, depends on tokens |
@@ -742,4 +742,3 @@ This design allows:
 2. **Stage validation** - Check if structured data exists before allowing skip
 3. **Performance metrics** - Show time taken for each stage
 4. **Rollback capability** - Keep previous embeddings/attachments for comparison
-

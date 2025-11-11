@@ -16,6 +16,7 @@ process.env.MISTRAL_API_KEY = 'test-mistral-key';
 process.env.AUTH_SECRET = 'test-auth-secret';
 process.env.AUTH_RESEND_KEY = 'test-resend-key';
 process.env.SESSION_SECRET = 'test-session-secret-must-be-at-least-32-characters-long';
+process.env.BGG_API_KEY = 'test-bgg-key';
 
 // Now import vitest after env vars are set
 import { beforeEach, afterEach, vi } from 'vitest';

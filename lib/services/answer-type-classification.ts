@@ -57,8 +57,6 @@ export const ANSWER_TYPES = [
 export type AnswerType = (typeof ANSWER_TYPES)[number];
 
 export interface ClassificationOptions {
-  /** Temperature for generation (default: 0.3 for consistency) */
-  temperature?: number;
   /** Model to use (default: from environment config) */
   model?: string;
   /** Batch size for parallel processing (default: 5) */
@@ -66,7 +64,6 @@ export interface ClassificationOptions {
 }
 
 const DEFAULT_OPTIONS: ClassificationOptions = {
-  temperature: 0.3, // Lower temperature for more consistent classification
   batchSize: 5,
 };
 
@@ -104,7 +101,7 @@ export async function classifyFragmentAnswerTypes(
         model,
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' },
-        temperature: opts.temperature,
+        temperature: 1,
         max_completion_tokens: 200,
       }),
     });

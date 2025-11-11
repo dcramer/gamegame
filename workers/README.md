@@ -116,7 +116,7 @@ make setup-test # Run comprehensive test environment setup
 ## Architecture
 
 - **Stack**: Cloudflare Workers + D1 (SQLite) + Vectorize + R2
-- **AI**: OpenAI GPT-4o + text-embedding-3-small
+- **AI**: OpenAI GPT-5 + text-embedding-3-small
 - **PDF**: Mistral OCR for extraction
 - **Search**: Hybrid RRF (Vectorize semantic + D1 FTS5 full-text)
 

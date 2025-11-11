@@ -24,6 +24,7 @@ export type FlashMessage = {
   message: string | ReactNode;
   type: FlashType;
   removeAfter: number | null;
+  createdAt: number;
 
   update: (
     message: string | ReactNode,
@@ -49,21 +50,48 @@ export function useFlashMessages() {
   return useContext(FlashContext);
 }
 
+function formatElapsed(ms: number) {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+
+  if (minutes === 0) {
+    return `${seconds}s`;
+  }
+
+  return `${minutes}m ${remainingSeconds.toString().padStart(2, "0")}s`;
+}
+
 export function Message({
   message,
   type,
+  createdAt,
   onDismiss,
-}: Pick<FlashMessage, "message" | "type"> & { onDismiss?: () => void }) {
+}: Pick<FlashMessage, "message" | "type" | "createdAt"> & {
+  onDismiss?: () => void;
+}) {
+  const [elapsed, setElapsed] = useState(() => Date.now() - createdAt);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setElapsed(Date.now() - createdAt);
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [createdAt]);
+
   return (
     <div
       className={cn(
-        "rounded-md p-3 font-semibold opacity-90 relative pr-10",
+        "rounded-md p-3 font-semibold opacity-90 relative pr-10 flex flex-col gap-1",
         type === "success" ? "bg-green-700 text-green-50" : "",
         type === "error" ? "bg-red-700 text-red-50" : "",
         type === "info" ? "bg-slate-700 text-slate-50" : ""
       )}
     >
-      {message}
+      <div>{message}</div>
+      <span className="text-xs font-medium uppercase tracking-wide text-white/70">
+        {formatElapsed(elapsed)}
+      </span>
       {onDismiss && (
         <button
           onClick={onDismiss}
@@ -122,6 +150,7 @@ export default function FlashMessages({ children }: { children: ReactNode }) {
             message,
             type,
             id: messageNum,
+            createdAt: Date.now(),
 
             removeAfter: removeAfter
               ? new Date().getTime() + removeAfter

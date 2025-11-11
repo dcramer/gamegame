@@ -81,7 +81,7 @@ export async function POST(
 
       // Stream response using Vercel AI SDK
       const result = streamText({
-        model: openai('gpt-4o'), // Use gpt-4o as default (gpt-5 not yet available in Vercel AI SDK)
+        model: openai('gpt-5'),
         system: systemPrompt,
         messages: messages.map(msg => ({
           role: msg.role,

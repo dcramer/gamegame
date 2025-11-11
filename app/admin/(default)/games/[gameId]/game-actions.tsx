@@ -31,6 +31,12 @@ export default function GameActions({
       return;
     }
 
+    const progressMessage = flash(
+      `Starting full pipeline re-run for ${resourceIds.length} ${resourceIds.length === 1 ? "resource" : "resources"}...`,
+      "info",
+      { removeAfter: null }
+    );
+
     try {
       let successCount = 0;
       let failCount = 0;
@@ -43,9 +49,14 @@ export default function GameActions({
           if (result.runId) {
             workflowFlash(
               result.runId,
-              `Reprocessing resource...`,
               {
-                displayName: `Resource: ${resourceId}`,
+                pending: `Full pipeline running for ${resourceId}...`,
+                success: `Full pipeline completed for ${resourceId}`,
+                failure: (error) => `Full pipeline failed for ${resourceId}: ${error}`,
+                cancelled: `Full pipeline cancelled for ${resourceId}`,
+              },
+              {
+                displayName: `Full Pipeline: ${resourceId}`,
                 onComplete: () => router.refresh(),
                 onError: () => router.refresh(),
               }
@@ -58,14 +69,16 @@ export default function GameActions({
       }
 
       if (failCount === 0) {
-        flash(
+        progressMessage.update(
           `Reprocessing ${successCount} ${successCount === 1 ? "resource" : "resources"}`,
-          "success"
+          "success",
+          { removeAfter: 5000 }
         );
       } else {
-        flash(
+        progressMessage.update(
           `Started ${successCount} jobs, ${failCount} failed`,
-          "error"
+          "error",
+          { removeAfter: null }
         );
       }
 
@@ -73,7 +86,11 @@ export default function GameActions({
       router.refresh();
     } catch (error) {
       console.error("Reprocess all error:", error);
-      flash("Failed to reprocess resources", "error");
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      progressMessage.update(`Failed to reprocess resources: ${errorMessage}`, "error", {
+        removeAfter: null,
+      });
     }
   };
 

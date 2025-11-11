@@ -281,17 +281,26 @@ export const deleteResource = adminProcedure
  * Reprocess resource (admin only)
  * Triggers a new workflow run to reprocess the resource from a specific stage
  */
+const reprocessInputSchema = z
+  .object({
+    id: z.string(),
+    fromStage: z.enum(['ingest', 'vision', 'cleanup', 'metadata', 'embed']).optional(),
+    onlyStage: z.boolean().optional(),
+  })
+  .refine(
+    (data) => !(data.onlyStage && !data.fromStage),
+    {
+      message: 'fromStage is required when onlyStage is true',
+      path: ['fromStage'],
+    }
+  );
+
 export const reprocess = adminProcedure
   .route({
     method: 'POST',
     path: '/resources/{id}/reprocess',
   })
-  .input(
-    z.object({
-      id: z.string(),
-      fromStage: z.enum(['ingest', 'vision', 'cleanup', 'metadata', 'embed']).optional(),
-    })
-  )
+  .input(reprocessInputSchema)
   .output(
     z.object({
       id: z.string(),
@@ -305,6 +314,7 @@ export const reprocess = adminProcedure
       return await reprocessResource({
         resourceId: input.id,
         fromStage: input.fromStage,
+        onlyStage: input.onlyStage,
       });
     } catch (error) {
       if (error instanceof Error && error.message === 'Resource not found') {

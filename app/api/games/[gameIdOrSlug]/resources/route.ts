@@ -11,7 +11,7 @@ import { games, resources, fragments } from '@/lib/db/schema';
 import { eq, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
-import { processResourceWorkflow } from '@/workflows/process-resource/index';
+import { processResourceWorkflow } from '@/workflows/process-resource';
 
 /**
  * GET /api/games/:gameIdOrSlug/resources

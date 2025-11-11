@@ -1,7 +1,7 @@
 /**
  * Image Quality Analysis
  *
- * This module analyzes images from PDFs using GPT-4o vision to:
+ * This module analyzes images from PDFs using GPT-5 vision to:
  * 1. Generate detailed descriptions
  * 2. Determine quality (good/bad)
  * 3. Determine relevance (useful gameplay info vs decorative)
@@ -10,6 +10,7 @@
  */
 
 import type { DetectedImageType } from '../db/schema/attachments';
+import { getModel } from '../config/models';
 
 export interface ImageAnalysisResult {
   description: string;
@@ -29,17 +30,16 @@ export interface ImageAnalysisContext {
 export interface ImageAnalysisOptions {
   model?: string;
   maxTokens?: number;
-  temperature?: number;
+  environment?: string;
 }
 
+const DEFAULT_MAX_TOKENS = 500;
 const DEFAULT_OPTIONS: ImageAnalysisOptions = {
-  model: 'gpt-4o',
-  maxTokens: 500,
-  temperature: 0,
+  maxTokens: DEFAULT_MAX_TOKENS,
 };
 
 /**
- * Analyze an image using GPT-4o vision
+ * Analyze an image using GPT-5 vision
  *
  * @param imageBuffer - The image data as Buffer
  * @param context - Context about where this image appears
@@ -54,6 +54,8 @@ export async function analyzeImageQuality(
   options: ImageAnalysisOptions = {}
 ): Promise<ImageAnalysisResult> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
+  const model = opts.model || getModel('vision', opts.environment);
+  const maxTokens = opts.maxTokens ?? DEFAULT_MAX_TOKENS;
 
   // Convert Buffer to base64 and detect MIME type
   const base64 = bufferToBase64(imageBuffer);
@@ -69,7 +71,7 @@ export async function analyzeImageQuality(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: opts.model,
+        model,
         messages: [
           {
             role: 'user',
@@ -88,8 +90,8 @@ export async function analyzeImageQuality(
           },
         ],
         response_format: { type: 'json_object' },
-        max_completion_tokens: opts.maxTokens,
-        temperature: opts.temperature,
+        max_completion_tokens: maxTokens,
+        temperature: 1,
       }),
     });
 
@@ -106,7 +108,6 @@ export async function analyzeImageQuality(
   } catch (error) {
     console.error('Error analyzing image (page %d):', context.pageNumber, error);
     // Return a safe fallback rather than failing the entire pipeline
-    // Use empty string for description so it's clear analysis didn't run
     return {
       description: '',
       quality: 'bad',

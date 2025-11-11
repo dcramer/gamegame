@@ -105,7 +105,7 @@ All critical blocking issues have been resolved. The Next.js application now has
   - Questions embedded alongside content
   - Improves semantic search quality
   - Batch processing with rate limiting
-  - Model configuration per environment (GPT-5 prod, GPT-4o-mini dev)
+  - Model configuration per environment (GPT-5 prod, GPT-5-mini dev)
 - **Testing**: Comprehensive test suite in `lib/services/hyde.test.ts`
 
 ### 7. ✅ Embedding Version Sync

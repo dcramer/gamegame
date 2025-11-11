@@ -1,6 +1,6 @@
 # Workflows Architecture
 
-This directory contains Vercel Workflows for orchestrating long-running, durable tasks in GameGame.
+This directory contains Vercel Workflows for orchestrating long-running, durable tasks in GameGame. It now separates coordination code, reusable steps, and shared helpers.
 
 ## Core Concepts
 
@@ -28,45 +28,66 @@ Workflows run in a sandboxed environment that:
 ## Directory Structure
 
 ```
-lib/workflows/
-  shared/
-    types.ts           # Shared TypeScript types
-    helpers.ts         # Shared helper functions (used by steps only!)
-
+workflows/
   process-resource/
-    index.ts           # 'use workflow' - main workflow coordinator
-    steps/
-      ingest.ts        # 'use step' - PDF extraction
-      vision.ts        # 'use step' - Image analysis
-      cleanup.ts       # 'use step' - Markdown cleanup
-      metadata.ts      # 'use step' - Metadata generation
-      embed.ts         # 'use step' - Embedding generation
-      finalize.ts      # 'use step' - Finalization
+    workflow.ts        # 'use workflow' coordinator
+    workflow.types.ts  # Optional per-workflow types
+    index.ts           # Re-exports workflow for consumers
 
-  cleanup-stalled-jobs/
-    index.ts           # 'use workflow'
-    steps/
-      find-stalled-jobs.ts
-      mark-jobs-failed.ts
+  analyze-images/
+    workflow.ts
+    workflow.types.ts
+    index.ts
 
   cleanup-orphaned-blobs/
-    index.ts           # 'use workflow'
-    steps/
-      collect-db-references.ts
-      list-blobs.ts
-      identify-orphaned.ts
-      delete-orphaned.ts
+    workflow.ts
+    index.ts
+
+  steps/
+    resource-processing/
+      ingest.step.ts
+      vision.step.ts
+      cleanup.step.ts
+      metadata.step.ts
+      embed.step.ts
+      finalize.step.ts
+      mark-job-failed.step.ts
+      embed-stage.impl.ts
+    vision/
+      analyze-batch-resource.step.ts
+      analyze-single-attachment.step.ts
+      analyze-image.step.ts
+      fetch-image.step.ts
+    attachments/
+      update-attachment.step.ts
+    blob-maintenance/
+      collect-db-references.step.ts
+      list-blobs.step.ts
+      identify-orphaned.step.ts
+      delete-orphaned.step.ts
+
+  support/
+    types.ts           # Serializable DTOs available to workflows + steps
+    helpers/           # Node-aware helpers (steps only!)
+      index.ts
 ```
+
+**Naming convention**
+- Files containing `'use workflow'` should be named `*.workflow.ts` (currently `workflow.ts` inside each workflow directory).
+- Files containing `'use step'` should be named `*.step.ts`.
+- Pure helper/type modules never include either directive.
 
 ## Creating a New Workflow
 
 ### 1. Create Workflow Directory
 
 ```bash
-mkdir -p lib/workflows/my-workflow/steps
+mkdir -p workflows/my-workflow
 ```
 
-### 2. Create Workflow File (`index.ts`)
+Add `workflow.ts` (or `my-workflow.workflow.ts` if multiple coordinators) plus an `index.ts` that re-exports the workflow.
+
+### 2. Create Workflow File (`workflow.ts`)
 
 ```typescript
 /**
@@ -75,8 +96,8 @@ mkdir -p lib/workflows/my-workflow/steps
  * IMPORTANT: This file uses 'use workflow' and CANNOT import Node.js modules.
  */
 
-import { stepOne } from './steps/step-one';
-import { stepTwo } from './steps/step-two';
+import { stepOne } from '@/workflows/steps/my-domain/step-one.step';
+import { stepTwo } from '@/workflows/steps/my-domain/step-two.step';
 
 export async function myWorkflow(input: MyInput) {
   'use workflow';
@@ -92,7 +113,7 @@ export async function myWorkflow(input: MyInput) {
 }
 ```
 
-### 3. Create Step Files (`steps/*.ts`)
+### 3. Create Step Files (`steps/<domain>/*.step.ts`)
 
 ```typescript
 /**
@@ -101,6 +122,7 @@ export async function myWorkflow(input: MyInput) {
 
 import { db } from '@/lib/db';  // ✅ OK in steps
 import { someTable } from '@/lib/db/schema';
+import { parseMetadata } from '@/workflows/support/helpers';
 
 export async function stepOne(input: MyInput) {
   'use step';
@@ -111,6 +133,8 @@ export async function stepOne(input: MyInput) {
   return { success: true, data };
 }
 ```
+
+Group steps by domain (e.g., `resource-processing`, `vision`, `blob-maintenance`). Reuse existing domains when possible so workflows compose smaller units.
 
 ## Common Patterns
 
@@ -148,15 +172,15 @@ export async function myWorkflow(input: Input) {
 }
 ```
 
-### Shared Helpers
+### Support Types & Helpers
 
-The `shared/` directory contains:
-- `types.ts`: TypeScript interfaces shared across workflows
-- `helpers.ts`: Utility functions (⚠️ **ONLY import these in steps, NOT workflows!**)
+The `support/` directory contains:
+- `types.ts`: Serializable TypeScript interfaces shared across workflows
+- `helpers/`: Utility functions with Node.js access (⚠️ **ONLY import these in steps, NOT workflows!**)
 
 ```typescript
 // ❌ WRONG - workflow importing helpers with Node.js deps
-import { myHelper } from '../shared/helpers';
+import { myHelper } from '@/workflows/support/helpers';
 
 export async function myWorkflow() {
   'use workflow';
@@ -164,7 +188,7 @@ export async function myWorkflow() {
 }
 
 // ✅ CORRECT - step importing helpers
-import { myHelper } from '../../shared/helpers';
+import { myHelper } from '@/workflows/support/helpers';
 
 export async function myStep() {
   'use step';
@@ -200,7 +224,7 @@ Update job progress in steps:
 export async function longRunningStep(jobId: string) {
   'use step';
 
-  const { updateJobProgress } = await import('../../shared/helpers');
+  const { updateJobProgress } = await import('@/workflows/support/helpers');
 
   await updateJobProgress(jobId, 'Starting process', 10);
   // ... do work
@@ -218,7 +242,7 @@ export async function longRunningStep(jobId: string) {
 
 6-stage PDF processing pipeline:
 1. **INGEST**: Extract text/images using Mistral OCR
-2. **VISION**: Analyze images with GPT-4o
+2. **VISION**: Analyze images with GPT-5
 3. **CLEANUP**: Clean markdown with LLM
 4. **METADATA**: Generate resource metadata
 5. **EMBED**: Generate embeddings and store fragments
@@ -251,7 +275,7 @@ If you see bundler errors, it's usually because:
 ### Type Errors
 
 If TypeScript complains about imports:
-1. Check that types are properly exported from `shared/types.ts`
+1. Check that types are properly exported from `support/types.ts`
 2. Verify relative import paths are correct
 3. Ensure no circular dependencies
 
@@ -280,7 +304,7 @@ If workflow fails at runtime:
 Run workflow tests:
 
 ```bash
-pnpm test lib/workflows
+pnpm test workflows
 ```
 
 Test individual steps in isolation before integrating into workflows.

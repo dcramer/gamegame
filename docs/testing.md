@@ -382,7 +382,7 @@ describe('Protected Route', () => {
 Vercel Workflows are complex and integration-heavy. Focus on testing individual step functions, not full workflow orchestration.
 
 ```typescript
-// workflows/process-resource/steps/ingest.test.ts
+// workflows/steps/resource-processing/ingest.step.test.ts
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ingestPDF } from './ingest';
 import { createTestGame, createTestResource } from '@/tests/fixtures';

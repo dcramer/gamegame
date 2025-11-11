@@ -90,7 +90,7 @@ Format: { "answerTypes": ["type1", "type2", ...] }`;
         model,
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' },
-        temperature: 0.2, // Very low for consistent classification
+        temperature: 1, // GPT-5 requires temperature 1
         max_completion_tokens: 100,
       }),
     });
@@ -209,7 +209,7 @@ ${documentText}
 
 Return ONLY a number between 0-100, nothing else.`
             }],
-            temperature: 0,
+            temperature: 1,
             max_completion_tokens: 10,
           }),
         });

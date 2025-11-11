@@ -151,13 +151,13 @@ describe('analyzeImageQuality', () => {
 
     const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
 
-    expect(callBody.model).toBe('gpt-4o');
+    expect(callBody.model).toBe('gpt-5-mini');
     expect(callBody.max_completion_tokens).toBe(500);
-    expect(callBody.temperature).toBe(0);
+    expect(callBody.temperature).toBe(1);
     expect(callBody.response_format).toEqual({ type: 'json_object' });
   });
 
-  it('should respect custom options', async () => {
+  it('should respect custom model/max token options while keeping temperature fixed', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -179,16 +179,15 @@ describe('analyzeImageQuality', () => {
 
     const imageBuffer = createMockImageBuffer();
     await analyzeImageQuality(imageBuffer, mockContext, 'test-api-key', {
-      model: 'gpt-4o-mini',
+      model: 'gpt-5',
       maxTokens: 300,
-      temperature: 0.5,
     });
 
     const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
 
-    expect(callBody.model).toBe('gpt-4o-mini');
+    expect(callBody.model).toBe('gpt-5');
     expect(callBody.max_completion_tokens).toBe(300);
-    expect(callBody.temperature).toBe(0.5);
+    expect(callBody.temperature).toBe(1);
   });
 
   it('should handle context without optional fields', async () => {
@@ -293,7 +292,7 @@ describe('analyzeImageQuality', () => {
     const result = await analyzeImageQuality(imageBuffer, mockContext, 'test-api-key');
 
     // Should return safe fallback
-    expect(result.description).toBe('Image analysis failed');
+    expect(result.description).toBe('');
     expect(result.quality).toBe('bad');
     expect(result.relevant).toBe(false);
     expect(result.type).toBe('decorative');
@@ -321,7 +320,7 @@ describe('analyzeImageQuality', () => {
     const imageBuffer = createMockImageBuffer();
     const result = await analyzeImageQuality(imageBuffer, mockContext, 'test-api-key');
 
-    expect(result.description).toBe('Image analysis failed');
+    expect(result.description).toBe('');
     expect(consoleSpy).toHaveBeenCalled();
 
     consoleSpy.mockRestore();
@@ -352,7 +351,7 @@ describe('analyzeImageQuality', () => {
     const imageBuffer = createMockImageBuffer();
     const result = await analyzeImageQuality(imageBuffer, mockContext, 'test-api-key');
 
-    expect(result.description).toBe('Image analysis failed');
+    expect(result.description).toBe('');
     expect(consoleSpy).toHaveBeenCalled();
 
     consoleSpy.mockRestore();
@@ -383,7 +382,7 @@ describe('analyzeImageQuality', () => {
     const imageBuffer = createMockImageBuffer();
     const result = await analyzeImageQuality(imageBuffer, mockContext, 'test-api-key');
 
-    expect(result.description).toBe('Image analysis failed');
+    expect(result.description).toBe('');
     expect(consoleSpy).toHaveBeenCalled();
 
     consoleSpy.mockRestore();
@@ -414,7 +413,7 @@ describe('analyzeImageQuality', () => {
     const imageBuffer = createMockImageBuffer();
     const result = await analyzeImageQuality(imageBuffer, mockContext, 'test-api-key');
 
-    expect(result.description).toBe('Image analysis failed');
+    expect(result.description).toBe('');
     expect(consoleSpy).toHaveBeenCalled();
 
     consoleSpy.mockRestore();
@@ -529,7 +528,7 @@ describe('analyzeImagesBatch', () => {
     const results = await analyzeImagesBatch(images, 'test-api-key');
 
     expect(results).toHaveLength(2);
-    expect(results[0].description).toBe('Image analysis failed'); // Error fallback
+    expect(results[0].description).toBe(''); // Error fallback
     expect(results[1].description).toBe('Good image'); // Success
 
     consoleSpy.mockRestore();

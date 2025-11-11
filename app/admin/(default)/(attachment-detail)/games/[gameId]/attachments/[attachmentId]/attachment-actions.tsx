@@ -33,36 +33,46 @@ export default function AttachmentActions({
       return;
     }
 
+    const optimisticMessage = flash("Image analysis queued...", "info", {
+      removeAfter: null,
+    });
+
     try {
       const response = await orpc.attachments.reprocess({ id: attachmentId });
 
       if (response.runId) {
-        // Use workflow flash to track reanalysis
         workflowFlash(
           response.runId,
-          `Analyzing image...`,
+          {
+            pending: "Image analysis running...",
+            success: "Image analysis completed",
+            failure: (error) => `Image analysis failed: ${error}`,
+            cancelled: "Image analysis cancelled",
+          },
           {
             displayName: `Image Analysis`,
+            existingMessage: optimisticMessage,
             onComplete: () => {
               router.refresh();
             },
             onError: (error) => {
               console.error('Image analysis failed:', error);
               router.refresh();
-            }
+            },
           }
         );
         router.refresh();
       } else {
-        // Unexpected immediate completion
-        flash(`Image analysis completed`, "success", { removeAfter: 5000 });
+        optimisticMessage.update("Image analysis completed", "success", {
+          removeAfter: 5000,
+        });
         router.refresh();
       }
     } catch (error) {
       console.error("Reanalyze error:", error);
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
-      flash(`Failed to analyze: ${errorMessage}`, "error", {
+      optimisticMessage.update(`Failed to analyze: ${errorMessage}`, "error", {
         removeAfter: 8000,
       });
     }

@@ -16,7 +16,7 @@ export default defineConfig({
     ],
     globals: true,
     environment: 'node',
-    setupFiles: ['./tests/mocks/next-server-mock.ts', './tests/setup.ts'],
+    setupFiles: ['./tests/mocks/next-server-mock.ts', './tests/mocks/network.ts', './tests/setup.ts'],
     fileParallelism: false, // Run test files sequentially to avoid DB conflicts
     env: {
       DATABASE_URL: 'postgresql://postgres:postgres@localhost:5433/test_gamegame',

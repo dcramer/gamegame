@@ -44,7 +44,7 @@ function parseBbox(bboxValue: any): number[] | undefined {
 
 /**
  * POST /api/attachments/:attachmentId/reprocess
- * Reprocess attachment with GPT-4o vision analysis
+ * Reprocess attachment with GPT-5 vision analysis
  */
 export const POST = withAdmin(async (
   request: NextRequest,
@@ -85,7 +85,11 @@ export const POST = withAdmin(async (
       }]);
     } catch (workflowError) {
       console.error('[POST attachments/:attachmentId/reprocess] Workflow error:', workflowError);
-      return errorResponse('Failed to start vision analysis workflow', 500, 'WORKFLOW_ERROR');
+      const errorMessage =
+        workflowError instanceof Error
+          ? workflowError.message
+          : 'Failed to start vision analysis workflow';
+      return errorResponse(errorMessage, 500, 'WORKFLOW_ERROR');
     }
 
     // Fetch updated attachment

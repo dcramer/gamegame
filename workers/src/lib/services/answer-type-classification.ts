@@ -57,8 +57,6 @@ export const ANSWER_TYPES = [
 export type AnswerType = typeof ANSWER_TYPES[number];
 
 export interface ClassificationOptions {
-  /** Temperature for generation (default: 0.3 for consistency) */
-  temperature?: number;
   /** Model to use (default: from environment config) */
   model?: string;
   /** Environment to determine model selection (development/production) */
@@ -66,14 +64,13 @@ export interface ClassificationOptions {
 }
 
 const DEFAULT_OPTIONS: ClassificationOptions = {
-  temperature: 0.3, // Lower temperature for more consistent classification
   // model determined at runtime from environment
 };
 
 /**
  * Classify what types of questions a fragment can answer
  *
- * Uses configured LLM (GPT-5 in prod, GPT-4o-mini in dev) to analyze
+ * Uses configured LLM (GPT-5 in prod, GPT-5-mini in dev) to analyze
  * the fragment content and tag it with applicable answer types.
  */
 export async function classifyFragmentAnswerTypes(
@@ -105,7 +102,7 @@ export async function classifyFragmentAnswerTypes(
         model,
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' },
-        temperature: opts.temperature,
+        temperature: 1,
         max_completion_tokens: 200,
       }),
     });

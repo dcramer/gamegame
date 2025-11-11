@@ -6,6 +6,13 @@ import { useRouter } from "next/navigation";
 import { orpc } from "@/lib/procedures/client";
 import { useFlashMessages } from "@/components/flashMessages";
 import { useWorkflowFlash } from "@/components/workflowFlashMessage";
+import {
+  REPROCESS_STAGE_DEFINITIONS,
+  REPROCESS_STAGE_ORDER,
+  getStageDisplayName,
+  getStageMessages,
+  type ReprocessStage,
+} from "@/lib/reprocess/stages";
 
 interface ResourceActionsProps {
   resourceId: string;
@@ -24,43 +31,45 @@ export default function ResourceActions({
   const { flash } = useFlashMessages();
   const workflowFlash = useWorkflowFlash();
 
-  const handleReprocess = async (fromStage: 'ingest' | 'vision' | 'cleanup' | 'metadata' | 'embed' = 'ingest') => {
-    // Map 'fromStage' parameter to user-friendly titles
-    const jobTitles = {
-      ingest: 'Full Reprocess',
-      vision: 'Improve Image Descriptions',
-      cleanup: 'Clean Up Markdown',
-      metadata: 'Regenerate Metadata',
-      embed: 'Regenerate Embeddings',
-    };
-    const title = jobTitles[fromStage];
+  const handleReprocess = async (stage: ReprocessStage = 'ingest') => {
+    const stageDefinition = REPROCESS_STAGE_DEFINITIONS[stage];
+    const messages = getStageMessages(stage, resourceName);
+    const displayName = getStageDisplayName(stage, resourceName);
+    const optimisticMessage = flash(messages.starting, "info", {
+      removeAfter: null,
+    });
 
     try {
       const response = await orpc.resources.reprocess({
         id: resourceId,
-        fromStage: fromStage === 'ingest' ? undefined : fromStage
+        fromStage: stage === 'ingest' ? undefined : stage,
+        onlyStage: stageDefinition.onlyStage,
       });
 
       if (response.runId) {
-        // Use workflow flash to track reprocessing
         workflowFlash(
           response.runId,
-          `${title}: ${resourceName}...`,
           {
-            displayName: `${title}: ${resourceName}`,
+            pending: messages.pending,
+            success: messages.success,
+            failure: (error) => messages.failure(error),
+            cancelled: messages.cancelled,
+          },
+          {
+            displayName,
+            existingMessage: optimisticMessage,
             onComplete: () => {
               router.refresh();
             },
             onError: (error) => {
               console.error('Reprocessing failed:', error);
               router.refresh();
-            }
+            },
           }
         );
         router.refresh();
       } else {
-        // Unexpected immediate completion
-        flash(`${resourceName} reprocessed successfully`, "success", {
+        optimisticMessage.update(messages.success, "success", {
           removeAfter: 5000,
         });
         router.refresh();
@@ -69,7 +78,7 @@ export default function ResourceActions({
       console.error("Reprocess error:", error);
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
-      flash(`Failed to reprocess: ${errorMessage}`, "error", {
+      optimisticMessage.update(messages.failure(errorMessage), "error", {
         removeAfter: 8000,
       });
     }
@@ -118,36 +127,18 @@ export default function ResourceActions({
       <div>
         <h3 className="text-sm font-semibold mb-3">Reprocessing</h3>
         <div className="space-y-2">
-          <ActionButton
-            icon={RefreshCw}
-            title="Full Reprocess"
-            description="Complete pipeline from scratch"
-            onClick={() => handleReprocess('ingest')}
-          />
-          <ActionButton
-            icon={RefreshCw}
-            title="Improve Image Descriptions"
-            description="Re-analyze image content"
-            onClick={() => handleReprocess('vision')}
-          />
-          <ActionButton
-            icon={RefreshCw}
-            title="Clean Up Markdown"
-            description="Fix formatting issues"
-            onClick={() => handleReprocess('cleanup')}
-          />
-          <ActionButton
-            icon={RefreshCw}
-            title="Regenerate Metadata"
-            description="Update document title and description"
-            onClick={() => handleReprocess('metadata')}
-          />
-          <ActionButton
-            icon={RefreshCw}
-            title="Regenerate Embeddings"
-            description="Update search index"
-            onClick={() => handleReprocess('embed')}
-          />
+          {REPROCESS_STAGE_ORDER.map((stage) => {
+            const definition = REPROCESS_STAGE_DEFINITIONS[stage];
+            return (
+              <ActionButton
+                key={stage}
+                icon={RefreshCw}
+                title={definition.actionTitle}
+                description={definition.actionDescription}
+                onClick={() => handleReprocess(stage)}
+              />
+            );
+          })}
         </div>
       </div>
 

@@ -20,6 +20,15 @@ interface WorkflowStatusData {
   completedAt?: string;
 }
 
+type WorkflowFlashCopy =
+  | string
+  | {
+      pending: string;
+      success?: string;
+      failure?: (error: string) => string;
+      cancelled?: string;
+    };
+
 interface WorkflowFlashOptions {
   /**
    * Callback fired when workflow completes successfully
@@ -35,6 +44,11 @@ interface WorkflowFlashOptions {
    * Human-readable workflow name for display
    */
   displayName?: string;
+
+  /**
+   * Use an existing flash message (useful for optimistic toasts)
+   */
+  existingMessage?: FlashMessage;
 }
 
 interface StoredWorkflowData {
@@ -119,21 +133,48 @@ export function useWorkflowFlash() {
 
   return (
     runId: string,
-    initialMessage: string,
+    copy: WorkflowFlashCopy,
     options: WorkflowFlashOptions = {}
   ) => {
-    const { onComplete, onError, displayName } = options;
+    const { onComplete, onError, displayName, existingMessage } = options;
+
+    const normalizedCopy = (() => {
+      if (typeof copy === "string") {
+        return {
+          pending: copy,
+          success: `${copy} completed`,
+          failure: (error: string) => `${copy} failed: ${error}`,
+          cancelled: `${copy} cancelled`,
+        };
+      }
+      return {
+        pending: copy.pending,
+        success: copy.success ?? `${copy.pending} completed`,
+        failure:
+          copy.failure ??
+          ((error: string) => `${copy.pending} failed: ${error}`),
+        cancelled: copy.cancelled ?? `${copy.pending} cancelled`,
+      };
+    })();
 
     // Store workflow in localStorage
     storeWorkflow(runId, {
       runId,
-      workflowName: displayName || "Workflow",
-      displayName,
+      workflowName: displayName || normalizedCopy.pending,
+      displayName: displayName || normalizedCopy.pending,
       createdAt: new Date().toISOString(),
     });
 
-    // Create initial flash message
-    const message = flash(initialMessage, "info", { removeAfter: null });
+    // Create (or update) initial flash message
+    const message =
+      existingMessage ??
+      flash(normalizedCopy.pending, "info", { removeAfter: null });
+
+    if (existingMessage) {
+      existingMessage.update(normalizedCopy.pending, "info", {
+        removeAfter: null,
+      });
+    }
 
     // Start polling
     const intervalId = setInterval(async () => {
@@ -150,7 +191,7 @@ export function useWorkflowFlash() {
       // Update message based on status
       if (status.status === "completed") {
         message.update(
-          initialMessage.replace("Processing", "Processed").replace("...", ""),
+          normalizedCopy.success,
           "success",
           { removeAfter: AUTO_DISMISS_DELAY }
         );
@@ -160,7 +201,7 @@ export function useWorkflowFlash() {
       } else if (status.status === "failed") {
         const errorMsg = status.error || "Unknown error";
         message.update(
-          `${initialMessage.split("...")[0]} failed: ${errorMsg}`,
+          normalizedCopy.failure(errorMsg),
           "error",
           { removeAfter: null } // Keep error visible until user dismisses
         );
@@ -169,7 +210,7 @@ export function useWorkflowFlash() {
         onError?.(errorMsg);
       } else if (status.status === "cancelled") {
         message.update(
-          `${initialMessage.split("...")[0]} cancelled`,
+          normalizedCopy.cancelled,
           "info",
           { removeAfter: AUTO_DISMISS_DELAY }
         );

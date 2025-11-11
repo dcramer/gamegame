@@ -140,6 +140,16 @@ For now, the workflows are correctly coded and will work in production on Vercel
 
 **For long-term**: Implement Option 1 (workflow-specific database client using `@vercel/postgres` which is designed to work with Vercel's bundler).
 
+## Local Development Commands
+
+We now run the web app and the Postgres workflow worker as two separate processes:
+
+- `pnpm dev:web` – Next.js dev server
+- `pnpm dev:workflows` – Dedicated Postgres workflow worker (`scripts/workflows/start-postgres-worker.ts`)
+- `pnpm dev` – Convenience command that runs both via `scripts/dev.ts`
+
+The workflow worker no longer starts from `instrumentation.ts` by default. If you absolutely need to inline it (e.g. on a one-off server), set `WORKFLOW_INLINE_WORKER=true`, but the recommended setup is to keep it in its own process to avoid spawning multiple Pg connections per runtime.
+
 ## Files Modified
 
 - ✅ `package.json`: Added `workflow@4.0.1-beta.7`

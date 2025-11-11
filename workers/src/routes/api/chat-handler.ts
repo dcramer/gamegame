@@ -5,7 +5,7 @@ import { getAgentTools } from '@/lib/ai/tools';
 import type { ChatRequest } from './schemas';
 import { setTag } from '@/lib/sentry';
 
-// NOTE: gpt-5 is REAL and should NOT be changed to gpt-4o or any other model.
+// NOTE: gpt-5 is the production model and should not be downgraded.
 // This is the actual production model in use.
 export const DEFAULT_CHAT_MODEL = 'gpt-5';
 

@@ -79,7 +79,7 @@ async function withRetry<T>(
 }
 
 /**
- * Analyze an image using configured vision model (GPT-5 in prod, GPT-4o-mini in dev)
+ * Analyze an image using configured vision model (GPT-5 in prod, GPT-5-mini in dev)
  * to generate a description and quality assessment
  * @param base64Image Base64-encoded image data (with or without data URI prefix)
  * @param surroundingText Text content surrounding the image for context
@@ -149,7 +149,7 @@ Format as JSON:
   const result = await withRetry(
     async (signal) => {
       const { text } = await generateText({
-        model: openai(visionModel), // Configured vision model (GPT-5 in prod, GPT-4o-mini in dev)
+        model: openai(visionModel), // Configured vision model (GPT-5 in prod, GPT-5-mini in dev)
         messages: [
           {
             role: 'user',

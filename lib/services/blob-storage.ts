@@ -439,6 +439,42 @@ export async function getBlob(blobKey: string): Promise<Buffer | null> {
 }
 
 /**
+ * Check if a blob exists without downloading it
+ */
+export async function blobExists(blobKey: string): Promise<boolean> {
+  const backend = getStorageBackend();
+
+  if (backend === 'vercel-blob') {
+    const url = blobKeyToUrl(blobKey);
+    try {
+      const response = await fetch(url, { method: 'HEAD' });
+      if (response.ok) {
+        return true;
+      }
+      if (response.status === 404) {
+        return false;
+      }
+      console.warn(`Unexpected response when checking blob ${blobKey}: ${response.status}`);
+      return false;
+    } catch (error) {
+      console.error(`Failed to check blob ${blobKey}:`, error);
+      return false;
+    }
+  } else {
+    const filePath = path.join(LOCAL_STORAGE_DIR, blobKey);
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        return false;
+      }
+      throw error;
+    }
+  }
+}
+
+/**
  * Upload blob data to storage
  */
 export async function uploadBlob(

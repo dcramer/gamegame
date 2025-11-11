@@ -271,10 +271,10 @@ Return ONLY a JSON array of questions, nothing else.`;
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-mini',
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
-      temperature: 0.7,
+      temperature: 1,
     }),
   });
 
@@ -331,7 +331,7 @@ async function analyzeImageQuality(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o',
+      model: 'gpt-5',
       messages: [{
         role: 'user',
         content: [
@@ -460,10 +460,10 @@ Return JSON only.`;
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-mini',
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
-      temperature: 0,
+      temperature: 1,
       max_tokens: 200,
     }),
   });
@@ -633,9 +633,9 @@ Return only a number 0-100.`;
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-mini',
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0,
+      temperature: 1,
       max_tokens: 10,
     }),
   });
@@ -773,7 +773,7 @@ export async function streamEnhancedChatResponse(
 
   // Use streamObject instead of streamText for structured output
   const result = streamObject({
-    model: openai(env.CHAT_MODEL || 'gpt-4o'),
+    model: openai(env.CHAT_MODEL || 'gpt-5'),
     system: buildEnhancedPrompt(game),
     messages: convertToCoreMessages(messages),
     schema: AnswerSchema,
@@ -1055,10 +1055,10 @@ Return JSON: { isValid: boolean, issues: string[], confidence: 0-1 }`;
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-mini',
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
-      temperature: 0,
+      temperature: 1,
     }),
   });
 
@@ -1730,8 +1730,8 @@ app.get('/api/metrics/realtime', async (c) => {
 | Component | Unit Cost | Quantity | Total |
 |-----------|-----------|----------|-------|
 | Mistral OCR | $0.001/page | 100 pages | $0.10 |
-| Image analysis (GPT-4o) | ~$0.05/image | 50 images | $2.50 |
-| Question generation (GPT-4o-mini) | ~$0.0025/fragment | 200 fragments × 5 questions | $0.50 |
+| Image analysis (GPT-5o) | ~$0.05/image | 50 images | $2.50 |
+| Question generation (GPT-5-mini) | ~$0.0025/fragment | 200 fragments × 5 questions | $0.50 |
 | Embeddings (text-embedding-3-small) | $0.00002/1k tokens | ~1M tokens | $0.02 |
 
 **Total per rulebook: ~$3.12**
@@ -1741,8 +1741,8 @@ app.get('/api/metrics/realtime', async (c) => {
 | Component | Unit Cost | Quantity | Total |
 |-----------|-----------|----------|-------|
 | Query embedding | $0.00002/1k tokens | ~50k tokens | $0.01 |
-| Cross-encoder reranking (GPT-4o-mini) | ~$0.001/query | 1000 queries | $1.00 |
-| Answer generation (GPT-4o) | ~$0.005/query | 1000 queries | $5.00 |
+| Cross-encoder reranking (GPT-5-mini) | ~$0.001/query | 1000 queries | $1.00 |
+| Answer generation (GPT-5o) | ~$0.005/query | 1000 queries | $5.00 |
 
 **Total per 1000 queries: ~$6.01**
 
@@ -1793,7 +1793,7 @@ Assumptions:
 ### B. External Dependencies
 
 **APIs**:
-- OpenAI (GPT-4o, GPT-4o-mini, text-embedding-3-small)
+- OpenAI (GPT-5o, GPT-5-mini, text-embedding-3-small)
 - Mistral (OCR API)
 
 **Cloudflare Services**:

@@ -4,6 +4,24 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import {
+  clearWorkflowMockInvocations,
+  getWorkflowMockInvocations,
+  workflowStartMock,
+} from '@/tests/utils/workflow-mock';
+const analyzeImagesWorkflowMock = vi.hoisted(() => {
+  const fn = vi.fn(async () =>
+    Promise.resolve({
+      success: true,
+      mode: 'single-attachment',
+    })
+  );
+  fn.mockName('analyzeImagesWorkflow');
+  return fn;
+});
+vi.mock('@/workflows/analyze-images', () => ({
+  analyzeImagesWorkflow: analyzeImagesWorkflowMock,
+}));
 import { POST as reprocessAttachment } from '@/app/api/attachments/[attachmentId]/reprocess/route';
 import { createNextRequest, createRouteContext } from '@/tests/utils/next-request';
 import { db } from '@/lib/db';
@@ -11,16 +29,6 @@ import { attachments } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { cleanupTestDb } from '@/tests/db-helpers';
 import { createTestGame, createTestResource, createTestAttachment } from '@/tests/fixtures';
-
-// Mock the unified workflow
-vi.mock('@/workflows/analyze-images', () => ({
-  analyzeImagesWorkflow: vi.fn(() =>
-    Promise.resolve({
-      success: true,
-      mode: 'single-attachment',
-    })
-  ),
-}));
 
 // Mock requireAdmin from session module
 vi.mock('@/lib/session', () => ({
@@ -50,6 +58,12 @@ describe.sequential('Attachment Reprocess API', () => {
 
     // Reset mocks
     vi.clearAllMocks();
+    clearWorkflowMockInvocations();
+    analyzeImagesWorkflowMock.mockReset();
+    analyzeImagesWorkflowMock.mockImplementation(async () => ({
+      success: true,
+      mode: 'single-attachment',
+    }));
 
     // Mock global fetch to return fake image data
     global.fetch = vi.fn(() =>
@@ -135,8 +149,6 @@ describe.sequential('Attachment Reprocess API', () => {
     });
 
     it('should successfully reprocess image attachment', async () => {
-      const { analyzeImagesWorkflow } = await import('@/workflows/analyze-images');
-
       // Update the attachment first to simulate what the workflow does
       await db
         .update(attachments)
@@ -153,7 +165,10 @@ describe.sequential('Attachment Reprocess API', () => {
       const data = await response.json();
 
       expect(response.status).toBe(200);
-      expect(analyzeImagesWorkflow).toHaveBeenCalledWith({
+      const invocations = getWorkflowMockInvocations();
+      expect(invocations).toHaveLength(1);
+      expect(invocations[0].workflowName).toBe('analyzeImagesWorkflow');
+      expect(invocations[0].args[0]).toEqual({
         mode: 'single-attachment',
         attachmentId: testAttachmentId,
         gameId: testGameId,
@@ -169,8 +184,6 @@ describe.sequential('Attachment Reprocess API', () => {
     });
 
     it('should pass correct parameters to workflow', async () => {
-      const { analyzeImagesWorkflow } = await import('@/workflows/analyze-images');
-
       // Create attachment with specific metadata
       const testAttachment = await createTestAttachment(testResourceId, testGameId, {
         type: 'image',
@@ -182,8 +195,11 @@ describe.sequential('Attachment Reprocess API', () => {
 
       await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachment.id }));
 
-      // Verify workflow was called with correct parameters
-      expect(analyzeImagesWorkflow).toHaveBeenCalledWith({
+      // Verify workflow was recorded with correct parameters
+      const invocations = getWorkflowMockInvocations();
+      expect(invocations).toHaveLength(1);
+      expect(invocations[0].workflowName).toBe('analyzeImagesWorkflow');
+      expect(invocations[0].args[0]).toEqual({
         mode: 'single-attachment',
         attachmentId: testAttachment.id,
         gameId: testGameId,
@@ -212,8 +228,8 @@ describe.sequential('Attachment Reprocess API', () => {
     });
 
     it('should handle workflow errors', async () => {
-      const { analyzeImagesWorkflow } = await import('@/workflows/analyze-images');
-      (analyzeImagesWorkflow as any).mockRejectedValueOnce(new Error('Vision API timeout'));
+      const workflowError = new Error('Vision API timeout');
+      workflowStartMock.mockRejectedValueOnce(workflowError);
 
       const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachmentId }));
       const data = await response.json();

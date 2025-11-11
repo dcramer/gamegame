@@ -5,15 +5,17 @@
 
 import { nanoid } from 'nanoid';
 import { start } from 'workflow/api';
-import { processResourceWorkflow } from '@/workflows/process-resource/index';
+import { processResourceWorkflow } from '@/workflows/process-resource';
 import { db } from '@/lib/db';
 import { resources, games } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { cancelWorkflowRun } from './workflows';
+import type { ReprocessStage } from '@/lib/reprocess/stages';
 
 export interface ReprocessResourceInput {
   resourceId: string;
-  fromStage?: 'ingest' | 'vision' | 'cleanup' | 'metadata' | 'embed';
+  fromStage?: ReprocessStage;
+  onlyStage?: boolean;
 }
 
 export interface ReprocessResourceResult {
@@ -86,6 +88,7 @@ export async function reprocessResource(
     name: resource.name,
     url: resource.url,
     fromStage: input.fromStage,
+    onlyStage: Boolean(input.onlyStage),
   };
 
   let workflowRun;
@@ -111,7 +114,7 @@ export async function reprocessResource(
   const actualRunId = workflowRun.runId;
 
   // Update resource status with the actual workflow run ID
-  const startingStage = input.fromStage || 'ingest';
+  const startingStage: ReprocessStage = input.fromStage || 'ingest';
   await db
     .update(resources)
     .set({

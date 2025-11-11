@@ -13,9 +13,9 @@ Located at: `src/lib/config/models.ts`
 | Type | Purpose | Dev Model | Prod Model |
 |------|---------|-----------|------------|
 | `ocr` | PDF text extraction | Mistral | Mistral |
-| `vision` | Image analysis | gpt-4o-mini | gpt-5 |
-| `reasoning` | Text cleanup/metadata | gpt-4o-mini | gpt-5 |
-| `hyde` | Question generation | gpt-4o-mini | gpt-5 |
+| `vision` | Image analysis | gpt-5-mini | gpt-5 |
+| `reasoning` | Text cleanup/metadata | gpt-5-mini | gpt-5 |
+| `hyde` | Question generation | gpt-5-mini | gpt-5 |
 | `embedding` | Vector embeddings | text-embedding-3-small | text-embedding-3-small |
 
 ### Environment Detection
@@ -25,8 +25,8 @@ The system determines the environment from the `ENVIRONMENT` env variable:
 ```typescript
 // In wrangler.toml or .dev.vars
 ENVIRONMENT=production  // Uses GPT-5 for quality
-ENVIRONMENT=development // Uses GPT-4o-mini for cost savings
-ENVIRONMENT=test        // Uses GPT-4o-mini for fast tests
+ENVIRONMENT=development // Uses GPT-5-mini for cost savings
+ENVIRONMENT=test        // Uses GPT-5-mini for fast tests
 ```
 
 **Default**: If not set, defaults to `development`
@@ -44,7 +44,7 @@ const model = getModel('hyde', env.ENVIRONMENT);
 // Use in API call
 const response = await fetch('https://api.openai.com/v1/chat/completions', {
   body: JSON.stringify({
-    model, // Will be 'gpt-5' in prod, 'gpt-4o-mini' in dev
+    model, // Will be 'gpt-5' in prod, 'gpt-5-mini' in dev
     // ...
   }),
 });
@@ -60,7 +60,7 @@ const openai = createOpenAI({ apiKey });
 const visionModel = getModel('vision', environment);
 
 const { text } = await generateText({
-  model: openai(visionModel), // gpt-5 in prod, gpt-4o-mini in dev
+  model: openai(visionModel), // gpt-5 in prod, gpt-5-mini in dev
   // ...
 });
 ```
@@ -89,7 +89,7 @@ generateQuestionsForFragment(fragment, resource, apiKey, {
 
 // Automatically uses:
 // - gpt-5 in production
-// - gpt-4o-mini in development/test
+// - gpt-5-mini in development/test
 ```
 
 **Cost Impact**:
@@ -105,7 +105,7 @@ enrichPDFImagesWithVision(structured, apiKey, gameName, {
 
 // Automatically uses:
 // - gpt-5 in production (best vision + reasoning)
-// - gpt-4o-mini in development (fast & cheap)
+// - gpt-5-mini in development (fast & cheap)
 ```
 
 **Cost Impact**:
@@ -130,7 +130,7 @@ Tests can explicitly override the model:
 
 ```typescript
 generateQuestionsForFragment(fragment, resource, apiKey, {
-  model: 'gpt-4o-mini', // Explicit override
+  model: 'gpt-5-mini', // Explicit override
 });
 ```
 
@@ -141,7 +141,7 @@ generateQuestionsForFragment(fragment, resource, apiKey, {
 - Output: $10.00 / 1M tokens
 - Images: $7.50 / 1M tokens
 
-### GPT-4o-mini (Development)
+### GPT-5-mini (Development)
 - Input: $0.15 / 1M tokens
 - Output: $0.60 / 1M tokens
 - Images: ~$0.15 / 1M tokens
@@ -192,7 +192,7 @@ export interface ModelConfig {
 ```typescript
 const DEV_MODELS: ModelConfig = {
   // ... existing
-  newTask: 'gpt-4o-mini',
+  newTask: 'gpt-5-mini',
 };
 
 const PROD_MODELS: ModelConfig = {
@@ -209,7 +209,7 @@ const model = getModel('newTask', env.ENVIRONMENT);
 
 ## Summary
 
-- **Development/Test**: Optimized for cost and speed (GPT-4o-mini)
+- **Development/Test**: Optimized for cost and speed (GPT-5-mini)
 - **Production**: Optimized for quality (GPT-5)
 - **Automatic**: Services automatically use the right model based on `ENVIRONMENT`
 - **Flexible**: Can override on a per-call basis if needed
