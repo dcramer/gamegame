@@ -5,7 +5,7 @@
 import { db } from '../db';
 import { games } from '../db/schema/games';
 import { resources } from '../db/schema/resources';
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc, eq, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 
 export interface Game {
@@ -80,7 +80,7 @@ export async function getGameByIdOrSlug(idOrSlug: string): Promise<Game | null> 
       bggUrl: games.bggUrl,
     })
     .from(games)
-    .where(eq(games.id, idOrSlug))
+    .where(or(eq(games.id, idOrSlug), eq(games.slug, idOrSlug)))
     .limit(1);
 
   if (!game) {

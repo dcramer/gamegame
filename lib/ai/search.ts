@@ -101,7 +101,14 @@ Format: { "answerTypes": ["type1", "type2", ...] }`;
     }
 
     const data = await response.json() as { choices: Array<{ message: { content: string } }> };
-    const result = JSON.parse(data.choices[0].message.content);
+    const content = data.choices[0]?.message?.content;
+
+    if (!content || content.trim() === '') {
+      console.warn('Empty response from query type detection');
+      return [];
+    }
+
+    const result = JSON.parse(content);
 
     if (!Array.isArray(result.answerTypes)) {
       return [];
