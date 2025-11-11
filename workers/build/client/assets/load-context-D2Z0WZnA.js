@@ -1,1 +1,0 @@
-class r{constructor(e){this.request=e,this.baseUrl=e?"http://localhost:8787":""}baseUrl;async fetch(e,s){const t=`${this.baseUrl}/api${e}`;return this.request?fetch(t,{...s,headers:{...s?.headers,cookie:this.request.headers.get("cookie")||""}}):fetch(t,{...s,credentials:"include"})}}const c=new r;export{c as a};
