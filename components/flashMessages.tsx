@@ -15,9 +15,15 @@ let messageNum = 0;
 
 type FlashType = "success" | "error" | "info";
 
+type FlashAction = {
+  label: string;
+  onClick: () => void;
+};
+
 type FlashMessageOptions = {
   removeAfter?: number | null;
   createdAt?: number;
+  actions?: FlashAction[];
 };
 
 export type FlashMessage = {
@@ -26,6 +32,7 @@ export type FlashMessage = {
   type: FlashType;
   removeAfter: number | null;
   createdAt: number;
+  actions?: FlashAction[];
 
   update: (
     message: string | ReactNode,
@@ -68,7 +75,8 @@ export function Message({
   type,
   createdAt,
   onDismiss,
-}: Pick<FlashMessage, "message" | "type" | "createdAt"> & {
+  actions,
+}: Pick<FlashMessage, "message" | "type" | "createdAt" | "actions"> & {
   onDismiss?: () => void;
 }) {
   const [elapsed, setElapsed] = useState(() => Date.now() - createdAt);
@@ -86,13 +94,32 @@ export function Message({
         "rounded-md p-3 font-semibold opacity-90 relative pr-10 flex flex-col gap-1",
         type === "success" ? "bg-green-700 text-green-50" : "",
         type === "error" ? "bg-red-700 text-red-50" : "",
-        type === "info" ? "bg-slate-700 text-slate-50" : ""
+        type === "info" ? "bg-slate-700 text-slate-50" : "",
+        type === "warning" ? "bg-yellow-700 text-yellow-50" : ""
       )}
     >
       <div>{message}</div>
-      <span className="text-xs font-medium uppercase tracking-wide text-white/70">
-        {formatElapsed(elapsed)}
-      </span>
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-white/70">
+          {formatElapsed(elapsed)}
+        </span>
+        {actions && actions.length > 0 && (
+          <>
+            <span className="text-white/40">·</span>
+            <div className="flex gap-2">
+              {actions.map((action, i) => (
+                <button
+                  key={i}
+                  onClick={action.onClick}
+                  className="text-xs font-semibold uppercase tracking-wide underline hover:text-white/90 transition-colors cursor-pointer"
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
       {onDismiss && (
         <button
           onClick={onDismiss}
@@ -145,12 +172,13 @@ export default function FlashMessages({ children }: { children: ReactNode }) {
           type: FlashType = "success",
           options: FlashMessageOptions = { removeAfter: ALIVE_TIME }
         ) => {
-          const { removeAfter = ALIVE_TIME, createdAt } = options;
+          const { removeAfter = ALIVE_TIME, createdAt, actions } = options;
           const newFlash = {
             message,
             type,
             id: messageNum,
             createdAt: createdAt ?? Date.now(),
+            actions,
 
             removeAfter: removeAfter
               ? new Date().getTime() + removeAfter
@@ -184,6 +212,7 @@ export default function FlashMessages({ children }: { children: ReactNode }) {
                           : options?.removeAfter
                           ? new Date().getTime() + options?.removeAfter
                           : m.removeAfter,
+                      actions: options?.actions ?? m.actions,
                     };
                   } else {
                     return m;

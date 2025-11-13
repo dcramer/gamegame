@@ -214,6 +214,38 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
   const pollInFlightRef = useRef(false);
   const [hasActiveWorkflows, setHasActiveWorkflows] = useState(false);
 
+  const pollRef = useRef<() => Promise<void>>();
+
+  const handleCancel = useCallback(async (runId: string) => {
+    try {
+      const response = await fetch(`/api/admin/workflows/${runId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to cancel workflow');
+      }
+    } catch (error) {
+      console.error('Failed to cancel workflow:', error);
+    }
+  }, []);
+
+  const handleRetry = useCallback(async (runId: string) => {
+    try {
+      const response = await fetch(`/api/admin/workflows/${runId}/retry`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to retry workflow');
+      }
+      // Poll immediately to pick up the new workflow
+      if (pollRef.current) {
+        void pollRef.current();
+      }
+    } catch (error) {
+      console.error('Failed to retry workflow:', error);
+    }
+  }, []);
+
   const handleStatusUpdate = useCallback(
     (key: string, status: WorkflowStatusData) => {
       const controllers = controllersRef.current;
@@ -228,9 +260,16 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
 
       if (status.status === "pending" || status.status === "running") {
         const text = formatProgress(status, controller.normalizedCopy.pending);
+        const runId = status.runId ?? status.localRunId;
         controller.message.update(text, "info", {
           removeAfter: null,
           createdAt: startedAt,
+          actions: runId ? [
+            {
+              label: "Cancel",
+              onClick: () => void handleCancel(runId),
+            },
+          ] : undefined,
         });
         return;
       }
@@ -240,6 +279,7 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
         controller.message.update(text, "success", {
           removeAfter: 300000,
           createdAt: startedAt,
+          actions: undefined,
         });
         controllers.delete(key);
         setHasActiveWorkflows(controllers.size > 0);
@@ -251,9 +291,16 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
         const metaError =
           typeof status.metadata?.error === "string" ? status.metadata.error : undefined;
         const errorMsg = metaError || status.error || "Unknown error";
+        const runId = status.runId ?? status.localRunId;
         controller.message.update(controller.normalizedCopy.failure(errorMsg), "error", {
-          removeAfter: null,
+          removeAfter: null, // Don't auto-dismiss errors
           createdAt: startedAt,
+          actions: runId ? [
+            {
+              label: "Retry",
+              onClick: () => void handleRetry(runId),
+            },
+          ] : undefined,
         });
         controllers.delete(key);
         setHasActiveWorkflows(controllers.size > 0);
@@ -266,6 +313,7 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
         controller.message.update(text, "warning", {
           removeAfter: 5000, // Auto-dismiss after 5 seconds
           createdAt: startedAt,
+          actions: undefined,
         });
         controllers.delete(key);
         setHasActiveWorkflows(controllers.size > 0);
@@ -275,7 +323,7 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
       const text = formatProgress(status, controller.normalizedCopy.pending);
       controller.message.update(text, "info", { removeAfter: null, createdAt: startedAt });
     },
-    []
+    [handleCancel, handleRetry]
   );
 
   const poll = useCallback(async () => {
@@ -325,6 +373,11 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
       pollInFlightRef.current = false;
     }
   }, [handleStatusUpdate]);
+
+  // Store poll function in ref for handleRetry
+  useEffect(() => {
+    pollRef.current = poll;
+  }, [poll]);
 
   useEffect(() => {
     // Only poll if there are active workflows

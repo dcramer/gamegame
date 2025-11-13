@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAdmin } from '@/lib/api/middleware';
-import { getWorkflowRun } from '@/lib/services/workflows';
+import { getWorkflowRun, cancelWorkflowRun } from '@/lib/services/workflows';
 import { db } from '@/lib/db';
 import { workflowRuns } from '@/lib/db/schema';
 import { or, eq } from 'drizzle-orm';
+import { reprocessResource } from '@/lib/services/reprocess';
 
 /**
  * GET /api/admin/workflows/:runId
@@ -80,6 +81,149 @@ export const GET = withAdmin(
       console.error(`Failed to fetch workflow ${runId}:`, error);
       return NextResponse.json(
         { error: 'Failed to fetch workflow status' },
+        { status: 500 }
+      );
+    }
+  }
+);
+
+/**
+ * DELETE /api/admin/workflows/:runId
+ *
+ * Cancel a workflow run
+ * Admin-only endpoint
+ */
+export const DELETE = withAdmin(
+  async (
+    request: NextRequest,
+    _user,
+    context?: { params: Promise<{ runId: string }> }
+  ) => {
+    if (!context) {
+      return NextResponse.json({ error: 'Missing params' }, { status: 400 });
+    }
+    const { runId } = await context.params;
+
+    try {
+      // Find the workflow run in our database
+      const [workflowRow] = await db
+        .select()
+        .from(workflowRuns)
+        .where(
+          or(
+            eq(workflowRuns.id, runId),
+            eq(workflowRuns.externalRunId, runId)
+          )
+        )
+        .limit(1);
+
+      if (!workflowRow) {
+        return NextResponse.json(
+          { error: 'Workflow not found' },
+          { status: 404 }
+        );
+      }
+
+      // Cancel the workflow using the external run ID
+      const externalRunId = workflowRow.externalRunId ?? workflowRow.id;
+      await cancelWorkflowRun(externalRunId);
+
+      // Update our database record
+      await db
+        .update(workflowRuns)
+        .set({
+          status: 'cancelled',
+          completedAt: Date.now(),
+          updatedAt: Date.now(),
+          metadata: {
+            ...(workflowRow.metadata ?? {}),
+            status: 'Cancelled by user',
+          },
+        })
+        .where(eq(workflowRuns.id, workflowRow.id));
+
+      return NextResponse.json({
+        success: true,
+        message: 'Workflow cancelled',
+      });
+    } catch (error) {
+      console.error(`Failed to cancel workflow ${runId}:`, error);
+      return NextResponse.json(
+        { error: 'Failed to cancel workflow' },
+        { status: 500 }
+      );
+    }
+  }
+);
+
+/**
+ * POST /api/admin/workflows/:runId/retry
+ *
+ * Retry a failed workflow
+ * Admin-only endpoint
+ */
+export const POST = withAdmin(
+  async (
+    request: NextRequest,
+    _user,
+    context?: { params: Promise<{ runId: string }> }
+  ) => {
+    if (!context) {
+      return NextResponse.json({ error: 'Missing params' }, { status: 400 });
+    }
+    const { runId } = await context.params;
+
+    try {
+      // Find the workflow run in our database
+      const [workflowRow] = await db
+        .select()
+        .from(workflowRuns)
+        .where(
+          or(
+            eq(workflowRuns.id, runId),
+            eq(workflowRuns.externalRunId, runId)
+          )
+        )
+        .limit(1);
+
+      if (!workflowRow) {
+        return NextResponse.json(
+          { error: 'Workflow not found' },
+          { status: 404 }
+        );
+      }
+
+      // Only allow retry for failed workflows
+      if (workflowRow.status !== 'failed') {
+        return NextResponse.json(
+          { error: 'Only failed workflows can be retried' },
+          { status: 400 }
+        );
+      }
+
+      // Handle different workflow types
+      if (workflowRow.workflowName === 'process-resource' && workflowRow.resourceId) {
+        // Retry resource processing
+        const result = await reprocessResource({
+          resourceId: workflowRow.resourceId,
+        });
+
+        return NextResponse.json({
+          success: true,
+          message: 'Workflow retried',
+          runId: result.runId,
+        });
+      }
+
+      // For other workflow types, we need to add retry logic
+      return NextResponse.json(
+        { error: 'Retry not implemented for this workflow type' },
+        { status: 501 }
+      );
+    } catch (error) {
+      console.error(`Failed to retry workflow ${runId}:`, error);
+      return NextResponse.json(
+        { error: 'Failed to retry workflow' },
         { status: 500 }
       );
     }
