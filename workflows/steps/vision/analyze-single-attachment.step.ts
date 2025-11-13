@@ -9,9 +9,11 @@ import { eq } from 'drizzle-orm';
 import { fetchImageStep } from '@/workflows/steps/vision/fetch-image.step';
 import { analyzeImageStep } from '@/workflows/steps/vision/analyze-image.step';
 import { updateAttachmentStep } from '@/workflows/steps/attachments/update-attachment.step';
+import { completeWorkflowRun, failWorkflowRun, recordWorkflowStage } from '@/lib/services/workflow-run-store';
 
 export interface SingleAttachmentInput {
   attachmentId: string;
+  runId?: string;
 }
 
 export interface SingleAttachmentResult {
@@ -23,6 +25,11 @@ export async function analyzeSingleAttachmentStep(
   input: SingleAttachmentInput
 ): Promise<SingleAttachmentResult> {
   try {
+    await recordWorkflowStage(input.runId, 'vision', {
+      attachmentId: input.attachmentId,
+      status: 'Analyzing attachment',
+    });
+
     // Get attachment from database
     const [attachment] = await db
       .select()
@@ -31,6 +38,10 @@ export async function analyzeSingleAttachmentStep(
       .limit(1);
 
     if (!attachment) {
+      await failWorkflowRun(input.runId, `Attachment ${input.attachmentId} not found`, {
+        attachmentId: input.attachmentId,
+        stage: 'vision',
+      });
       return {
         success: false,
         error: `Attachment ${input.attachmentId} not found`,
@@ -43,9 +54,14 @@ export async function analyzeSingleAttachmentStep(
     });
 
     if (!fetchResult.success || !fetchResult.buffer) {
+      const error = fetchResult.error || 'Failed to fetch image';
+      await failWorkflowRun(input.runId, error, {
+        attachmentId: input.attachmentId,
+        stage: 'vision',
+      });
       return {
         success: false,
-        error: fetchResult.error || 'Failed to fetch image',
+        error,
       };
     }
 
@@ -60,9 +76,14 @@ export async function analyzeSingleAttachmentStep(
     });
 
     if (!analysisResult.success || !analysisResult.analysis) {
+      const error = analysisResult.error || 'Failed to analyze image';
+      await failWorkflowRun(input.runId, error, {
+        attachmentId: input.attachmentId,
+        stage: 'vision',
+      });
       return {
         success: false,
-        error: analysisResult.error || 'Failed to analyze image',
+        error,
       };
     }
 
@@ -73,15 +94,30 @@ export async function analyzeSingleAttachmentStep(
     });
 
     if (!updateResult.success) {
+      const error = updateResult.error || 'Failed to update attachment';
+      await failWorkflowRun(input.runId, error, {
+        attachmentId: input.attachmentId,
+        stage: 'vision',
+      });
       return {
         success: false,
-        error: updateResult.error || 'Failed to update attachment',
+        error,
       };
     }
+
+    await completeWorkflowRun(input.runId, {
+      attachmentId: input.attachmentId,
+      message: 'Attachment analysis complete',
+      stage: 'vision',
+    });
 
     return { success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    await failWorkflowRun(input.runId, errorMessage, {
+      attachmentId: input.attachmentId,
+      stage: 'vision',
+    });
     return {
       success: false,
       error: errorMessage,

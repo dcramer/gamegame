@@ -12,6 +12,10 @@ import { eq, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
 import { processResourceWorkflow } from '@/workflows/process-resource';
+import {
+  createWorkflowRunRecord,
+  updateWorkflowRunRecord,
+} from '@/lib/services/workflow-run-store';
 
 /**
  * GET /api/games/:gameIdOrSlug/resources
@@ -164,11 +168,42 @@ export const POST = withAdmin(async (
       sourceKey: sourceKey ?? undefined,
     };
 
-    // Start workflow asynchronously (don't await to avoid blocking the response)
-    start(processResourceWorkflow, [workflowInput]).catch((error) => {
-      console.error('[POST resources] Workflow start error:', error);
-      // Mark resource as failed if workflow fails to start
-      db.update(resources)
+    await createWorkflowRunRecord({
+      runId,
+      workflowName: 'process-resource',
+      status: 'pending',
+      resourceId,
+      gameId: game.id,
+      metadata: {
+        jobName: `Processing ${name}`,
+        resourceName: name,
+        stage: 'ingest',
+        source: file ? 'upload' : 'url',
+      },
+    });
+
+    try {
+      const workflowRun = await start(processResourceWorkflow, [workflowInput]);
+      const externalRunId = workflowRun.runId;
+
+      await updateWorkflowRunRecord(runId, {
+        status: 'running',
+        externalRunId,
+      });
+
+      if (externalRunId && externalRunId !== runId) {
+        await db
+          .update(resources)
+          .set({
+            currentRunId: externalRunId,
+            updatedAt: Date.now(),
+          })
+          .where(eq(resources.id, resourceId));
+      }
+    } catch (workflowError) {
+      console.error('[POST resources] Workflow start error:', workflowError);
+      await db
+        .update(resources)
         .set({
           status: 'failed',
           processingStage: 'failed',
@@ -176,9 +211,10 @@ export const POST = withAdmin(async (
           currentRunId: null,
           updatedAt: Date.now(),
         })
-        .where(eq(resources.id, resourceId))
-        .catch((err) => console.error('[POST resources] Failed to update resource:', err));
-    });
+        .where(eq(resources.id, resourceId));
+
+      throw workflowError;
+    }
 
     const [newResource] = await db
       .select()

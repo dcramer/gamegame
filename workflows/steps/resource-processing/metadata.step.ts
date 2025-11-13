@@ -11,6 +11,7 @@ import {
   serializeMetadata,
   loadStructured,
 } from '@/workflows/support/helpers';
+import { recordWorkflowStage } from '@/lib/services/workflow-run-store';
 
 export async function runMetadataStage(input: ProcessResourceInput) {
   'use step';
@@ -20,6 +21,10 @@ export async function runMetadataStage(input: ProcessResourceInput) {
     if (!OPENAI_API_KEY) {
       throw new Error('Missing OPENAI_API_KEY');
     }
+
+    await recordWorkflowStage(input.runId, 'metadata', {
+      status: 'Generating resource metadata',
+    });
 
     // Use transaction with row-level locking to prevent race conditions
     const result = await db.transaction(async (tx) => {
@@ -81,6 +86,11 @@ export async function runMetadataStage(input: ProcessResourceInput) {
         updatedAt: Date.now(),
       })
       .where(eq(resources.id, input.resourceId));
+
+    await recordWorkflowStage(input.runId, 'metadata', {
+      status: 'Metadata updated',
+      resolvedName,
+    });
 
     return { success: true };
   } catch (error) {

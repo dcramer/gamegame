@@ -18,6 +18,10 @@ import {
 import { blobKeyToUrl } from '@/lib/services/blob-storage';
 import { nanoid } from 'nanoid';
 import { analyzeImagesWorkflow } from '@/workflows/analyze-images';
+import {
+  createWorkflowRunRecord,
+  updateWorkflowRunRecord,
+} from '@/lib/services/workflow-run-store';
 
 /**
  * Helper to safely parse bbox JSON
@@ -280,14 +284,38 @@ export const reprocess = adminProcedure
     // Generate run ID for tracking
     const runId = nanoid();
 
-    // Call unified workflow in single-attachment mode
-    start(analyzeImagesWorkflow, [{
+    await createWorkflowRunRecord({
       runId,
-      mode: 'single-attachment',
-      attachmentId: input.id,
+      workflowName: 'analyze-images',
+      status: 'pending',
+      attachmentId: attachment.id,
       gameId: attachment.gameId,
-    }]).catch((error) => {
+      metadata: {
+        jobName: `Analyze ${attachment.originalFilename ?? attachment.id}`,
+        stage: 'vision',
+        mode: 'single-attachment',
+      },
+    });
+
+    // Call unified workflow in single-attachment mode
+    let workflowRun;
+    try {
+      workflowRun = await start(analyzeImagesWorkflow, [{
+        runId,
+        mode: 'single-attachment',
+        attachmentId: input.id,
+        gameId: attachment.gameId,
+      }]);
+    } catch (error) {
       console.error('[reprocess attachment] Workflow start error:', error);
+      throw new ORPCError('INTERNAL_SERVER_ERROR', {
+        message: 'Failed to start attachment reprocessing workflow',
+      });
+    }
+
+    await updateWorkflowRunRecord(runId, {
+      status: 'running',
+      externalRunId: workflowRun?.runId,
     });
 
     return {

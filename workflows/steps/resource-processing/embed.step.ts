@@ -11,6 +11,7 @@ import {
   serializeMetadata,
   loadStructured,
 } from '@/workflows/support/helpers';
+import { recordWorkflowStage } from '@/lib/services/workflow-run-store';
 
 export async function runEmbedStage(input: ProcessResourceInput) {
   'use step';
@@ -20,6 +21,10 @@ export async function runEmbedStage(input: ProcessResourceInput) {
     if (!OPENAI_API_KEY) {
       throw new Error('Missing OPENAI_API_KEY');
     }
+
+    await recordWorkflowStage(input.runId, 'embed', {
+      status: 'Generating embeddings',
+    });
 
     // Use transaction with row-level locking to prevent race conditions
     const result = await db.transaction(async (tx) => {
@@ -59,6 +64,10 @@ export async function runEmbedStage(input: ProcessResourceInput) {
     // Run the complex EMBED stage implementation
     const { runEmbedStageImpl } = await import('@/workflows/steps/resource-processing/embed-stage.impl');
     await runEmbedStageImpl(input, structured);
+
+    await recordWorkflowStage(input.runId, 'embed', {
+      status: 'Embeddings generated',
+    });
 
     const metadata = parseMetadata(input.resourceId, null);
     await db

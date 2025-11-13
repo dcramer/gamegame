@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAdmin } from '@/lib/api/middleware';
 import { getWorkflowRun } from '@/lib/services/workflows';
+import { db } from '@/lib/db';
+import { workflowRuns } from '@/lib/db/schema';
+import { or, eq } from 'drizzle-orm';
 
 /**
  * GET /api/admin/workflows/:runId
@@ -21,6 +24,16 @@ export const GET = withAdmin(
 
     try {
       const workflow = await getWorkflowRun(runId);
+      const [workflowRow] = await db
+        .select()
+        .from(workflowRuns)
+        .where(
+          or(
+            eq(workflowRuns.id, runId),
+            eq(workflowRuns.externalRunId, runId)
+          )
+        )
+        .limit(1);
       const output = workflow.output;
       const outputIsObject =
         output && typeof output === 'object' && !Array.isArray(output);
@@ -49,6 +62,11 @@ export const GET = withAdmin(
         completedAt: workflow.completedAt?.toISOString(),
         output,
         input: workflow.input,
+        metadata: workflowRow?.metadata ?? null,
+        resourceId: workflowRow?.resourceId ?? null,
+        attachmentId: workflowRow?.attachmentId ?? null,
+        gameId: workflowRow?.gameId ?? null,
+        localRunId: workflowRow?.id ?? null,
       });
     } catch (error) {
       // Workflow not found

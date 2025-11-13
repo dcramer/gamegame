@@ -4,8 +4,9 @@
 
 import { db } from '../db';
 import { resources } from '../db/schema/resources';
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 import { getWorkflowRun } from '../services/workflows';
+import { workflowRuns } from '../db/schema/workflow-runs';
 
 export interface Job {
   id: string;
@@ -13,6 +14,7 @@ export interface Job {
   error: string | null;
   createdAt: Date;
   updatedAt: Date;
+  metadata?: Record<string, unknown> | null;
 }
 
 export async function getJobStatus(jobId: string): Promise<Job | null> {
@@ -23,12 +25,24 @@ export async function getJobStatus(jobId: string): Promise<Job | null> {
       return null;
     }
 
+    const [localRun] = await db
+      .select({ metadata: workflowRuns.metadata })
+      .from(workflowRuns)
+      .where(
+        or(
+          eq(workflowRuns.id, jobId),
+          eq(workflowRuns.externalRunId, jobId)
+        )
+      )
+      .limit(1);
+
     return {
       id: run.runId,
       status: run.status,
       error: run.error || null,
       createdAt: run.createdAt,
       updatedAt: run.updatedAt,
+      metadata: localRun?.metadata ?? null,
     };
   } catch (error) {
     console.error('Failed to get job status:', error);

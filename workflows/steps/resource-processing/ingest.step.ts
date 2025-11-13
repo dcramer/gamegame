@@ -13,6 +13,7 @@ import {
   loadStructured,
   fetchDocumentBuffer,
 } from '@/workflows/support/helpers';
+import { recordWorkflowStage } from '@/lib/services/workflow-run-store';
 
 export async function runIngestStage(input: ProcessResourceInput) {
   'use step';
@@ -22,6 +23,11 @@ export async function runIngestStage(input: ProcessResourceInput) {
     if (!MISTRAL_API_KEY) {
       throw new Error('Missing MISTRAL_API_KEY');
     }
+
+    await recordWorkflowStage(input.runId, 'ingest', {
+      status: 'Extracting PDF',
+      resourceId: input.resourceId,
+    });
 
     // Use transaction with row-level locking to prevent race conditions
     const result = await db.transaction(async (tx) => {
@@ -78,7 +84,16 @@ export async function runIngestStage(input: ProcessResourceInput) {
       })
       .where(eq(resources.id, input.resourceId));
 
-    const hasImages = extraction.structured.pages.some((page) => page.images.length > 0);
+    const pageCount = extraction.structured.pages.length;
+    const imageCount = extraction.structured.pages.reduce((count, page) => count + page.images.length, 0);
+    const hasImages = imageCount > 0;
+
+    await recordWorkflowStage(input.runId, 'ingest', {
+      status: 'PDF extracted',
+      pageCount,
+      imageCount,
+      hasImages,
+    });
     return { success: true, hasImages };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

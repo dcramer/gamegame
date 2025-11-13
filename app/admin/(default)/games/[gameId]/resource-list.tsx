@@ -300,6 +300,7 @@ export default function ResourceList({
                           removeAfter: null,
                         });
 
+                        let attachedToWorkflow = false;
                         try {
                           const result = await orpc.resources.reprocess({ id: resource.id });
 
@@ -324,6 +325,7 @@ export default function ResourceList({
                                 },
                               }
                             );
+                            attachedToWorkflow = true;
 
                             // Refresh to show processing status
                             router.refresh();
@@ -341,6 +343,10 @@ export default function ResourceList({
                             "error",
                             { removeAfter: 8000 }
                           );
+                        } finally {
+                          if (!attachedToWorkflow) {
+                            optimisticMessage.remove();
+                          }
                         }
                       }}
                     >

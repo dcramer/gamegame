@@ -11,6 +11,10 @@ import { resources, games } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { cancelWorkflowRun } from './workflows';
 import type { ReprocessStage } from '@/lib/reprocess/stages';
+import {
+  createWorkflowRunRecord,
+  updateWorkflowRunRecord,
+} from '@/lib/services/workflow-run-store';
 
 export interface ReprocessResourceInput {
   resourceId: string;
@@ -91,6 +95,21 @@ export async function reprocessResource(
     onlyStage: Boolean(input.onlyStage),
   };
 
+  await createWorkflowRunRecord({
+    runId,
+    workflowName: 'process-resource',
+    status: 'pending',
+    resourceId: resource.id,
+    gameId: resource.gameId,
+    metadata: {
+      jobName: `Processing ${resource.name}`,
+      resourceName: resource.name,
+      stage: startingStage,
+      onlyStage: Boolean(input.onlyStage),
+      fromStage: startingStage,
+    },
+  });
+
   let workflowRun;
   try {
     workflowRun = await start(processResourceWorkflow, [workflowInput]);
@@ -112,6 +131,11 @@ export async function reprocessResource(
 
   // Extract runId from the Run object returned by start()
   const actualRunId = workflowRun.runId;
+
+  await updateWorkflowRunRecord(runId, {
+    status: 'running',
+    externalRunId: actualRunId,
+  });
 
   // Update resource status with the actual workflow run ID
   const startingStage: ReprocessStage = input.fromStage || 'ingest';

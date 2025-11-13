@@ -17,6 +17,7 @@ type FlashType = "success" | "error" | "info";
 
 type FlashMessageOptions = {
   removeAfter?: number | null;
+  createdAt?: number;
 };
 
 export type FlashMessage = {
@@ -142,15 +143,14 @@ export default function FlashMessages({ children }: { children: ReactNode }) {
         flash: (
           message: string | ReactNode,
           type: FlashType = "success",
-          { removeAfter = ALIVE_TIME }: FlashMessageOptions = {
-            removeAfter: ALIVE_TIME,
-          }
+          options: FlashMessageOptions = { removeAfter: ALIVE_TIME }
         ) => {
+          const { removeAfter = ALIVE_TIME, createdAt } = options;
           const newFlash = {
             message,
             type,
             id: messageNum,
-            createdAt: Date.now(),
+            createdAt: createdAt ?? Date.now(),
 
             removeAfter: removeAfter
               ? new Date().getTime() + removeAfter
@@ -174,6 +174,10 @@ export default function FlashMessages({ children }: { children: ReactNode }) {
                       ...m,
                       message,
                       type: type ?? m.type,
+                      createdAt:
+                        options?.createdAt !== undefined
+                          ? options.createdAt
+                          : m.createdAt,
                       removeAfter:
                         options?.removeAfter === null
                           ? null

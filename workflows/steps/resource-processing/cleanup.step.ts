@@ -12,6 +12,7 @@ import {
   saveStructured,
   loadStructured,
 } from '@/workflows/support/helpers';
+import { recordWorkflowStage } from '@/lib/services/workflow-run-store';
 
 export async function runCleanupStage(input: ProcessResourceInput) {
   'use step';
@@ -21,6 +22,10 @@ export async function runCleanupStage(input: ProcessResourceInput) {
     if (!OPENAI_API_KEY) {
       throw new Error('Missing OPENAI_API_KEY');
     }
+
+    await recordWorkflowStage(input.runId, 'cleanup', {
+      status: 'Cleaning markdown content',
+    });
 
     // Use transaction with row-level locking to prevent race conditions
     const result = await db.transaction(async (tx) => {
@@ -72,6 +77,10 @@ export async function runCleanupStage(input: ProcessResourceInput) {
     });
 
     await saveStructured(input.resourceId, structured);
+
+    await recordWorkflowStage(input.runId, 'cleanup', {
+      status: 'Markdown cleanup complete',
+    });
 
     const metadata = parseMetadata(input.resourceId, null);
     await db

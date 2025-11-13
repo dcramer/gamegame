@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Children, cloneElement, isValidElement, useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import Link from 'next/link';
 import { Button } from './ui/button';
@@ -104,33 +104,45 @@ const AnswerWithCitations = ({
   answer: string;
   citations?: ParsedMessage['citations'];
 }) => {
+  const citationSplitRegex = /(\[\d+\])/g;
+  const citationExactRegex = /^\[(\d+)\]$/;
+  let citationKey = 0;
+
+  const renderCitationNodes = (node: any): any => {
+    if (typeof node === 'string') {
+      const parts = node.split(citationSplitRegex);
+      return parts.map((part) => {
+        const match = part.match(citationExactRegex);
+        if (match) {
+          const citationNumber = parseInt(match[1], 10);
+          const citation = citations?.[citationNumber - 1];
+          const key = `citation-${citationKey++}`;
+          return <CitationLink key={key} number={citationNumber} citation={citation} />;
+        }
+        return part;
+      });
+    }
+
+    if (Array.isArray(node)) {
+      return node.map(renderCitationNodes);
+    }
+
+    if (
+      isValidElement(node) &&
+      node.props?.children &&
+      (typeof node.type !== 'string' || (node.type !== 'code' && node.type !== 'pre'))
+    ) {
+      return cloneElement(node, undefined, renderCitationNodes(node.props.children));
+    }
+
+    return node;
+  };
+
   // Custom text renderer that handles citation links inline
   const components = {
     // Override text rendering to handle citations
     p: ({ children, ...props }: any) => {
-      // Process children to replace citation patterns
-      const processChildren = (child: any): any => {
-        if (typeof child === 'string') {
-          // Split on citation patterns
-          const parts = child.split(/(\[\d+\])/g);
-          return parts.map((part, idx) => {
-            const match = part.match(/^\[(\d+)\]$/);
-            if (match) {
-              const citationNumber = parseInt(match[1], 10);
-              const citation = citations?.[citationNumber - 1];
-              return <CitationLink key={`cite-${idx}`} number={citationNumber} citation={citation} />;
-            }
-            return part;
-          });
-        }
-        return child;
-      };
-
-      // Process all children recursively
-      const processedChildren = Array.isArray(children)
-        ? children.map(processChildren)
-        : processChildren(children);
-
+      const processedChildren = Children.toArray(renderCitationNodes(children));
       return <p {...props}>{processedChildren}</p>;
     },
   };

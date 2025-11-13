@@ -37,6 +37,7 @@ export default function AttachmentActions({
       removeAfter: null,
     });
 
+    let attachedToWorkflow = false;
     try {
       const response = await orpc.attachments.reprocess({ id: attachmentId });
 
@@ -61,6 +62,7 @@ export default function AttachmentActions({
             },
           }
         );
+        attachedToWorkflow = true;
         router.refresh();
       } else {
         optimisticMessage.update("Image analysis completed", "success", {
@@ -75,6 +77,10 @@ export default function AttachmentActions({
       optimisticMessage.update(`Failed to analyze: ${errorMessage}`, "error", {
         removeAfter: 8000,
       });
+    } finally {
+      if (!attachedToWorkflow) {
+        optimisticMessage.remove();
+      }
     }
   };
 

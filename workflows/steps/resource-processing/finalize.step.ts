@@ -6,6 +6,7 @@ import { db } from '@/lib/db';
 import { resources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { ProcessResourceInput } from '@/workflows/support/types';
+import { completeWorkflowRun } from '@/lib/services/workflow-run-store';
 
 export async function runFinalizeStage(input: ProcessResourceInput) {
   'use step';
@@ -21,6 +22,12 @@ export async function runFinalizeStage(input: ProcessResourceInput) {
         updatedAt: Date.now(),
       })
       .where(eq(resources.id, input.resourceId));
+
+    await completeWorkflowRun(input.runId, {
+      status: 'Processing complete',
+      resourceId: input.resourceId,
+      stage: 'finalize',
+    });
 
     return { success: true };
   } catch (error) {

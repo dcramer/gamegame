@@ -23,6 +23,16 @@ async function resourceStatus() {
     if (job.error) {
       console.log(`Error: ${job.error}`);
     }
+    if (job.metadata && typeof job.metadata === 'object') {
+      const stage = (job.metadata as Record<string, unknown>).stage;
+      const message = (job.metadata as Record<string, unknown>).message;
+      if (stage) {
+        console.log(`Stage: ${String(stage)}`);
+      }
+      if (message) {
+        console.log(`Info: ${String(message)}`);
+      }
+    }
     console.log(`Created: ${job.createdAt.toISOString()}`);
     console.log(`Updated: ${job.updatedAt.toISOString()}`);
   } catch (err: any) {

@@ -17,6 +17,7 @@ import {
   stripDataUriBase64,
 } from '@/workflows/support/helpers';
 import { analyzeBatchStep } from '@/workflows/steps/vision/analyze-image.step';
+import { recordWorkflowStage } from '@/lib/services/workflow-run-store';
 
 export interface BatchResourceInput {
   resourceId: string;
@@ -56,6 +57,11 @@ export async function analyzeBatchResourceStep(
     const structured = await loadStructured(input.resourceId);
     const images = structured.pages.flatMap((page) => page.images);
 
+    await recordWorkflowStage(input.runId, 'vision', {
+      status: 'Analyzing resource images',
+      imagesTotal: images.length,
+    });
+
     // If no images, skip vision processing and return
     if (images.length === 0) {
       await db
@@ -67,6 +73,9 @@ export async function analyzeBatchResourceStep(
         })
         .where(eq(resources.id, input.resourceId));
 
+      await recordWorkflowStage(input.runId, 'vision', {
+        status: 'No images to analyze',
+      });
       return { success: true, imagesProcessed: 0 };
     }
 
@@ -126,6 +135,11 @@ export async function analyzeBatchResourceStep(
         updatedAt: Date.now(),
       })
       .where(eq(resources.id, input.resourceId));
+
+    await recordWorkflowStage(input.runId, 'vision', {
+      status: 'Vision analysis complete',
+      imagesProcessed: analysisIndex,
+    });
 
     return {
       success: true,

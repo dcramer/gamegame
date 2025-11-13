@@ -1,14 +1,19 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useFlashMessages } from "./flashMessages";
 import type { FlashMessage } from "./flashMessages";
 
 const POLL_INTERVAL = 3000; // 3 seconds
 const AUTO_DISMISS_DELAY = 300000; // 5 minutes for workflow completions
-const STORAGE_KEY = "workflow_status";
 
-type WorkflowStatus = "pending" | "running" | "completed" | "failed" | "paused" | "cancelled";
+export type WorkflowStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "paused"
+  | "cancelled";
 
 interface WorkflowStatusData {
   runId: string;
@@ -18,6 +23,11 @@ interface WorkflowStatusData {
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
+  metadata?: Record<string, unknown> | null;
+  resourceId?: string | null;
+  attachmentId?: string | null;
+  gameId?: string | null;
+  localRunId?: string | null;
 }
 
 type WorkflowFlashCopy =
@@ -30,104 +40,347 @@ type WorkflowFlashCopy =
     };
 
 interface WorkflowFlashOptions {
-  /**
-   * Callback fired when workflow completes successfully
-   */
   onComplete?: () => void;
-
-  /**
-   * Callback fired when workflow fails
-   */
   onError?: (error: string) => void;
-
-  /**
-   * Human-readable workflow name for display
-   */
   displayName?: string;
-
-  /**
-   * Use an existing flash message (useful for optimistic toasts)
-   */
   existingMessage?: FlashMessage;
 }
 
-interface StoredWorkflowData {
+type NormalizedCopy = {
+  pending: string;
+  success: string;
+  failure: (error: string) => string;
+  cancelled: string;
+};
+
+interface RunController {
   runId: string;
-  workflowName: string;
-  displayName?: string;
-  createdAt: string;
+  normalizedCopy: NormalizedCopy;
+  message: FlashMessage;
+  options: WorkflowFlashOptions;
 }
 
-/**
- * Get stored workflow IDs from localStorage
- */
-function getStoredWorkflows(): Record<string, StoredWorkflowData> {
-  if (typeof window === "undefined") return {};
+const controllers = new Map<string, RunController>();
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let pollInFlight = false;
+let lastPollTime = 0;
 
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : {};
-  } catch (error) {
-    console.error("Failed to parse workflow storage:", error);
-    return {};
+function clearPollingIfIdle() {
+  if (controllers.size === 0 && pollTimer) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
   }
 }
 
-/**
- * Store workflow ID in localStorage
- */
-function storeWorkflow(runId: string, data: StoredWorkflowData): void {
-  if (typeof window === "undefined") return;
+type FlashFn = ReturnType<typeof useFlashMessages>["flash"];
 
-  try {
-    const workflows = getStoredWorkflows();
-    workflows[runId] = data;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(workflows));
-  } catch (error) {
-    console.error("Failed to store workflow:", error);
+function normalizeCopy(copy: WorkflowFlashCopy): NormalizedCopy {
+  if (typeof copy === "string") {
+    return {
+      pending: copy,
+      success: `${copy} completed`,
+      failure: (error: string) => `${copy} failed: ${error}`,
+      cancelled: `${copy} cancelled`,
+    };
   }
+
+  return {
+    pending: copy.pending,
+    success: copy.success ?? `${copy.pending} completed`,
+    failure:
+      copy.failure ??
+      ((error: string) => `${copy.pending} failed: ${error}`),
+    cancelled: copy.cancelled ?? `${copy.pending} cancelled`,
+  };
 }
 
-/**
- * Remove workflow ID from localStorage
- */
-function removeWorkflow(runId: string): void {
-  if (typeof window === "undefined") return;
-
-  try {
-    const workflows = getStoredWorkflows();
-    delete workflows[runId];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(workflows));
-  } catch (error) {
-    console.error("Failed to remove workflow:", error);
+function buildEntityLink(status: WorkflowStatusData) {
+  if (status.resourceId && status.gameId) {
+    return {
+      href: `/admin/games/${status.gameId}/resources/${status.resourceId}`,
+      label: "View resource",
+    };
   }
+  if (status.attachmentId && status.gameId) {
+    return {
+      href: `/admin/games/${status.gameId}/attachments/${status.attachmentId}`,
+      label: "View attachment",
+    };
+  }
+  return null;
 }
 
-/**
- * Fetch workflow status from API
- */
-async function fetchWorkflowStatus(runId: string): Promise<WorkflowStatusData | null> {
-  try {
-    const response = await fetch(`/api/admin/workflows/${runId}`);
+function formatProgress(status: WorkflowStatusData, fallback: string): ReactNode {
+  const metadata = status.metadata ?? {};
+  const jobName = typeof metadata.jobName === "string" ? metadata.jobName : undefined;
+  const label = typeof metadata.label === "string" ? metadata.label : undefined;
+  const stage = typeof metadata.stage === "string" ? metadata.stage : undefined;
+  const currentStatus =
+    typeof metadata.status === "string"
+      ? metadata.status
+      : typeof metadata.message === "string"
+        ? metadata.message
+        : undefined;
+  const percentValue = typeof metadata.progress === "number"
+    ? Math.round(metadata.progress * 100)
+    : typeof metadata.percent === "number"
+      ? Math.round(metadata.percent)
+      : undefined;
+  const counts = typeof metadata.completed === "number" && typeof metadata.total === "number"
+    ? `${metadata.completed}/${metadata.total}`
+    : undefined;
 
+  const header = jobName ?? label ?? fallback;
+  const details: string[] = [];
+  if (typeof percentValue === "number") {
+    details.push(`${percentValue}%`);
+  }
+  if (counts) {
+    details.push(counts);
+  }
+  if (stage && stage !== header) {
+    details.push(stage);
+  }
+  if (currentStatus) {
+    details.push(currentStatus);
+  }
+
+  const text = [header, ...details].filter(Boolean).join(" · ");
+  const progressPercent = typeof percentValue === "number" ? Math.max(0, Math.min(100, percentValue)) : null;
+  const entityLink = buildEntityLink(status);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span>{text}</span>
+      {progressPercent !== null && (
+        <div className="h-1.5 rounded-full bg-white/20 overflow-hidden">
+          <div
+            className="h-full bg-white transition-all"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+      )}
+      {entityLink && (
+        <a
+          href={entityLink.href}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs underline text-white/80 hover:text-white transition-colors"
+        >
+          {entityLink.label}
+        </a>
+      )}
+    </div>
+  );
+}
+
+function schedulePolling() {
+  if (pollTimer || controllers.size === 0) return;
+  pollTimer = setTimeout(async () => {
+    pollTimer = null;
+    await pollActiveControllers();
+    schedulePolling();
+  }, POLL_INTERVAL);
+}
+
+async function pollActiveControllers(force = false) {
+  if (pollInFlight || controllers.size === 0) {
+    return;
+  }
+  const now = Date.now();
+  if (!force && now - lastPollTime < POLL_INTERVAL) {
+    return;
+  }
+  pollInFlight = true;
+  lastPollTime = now;
+
+  const params = new URLSearchParams();
+  for (const runId of controllers.keys()) {
+    params.append("runId", runId);
+  }
+
+  try {
+    const response = await fetch(`/api/admin/workflows?${params.toString()}`);
     if (!response.ok) {
-      if (response.status === 404) {
-        // Workflow not found, might have been cleaned up
-        return null;
+      throw new Error(`Failed to fetch workflow statuses: ${response.status}`);
+    }
+    const statuses: WorkflowStatusData[] = await response.json();
+    const statusMap = new Map<string, WorkflowStatusData>();
+    for (const status of statuses) {
+      if (status.runId) {
+        statusMap.set(status.runId, status);
       }
-      throw new Error(`Failed to fetch workflow status: ${response.statusText}`);
+      if (status.localRunId) {
+        statusMap.set(status.localRunId, status);
+      }
     }
 
-    return await response.json();
+    for (const [runId, controller] of controllers) {
+      const status = statusMap.get(runId);
+      if (!status) {
+        controller.message.remove();
+        controllers.delete(runId);
+        continue;
+      }
+      handleStatusUpdate(runId, status);
+    }
   } catch (error) {
-    console.error(`Failed to fetch workflow ${runId}:`, error);
-    return null;
+    console.error("Failed to poll workflow statuses", error);
+  } finally {
+    pollInFlight = false;
   }
 }
 
-/**
- * Hook to track a workflow and show flash message with polling
- */
+function handleStatusUpdate(runId: string, status: WorkflowStatusData) {
+  const controller = controllers.get(runId);
+  if (!controller) return;
+
+  if (status.status === "pending" || status.status === "running") {
+    const text = formatProgress(status, controller.normalizedCopy.pending);
+    controller.message.update(text, "info", {
+      removeAfter: null,
+      createdAt: status.startedAt
+        ? new Date(status.startedAt).getTime()
+        : status.createdAt
+        ? new Date(status.createdAt).getTime()
+        : undefined,
+    });
+    return;
+  }
+
+  if (status.status === "completed") {
+    const text = formatProgress(status, controller.normalizedCopy.success);
+    controller.message.update(text, "success", {
+      removeAfter: AUTO_DISMISS_DELAY,
+      createdAt: status.startedAt
+        ? new Date(status.startedAt).getTime()
+        : status.createdAt
+        ? new Date(status.createdAt).getTime()
+        : undefined,
+    });
+    controllers.delete(runId);
+    clearPollingIfIdle();
+    controller.options.onComplete?.();
+    return;
+  }
+
+  if (status.status === "failed") {
+    const metaError =
+      typeof status.metadata?.error === "string"
+        ? status.metadata.error
+        : undefined;
+    const errorMsg = metaError || status.error || "Unknown error";
+    controller.message.update(controller.normalizedCopy.failure(errorMsg), "error", {
+      removeAfter: null,
+      createdAt: status.startedAt
+        ? new Date(status.startedAt).getTime()
+        : status.createdAt
+        ? new Date(status.createdAt).getTime()
+        : undefined,
+    });
+    controllers.delete(runId);
+    clearPollingIfIdle();
+    controller.options.onError?.(errorMsg);
+    return;
+  }
+
+  if (status.status === "cancelled") {
+    const text = formatProgress(status, controller.normalizedCopy.cancelled);
+    controller.message.update(text, "info", {
+      removeAfter: AUTO_DISMISS_DELAY,
+      createdAt: status.startedAt
+        ? new Date(status.startedAt).getTime()
+        : status.createdAt
+        ? new Date(status.createdAt).getTime()
+        : undefined,
+    });
+    controllers.delete(runId);
+    clearPollingIfIdle();
+    return;
+  }
+
+  // paused or other states
+  const text = formatProgress(status, controller.normalizedCopy.pending);
+  controller.message.update(text, "info", { removeAfter: null });
+}
+
+function registerController(controller: RunController, initialStatus?: WorkflowStatusData) {
+  const existing = controllers.get(controller.runId);
+  if (existing) {
+    controllers.set(controller.runId, {
+      ...existing,
+      normalizedCopy: controller.normalizedCopy,
+      options: controller.options,
+    });
+    return existing.message;
+  }
+
+  const originalRemove = controller.message.remove;
+  controller.message.remove = () => {
+    controllers.delete(controller.runId);
+    clearPollingIfIdle();
+    originalRemove();
+  };
+
+  controllers.set(controller.runId, controller);
+
+  if (initialStatus) {
+    handleStatusUpdate(controller.runId, initialStatus);
+  }
+
+  if (!initialStatus) {
+    void pollActiveControllers(true);
+  }
+
+  schedulePolling();
+
+  return controller.message;
+}
+
+function createDefaultCopy(status: WorkflowStatusData): NormalizedCopy {
+  const label =
+    (typeof status.metadata?.jobName === "string" && status.metadata?.jobName) ||
+    (typeof status.metadata?.label === "string" && status.metadata?.label) ||
+    status.workflowName;
+  return {
+    pending: `${label} running`,
+    success: `${label} completed`,
+    failure: (error: string) => `${label} failed: ${error}`,
+    cancelled: `${label} cancelled`,
+  };
+}
+
+function upsertRemoteStatus(status: WorkflowStatusData, flash: FlashFn) {
+  const runId = status.runId || status.localRunId;
+  if (!runId) return;
+
+  if (controllers.has(runId)) {
+    handleStatusUpdate(runId, status);
+    return;
+  }
+
+  const normalizedCopy = createDefaultCopy(status);
+  const startedAt = status.startedAt
+    ? new Date(status.startedAt).getTime()
+    : status.createdAt
+    ? new Date(status.createdAt).getTime()
+    : undefined;
+  const messageText = formatProgress(status, normalizedCopy.pending);
+  const message = flash(messageText, "info", {
+    removeAfter: null,
+    createdAt: startedAt,
+  });
+  registerController(
+    {
+      runId,
+      normalizedCopy,
+      message,
+      options: {},
+    },
+    status
+  );
+}
+
 export function useWorkflowFlash() {
   const { flash } = useFlashMessages();
 
@@ -136,186 +389,55 @@ export function useWorkflowFlash() {
     copy: WorkflowFlashCopy,
     options: WorkflowFlashOptions = {}
   ) => {
-    const { onComplete, onError, displayName, existingMessage } = options;
+    const normalizedCopy = normalizeCopy(copy);
 
-    const normalizedCopy = (() => {
-      if (typeof copy === "string") {
-        return {
-          pending: copy,
-          success: `${copy} completed`,
-          failure: (error: string) => `${copy} failed: ${error}`,
-          cancelled: `${copy} cancelled`,
-        };
-      }
-      return {
-        pending: copy.pending,
-        success: copy.success ?? `${copy.pending} completed`,
-        failure:
-          copy.failure ??
-          ((error: string) => `${copy.pending} failed: ${error}`),
-        cancelled: copy.cancelled ?? `${copy.pending} cancelled`,
-      };
-    })();
+    const message = options.existingMessage
+      ? options.existingMessage
+      : flash(normalizedCopy.pending, "info", { removeAfter: null });
 
-    // Store workflow in localStorage
-    storeWorkflow(runId, {
-      runId,
-      workflowName: displayName || normalizedCopy.pending,
-      displayName: displayName || normalizedCopy.pending,
-      createdAt: new Date().toISOString(),
-    });
-
-    // Create (or update) initial flash message
-    const message =
-      existingMessage ??
-      flash(normalizedCopy.pending, "info", { removeAfter: null });
-
-    if (existingMessage) {
-      existingMessage.update(normalizedCopy.pending, "info", {
+    if (options.existingMessage) {
+      options.existingMessage.update(normalizedCopy.pending, "info", {
         removeAfter: null,
       });
     }
 
-    // Start polling
-    const intervalId = setInterval(async () => {
-      const status = await fetchWorkflowStatus(runId);
-
-      if (!status) {
-        // Workflow not found, clean up
-        message.remove();
-        removeWorkflow(runId);
-        clearInterval(intervalId);
-        return;
-      }
-
-      // Update message based on status
-      if (status.status === "completed") {
-        message.update(
-          normalizedCopy.success,
-          "success",
-          { removeAfter: AUTO_DISMISS_DELAY }
-        );
-        removeWorkflow(runId);
-        clearInterval(intervalId);
-        onComplete?.();
-      } else if (status.status === "failed") {
-        const errorMsg = status.error || "Unknown error";
-        message.update(
-          normalizedCopy.failure(errorMsg),
-          "error",
-          { removeAfter: null } // Keep error visible until user dismisses
-        );
-        removeWorkflow(runId);
-        clearInterval(intervalId);
-        onError?.(errorMsg);
-      } else if (status.status === "cancelled") {
-        message.update(
-          normalizedCopy.cancelled,
-          "info",
-          { removeAfter: AUTO_DISMISS_DELAY }
-        );
-        removeWorkflow(runId);
-        clearInterval(intervalId);
-      }
-      // For "pending" or "running", keep polling
-    }, POLL_INTERVAL);
-
-    // Clean up interval if message is manually removed
-    const originalRemove = message.remove;
-    message.remove = () => {
-      clearInterval(intervalId);
-      removeWorkflow(runId);
-      originalRemove();
+    const controller: RunController = {
+      runId,
+      normalizedCopy,
+      message,
+      options,
     };
 
+    registerController(controller);
     return message;
   };
 }
 
-/**
- * Component to restore workflow status messages on page load
- * Should be mounted once in the admin layout
- */
 export function WorkflowStatusRestorer() {
   const { flash } = useFlashMessages();
-  const restoredRef = useRef(false);
 
   useEffect(() => {
-    // Only restore once
-    if (restoredRef.current) return;
-    restoredRef.current = true;
+    let cancelled = false;
 
-    const workflows = getStoredWorkflows();
-    const runIds = Object.keys(workflows);
-
-    if (runIds.length === 0) return;
-
-    // Check status of each stored workflow
-    runIds.forEach(async (runId) => {
-      const workflowData = workflows[runId];
-      const status = await fetchWorkflowStatus(runId);
-
-      if (!status) {
-        // Workflow not found, remove from storage
-        removeWorkflow(runId);
-        return;
+    (async () => {
+      try {
+        const response = await fetch("/api/admin/workflows");
+        if (!response.ok) {
+          throw new Error(`Failed to hydrate workflows: ${response.status}`);
+        }
+        const statuses: WorkflowStatusData[] = await response.json();
+        if (cancelled) return;
+        statuses.forEach((status) => {
+          upsertRemoteStatus(status, flash);
+        });
+      } catch (error) {
+        console.error("Failed to hydrate workflow statuses", error);
       }
+    })();
 
-      // If workflow is still running, create a flash message
-      if (status.status === "pending" || status.status === "running") {
-        const displayName = workflowData.displayName || workflowData.workflowName;
-        const message = flash(`${displayName} in progress...`, "info", { removeAfter: null });
-
-        // Start polling
-        const intervalId = setInterval(async () => {
-          const updatedStatus = await fetchWorkflowStatus(runId);
-
-          if (!updatedStatus) {
-            message.remove();
-            removeWorkflow(runId);
-            clearInterval(intervalId);
-            return;
-          }
-
-          if (updatedStatus.status === "completed") {
-            message.update(
-              `${displayName} completed`,
-              "success",
-              { removeAfter: AUTO_DISMISS_DELAY }
-            );
-            removeWorkflow(runId);
-            clearInterval(intervalId);
-          } else if (updatedStatus.status === "failed") {
-            message.update(
-              `${displayName} failed: ${updatedStatus.error || "Unknown error"}`,
-              "error",
-              { removeAfter: null }
-            );
-            removeWorkflow(runId);
-            clearInterval(intervalId);
-          } else if (updatedStatus.status === "cancelled") {
-            message.update(
-              `${displayName} cancelled`,
-              "info",
-              { removeAfter: AUTO_DISMISS_DELAY }
-            );
-            removeWorkflow(runId);
-            clearInterval(intervalId);
-          }
-        }, POLL_INTERVAL);
-
-        // Clean up interval if message is manually removed
-        const originalRemove = message.remove;
-        message.remove = () => {
-          clearInterval(intervalId);
-          removeWorkflow(runId);
-          originalRemove();
-        };
-      } else {
-        // Workflow finished, clean up storage
-        removeWorkflow(runId);
-      }
-    });
+    return () => {
+      cancelled = true;
+    };
   }, [flash]);
 
   return null;

@@ -7,6 +7,7 @@
 import { db } from '@/lib/db';
 import { resources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { failWorkflowRun } from '@/lib/services/workflow-run-store';
 
 export async function markJobFailedStep(runId: string, resourceId: string, error: string) {
   'use step';
@@ -21,4 +22,10 @@ export async function markJobFailedStep(runId: string, resourceId: string, error
       updatedAt: Date.now(),
     })
     .where(eq(resources.id, resourceId));
+
+  await failWorkflowRun(runId, error, {
+    status: 'Workflow failed',
+    resourceId,
+    stage: 'failed',
+  });
 }

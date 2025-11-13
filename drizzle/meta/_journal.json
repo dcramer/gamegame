@@ -43,6 +43,13 @@
       "when": 1762409748782,
       "tag": "0005_friendly_sumo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1762896291900,
+      "tag": "0006_mixed_mordo",
+      "breakpoints": true
     }
   ]
 }

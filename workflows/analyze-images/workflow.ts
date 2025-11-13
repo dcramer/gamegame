@@ -25,6 +25,7 @@ export async function analyzeImagesWorkflow(input: AnalyzeImagesInput): Promise<
 
     const result = await analyzeSingleAttachmentStep({
       attachmentId: input.attachmentId,
+      runId: input.runId,
     });
 
     if (!result.success) {
