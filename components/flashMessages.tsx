@@ -23,6 +23,7 @@ type FlashAction = {
 type FlashMessageOptions = {
   removeAfter?: number | null;
   createdAt?: number;
+  completedAt?: number;
   actions?: FlashAction[];
 };
 
@@ -32,6 +33,7 @@ export type FlashMessage = {
   type: FlashType;
   removeAfter: number | null;
   createdAt: number;
+  completedAt?: number;
   actions?: FlashAction[];
 
   update: (
@@ -74,19 +76,28 @@ export function Message({
   message,
   type,
   createdAt,
+  completedAt,
   onDismiss,
   actions,
-}: Pick<FlashMessage, "message" | "type" | "createdAt" | "actions"> & {
+}: Pick<FlashMessage, "message" | "type" | "createdAt" | "completedAt" | "actions"> & {
   onDismiss?: () => void;
 }) {
-  const [elapsed, setElapsed] = useState(() => Date.now() - createdAt);
+  const [elapsed, setElapsed] = useState(() =>
+    completedAt ? completedAt - createdAt : Date.now() - createdAt
+  );
 
   useEffect(() => {
+    // Don't update timer if already completed
+    if (completedAt) {
+      setElapsed(completedAt - createdAt);
+      return;
+    }
+
     const intervalId = setInterval(() => {
       setElapsed(Date.now() - createdAt);
     }, 1000);
     return () => clearInterval(intervalId);
-  }, [createdAt]);
+  }, [createdAt, completedAt]);
 
   return (
     <div
@@ -172,12 +183,13 @@ export default function FlashMessages({ children }: { children: ReactNode }) {
           type: FlashType = "success",
           options: FlashMessageOptions = { removeAfter: ALIVE_TIME }
         ) => {
-          const { removeAfter = ALIVE_TIME, createdAt, actions } = options;
+          const { removeAfter = ALIVE_TIME, createdAt, completedAt, actions } = options;
           const newFlash = {
             message,
             type,
             id: messageNum,
             createdAt: createdAt ?? Date.now(),
+            completedAt,
             actions,
 
             removeAfter: removeAfter
@@ -206,6 +218,10 @@ export default function FlashMessages({ children }: { children: ReactNode }) {
                         options?.createdAt !== undefined
                           ? options.createdAt
                           : m.createdAt,
+                      completedAt:
+                        options?.completedAt !== undefined
+                          ? options.completedAt
+                          : m.completedAt,
                       removeAfter:
                         options?.removeAfter === null
                           ? null

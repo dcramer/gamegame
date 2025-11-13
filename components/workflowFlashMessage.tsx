@@ -276,9 +276,13 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
 
       if (status.status === "completed") {
         const text = formatProgress(status, controller.normalizedCopy.success);
+        const completedAt = status.completedAt
+          ? new Date(status.completedAt).getTime()
+          : Date.now();
         controller.message.update(text, "success", {
-          removeAfter: 300000,
+          removeAfter: 30000, // 30 seconds
           createdAt: startedAt,
+          completedAt,
           actions: undefined,
         });
         controllers.delete(key);
@@ -292,9 +296,13 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
           typeof status.metadata?.error === "string" ? status.metadata.error : undefined;
         const errorMsg = metaError || status.error || "Unknown error";
         const runId = status.runId ?? status.localRunId;
+        const completedAt = status.completedAt
+          ? new Date(status.completedAt).getTime()
+          : Date.now();
         controller.message.update(controller.normalizedCopy.failure(errorMsg), "error", {
           removeAfter: null, // Don't auto-dismiss errors
           createdAt: startedAt,
+          completedAt,
           actions: runId ? [
             {
               label: "Retry",
@@ -310,9 +318,13 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
 
       if (status.status === "cancelled") {
         const text = formatProgress(status, controller.normalizedCopy.cancelled);
+        const completedAt = status.completedAt
+          ? new Date(status.completedAt).getTime()
+          : Date.now();
         controller.message.update(text, "warning", {
           removeAfter: 5000, // Auto-dismiss after 5 seconds
           createdAt: startedAt,
+          completedAt,
           actions: undefined,
         });
         controllers.delete(key);
