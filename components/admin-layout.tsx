@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import FlashMessages from "@/components/flashMessages";
-import { WorkflowStatusRestorer } from "@/components/workflowFlashMessage";
+import { WorkflowStatusProvider } from "@/components/workflowFlashMessage";
 import { Logo } from "@/components/logo";
 import Footer from "@/components/footer";
 
@@ -38,7 +38,7 @@ export default function AdminLayout({ children, showNavigation = true }: AdminLa
 
   return (
     <FlashMessages>
-      <WorkflowStatusRestorer />
+      <WorkflowStatusProvider>
       <div className="min-h-screen flex flex-col">
         {/* Header */}
         <header className="border-b border-border">
@@ -59,6 +59,7 @@ export default function AdminLayout({ children, showNavigation = true }: AdminLa
 
         <Footer isAdmin={true} />
       </div>
+      </WorkflowStatusProvider>
     </FlashMessages>
   );
 }

@@ -25,7 +25,7 @@ export async function runIngestStage(input: ProcessResourceInput) {
     }
 
     await recordWorkflowStage(input.runId, 'ingest', {
-      status: 'Extracting PDF',
+      status: 'Downloading PDF',
       resourceId: input.resourceId,
     });
 
@@ -64,12 +64,24 @@ export async function runIngestStage(input: ProcessResourceInput) {
 
     const { buffer, mimeType } = await fetchDocumentBuffer(input);
 
+    await recordWorkflowStage(input.runId, 'ingest', {
+      status: 'Extracting text with Mistral OCR',
+    });
+
     const { extractTextFromDocument } = await import('@/lib/pdf');
     const extraction = await extractTextFromDocument(buffer, MISTRAL_API_KEY, mimeType);
 
     if (!extraction.structured) {
       throw new Error('Document extraction did not return structured content');
     }
+
+    const pageCount = extraction.structured.pages.length;
+    const imageCount = extraction.structured.pages.reduce((count, page) => count + page.images.length, 0);
+    const hasImages = imageCount > 0;
+
+    await recordWorkflowStage(input.runId, 'ingest', {
+      status: `Extracted ${pageCount} pages, ${imageCount} images`,
+    });
 
     await saveStructured(input.resourceId, extraction.structured);
 
@@ -84,12 +96,8 @@ export async function runIngestStage(input: ProcessResourceInput) {
       })
       .where(eq(resources.id, input.resourceId));
 
-    const pageCount = extraction.structured.pages.length;
-    const imageCount = extraction.structured.pages.reduce((count, page) => count + page.images.length, 0);
-    const hasImages = imageCount > 0;
-
     await recordWorkflowStage(input.runId, 'ingest', {
-      status: 'PDF extracted',
+      status: 'Extraction complete',
       pageCount,
       imageCount,
       hasImages,

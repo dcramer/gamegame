@@ -266,10 +266,11 @@ export async function analyzeImagesBatch(
     context: ImageAnalysisContext;
   }>,
   openaiApiKey: string,
-  options: ImageAnalysisOptions & { batchSize?: number } = {}
+  options: ImageAnalysisOptions & { batchSize?: number; onProgress?: (completed: number, total: number) => void | Promise<void> } = {}
 ): Promise<ImageAnalysisResult[]> {
   const batchSize = options.batchSize || 3; // Conservative batch size for vision API
   const results: ImageAnalysisResult[] = [];
+  const total = images.length;
 
   for (let i = 0; i < images.length; i += batchSize) {
     const batch = images.slice(i, i + batchSize);
@@ -279,6 +280,12 @@ export async function analyzeImagesBatch(
     );
 
     results.push(...batchResults);
+
+    // Report progress after each batch
+    const completed = Math.min(i + batchSize, total);
+    if (options.onProgress) {
+      await options.onProgress(completed, total);
+    }
 
     // Delay between batches to respect rate limits
     if (i + batchSize < images.length) {

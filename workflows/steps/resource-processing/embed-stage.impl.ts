@@ -29,6 +29,7 @@ import {
   blobExists,
   type UploadedImage,
 } from '@/lib/services/blob-storage';
+import { recordWorkflowStage } from '@/lib/services/workflow-run-store';
 
 const CURRENT_EMBEDDING_VERSION = 3; // Match workers implementation
 
@@ -119,6 +120,10 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
   let structuredChanged = false;
 
   if (imagesToUpload.length > 0) {
+    await recordWorkflowStage(input.runId, 'embed', {
+      status: `Uploading ${imagesToUpload.length} images`,
+    });
+
     const uploadedImages = await uploadPDFImages(input.resourceId, imagesToUpload);
 
     uploadedImages.forEach((img) => {
@@ -283,7 +288,9 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
     })
   );
 
-  // Progress tracking removed - workflows are tracked via resources.processingStage
+  await recordWorkflowStage(input.runId, 'embed', {
+    status: `Generating HyDE questions for ${pdfChunks.length} chunks`,
+  });
 
   // Generate HyDE questions
   const { generateQuestionsForFragments } = await import('@/lib/services/hyde');
@@ -487,6 +494,10 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
     });
   });
 
+  await recordWorkflowStage(input.runId, 'embed', {
+    status: `Generating ${textsToEmbed.length} embeddings`,
+  });
+
   // Generate embeddings
   const { generateEmbeddings } = await import('@/lib/ai/embeddings');
   const [embeddingsData, version] = await generateEmbeddings(
@@ -541,11 +552,24 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
 
   // Insert fragments in batches
   const FRAGMENT_BATCH_SIZE = 10;
+  await recordWorkflowStage(input.runId, 'embed', {
+    status: `Storing fragments`,
+    completed: 0,
+    total: fragmentRecords.length,
+  });
+
   for (let i = 0; i < fragmentRecords.length; i += FRAGMENT_BATCH_SIZE) {
     const batch = fragmentRecords.slice(i, i + FRAGMENT_BATCH_SIZE);
     if (batch.length > 0) {
       await db.insert(fragments).values(batch);
     }
+
+    const completed = Math.min(i + FRAGMENT_BATCH_SIZE, fragmentRecords.length);
+    await recordWorkflowStage(input.runId, 'embed', {
+      status: `Storing fragments`,
+      completed,
+      total: fragmentRecords.length,
+    });
   }
 
   // Create embedding records with proper typing
@@ -591,11 +615,24 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
 
   // Insert embeddings in batches
   const EMBEDDING_BATCH_SIZE = 10;
+  await recordWorkflowStage(input.runId, 'embed', {
+    status: `Storing embeddings`,
+    completed: 0,
+    total: embeddingRecords.length,
+  });
+
   for (let i = 0; i < embeddingRecords.length; i += EMBEDDING_BATCH_SIZE) {
     const batch = embeddingRecords.slice(i, i + EMBEDDING_BATCH_SIZE);
     if (batch.length > 0) {
       await db.insert(embeddings).values(batch);
     }
+
+    const completed = Math.min(i + EMBEDDING_BATCH_SIZE, embeddingRecords.length);
+    await recordWorkflowStage(input.runId, 'embed', {
+      status: `Storing embeddings`,
+      completed,
+      total: embeddingRecords.length,
+    });
   }
 
   // Calculate resource stats

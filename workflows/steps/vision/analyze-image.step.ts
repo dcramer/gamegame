@@ -59,6 +59,7 @@ export interface AnalyzeBatchInput {
     context: ImageAnalysisContext;
   }>;
   batchSize?: number;
+  onProgress?: (completed: number, total: number) => void | Promise<void>;
 }
 
 export interface AnalyzeBatchResult {
@@ -82,7 +83,10 @@ export async function analyzeBatchStep(input: AnalyzeBatchInput): Promise<Analyz
     const analyses = await analyzeImagesBatch(
       input.images,
       OPENAI_API_KEY,
-      { batchSize: input.batchSize || 3 }
+      {
+        batchSize: input.batchSize || 3,
+        onProgress: input.onProgress,
+      }
     );
 
     return {

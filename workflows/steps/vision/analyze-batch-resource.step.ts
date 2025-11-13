@@ -90,10 +90,17 @@ export async function analyzeBatchResourceStep(
         },
       }));
 
-    // Run batch analysis
+    // Run batch analysis with progress tracking
     const batchResult = await analyzeBatchStep({
       images: imagesToAnalyze,
       batchSize: 3,
+      onProgress: async (completed, total) => {
+        await recordWorkflowStage(input.runId, 'vision', {
+          status: 'Analyzing images',
+          completed,
+          total,
+        });
+      },
     });
 
     if (!batchResult.success || !batchResult.analyses) {

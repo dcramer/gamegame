@@ -3,7 +3,7 @@ import { withAdmin } from '@/lib/api/middleware';
 import { db } from '@/lib/db';
 import { workflowRuns } from '@/lib/db/schema';
 import { getWorkflowRun } from '@/lib/services/workflows';
-import { desc, inArray, isNull, or } from 'drizzle-orm';
+import { desc, eq, inArray, isNull, or } from 'drizzle-orm';
 
 export const GET = withAdmin(async (request: NextRequest) => {
   const url = new URL(request.url);
@@ -37,6 +37,26 @@ export const GET = withAdmin(async (request: NextRequest) => {
   for (const row of rows) {
     try {
       const workflow = await getWorkflowRun(row.externalRunId ?? row.id);
+
+      // Sync database completedAt with Vercel workflow status
+      const isTerminalState =
+        workflow.status === 'completed' ||
+        workflow.status === 'failed' ||
+        workflow.status === 'cancelled';
+
+      if (isTerminalState && !row.completedAt) {
+        const completedAt = workflow.completedAt?.getTime() ?? Date.now();
+        await db
+          .update(workflowRuns)
+          .set({
+            completedAt,
+            status: workflow.status,
+            error: workflow.error ?? null,
+            updatedAt: Date.now(),
+          })
+          .where(eq(workflowRuns.id, row.id));
+      }
+
       results.push({
         runId: workflow.runId,
         status: workflow.status,
@@ -55,7 +75,18 @@ export const GET = withAdmin(async (request: NextRequest) => {
         localRunId: row.id,
       });
     } catch (error) {
-      // If the workflow no longer exists in the Vercel store, skip it.
+      // If the workflow no longer exists in the Vercel store, mark as completed
+      // (it was likely already finished and pruned from Vercel's storage)
+      if (!row.completedAt) {
+        await db
+          .update(workflowRuns)
+          .set({
+            completedAt: Date.now(),
+            status: 'completed',
+            updatedAt: Date.now(),
+          })
+          .where(eq(workflowRuns.id, row.id));
+      }
       console.warn('[admin/workflows] Missing workflow run', row.id, error);
     }
   }

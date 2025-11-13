@@ -7,7 +7,7 @@ import { nanoid } from 'nanoid';
 import { start } from 'workflow/api';
 import { processResourceWorkflow } from '@/workflows/process-resource';
 import { db } from '@/lib/db';
-import { resources, games } from '@/lib/db/schema';
+import { resources, games, workflowRuns } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { cancelWorkflowRun } from './workflows';
 import type { ReprocessStage } from '@/lib/reprocess/stages';
@@ -60,6 +60,30 @@ export async function reprocessResource(
       console.log(
         `[Reprocess Resource] Cancelled existing workflow run: ${resource.currentRunId}`
       );
+
+      // Mark the cancelled workflow as cancelled in our database
+      // This will cause the UI to stop polling it
+      // Try to find the local run ID for this external run ID
+      const [existingRun] = await db
+        .select({ id: workflowRuns.id, metadata: workflowRuns.metadata })
+        .from(workflowRuns)
+        .where(eq(workflowRuns.externalRunId, resource.currentRunId))
+        .limit(1);
+
+      if (existingRun) {
+        await db
+          .update(workflowRuns)
+          .set({
+            status: 'cancelled',
+            completedAt: Date.now(),
+            updatedAt: Date.now(),
+            metadata: {
+              ...(existingRun.metadata ?? {}),
+              status: 'Cancelled for reprocess',
+            },
+          })
+          .where(eq(workflowRuns.id, existingRun.id));
+      }
     } catch (cancelError) {
       console.error(
         '[Reprocess Resource] Failed to cancel existing workflow:',
@@ -83,6 +107,9 @@ export async function reprocessResource(
   // Create new run ID for workflow
   const runId = nanoid();
 
+  // Determine starting stage
+  const startingStage: ReprocessStage = input.fromStage || 'ingest';
+
   // Start workflow and wait for it to be registered
   const workflowInput = {
     runId,
@@ -105,6 +132,8 @@ export async function reprocessResource(
       jobName: `Processing ${resource.name}`,
       resourceName: resource.name,
       stage: startingStage,
+      status: 'Starting workflow...',
+      progress: 0,
       onlyStage: Boolean(input.onlyStage),
       fromStage: startingStage,
     },
@@ -133,12 +162,10 @@ export async function reprocessResource(
   const actualRunId = workflowRun.runId;
 
   await updateWorkflowRunRecord(runId, {
-    status: 'running',
     externalRunId: actualRunId,
   });
 
   // Update resource status with the actual workflow run ID
-  const startingStage: ReprocessStage = input.fromStage || 'ingest';
   await db
     .update(resources)
     .set({

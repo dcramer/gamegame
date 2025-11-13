@@ -110,6 +110,26 @@ export async function updateWorkflowRunRecord(
     .where(eq(workflowRuns.id, runId));
 }
 
+// Stage progress mapping for process-resource workflow
+const STAGE_PROGRESS: Record<string, number> = {
+  ingest: 0.15, // 15% - PDF extraction
+  vision: 0.35, // 35% - Image analysis (can be slow)
+  cleanup: 0.50, // 50% - Markdown cleanup
+  metadata: 0.60, // 60% - Metadata generation
+  embed: 0.85, // 85% - Embedding generation (slow)
+  finalize: 0.95, // 95% - Finalization
+};
+
+// Human-readable stage names
+const STAGE_NAMES: Record<string, string> = {
+  ingest: 'Extracting PDF',
+  vision: 'Analyzing Images',
+  cleanup: 'Cleaning Content',
+  metadata: 'Generating Metadata',
+  embed: 'Creating Embeddings',
+  finalize: 'Finalizing',
+};
+
 export async function recordWorkflowStage(
   runId: string | undefined,
   stage: string,
@@ -117,9 +137,17 @@ export async function recordWorkflowStage(
   label?: string
 ) {
   if (!runId) return;
+
+  // Calculate progress based on stage
+  const progress = STAGE_PROGRESS[stage] ?? 0;
+  const stageName = STAGE_NAMES[stage] ?? stage;
+
   await updateWorkflowRunRecord(runId, {
     metadata: {
       stage,
+      progress,
+      // Use provided status or default to stage name
+      status: metadata?.status ?? stageName,
       ...(metadata ?? {}),
     },
     label,
@@ -132,7 +160,10 @@ export async function completeWorkflowRun(
 ) {
   if (!runId) return;
   await updateWorkflowRunRecord(runId, {
-    metadata,
+    metadata: {
+      ...(metadata ?? {}),
+      progress: 1.0, // 100% complete
+    },
     completedAt: Date.now(),
   });
 }

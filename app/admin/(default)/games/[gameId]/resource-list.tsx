@@ -240,7 +240,10 @@ export default function ResourceList({
                   href={`/admin/games/${gameId}/resources/${resource.id}`}
                 >
                   <TableCell>
-                    <div>
+                    <div className="flex items-center gap-2">
+                      {!resource.pending && (resource.status === "processing" || resource.status === "queued") && (
+                        <Spinner size="sm" />
+                      )}
                       <Link
                         href={`/admin/games/${gameId}/resources/${resource.id}`}
                         className="font-semibold text-primary hover:underline"
@@ -257,16 +260,6 @@ export default function ResourceList({
                       </>
                     ) : resource.pending ? (
                       <em>Pending</em>
-                    ) : !resource.pending && (resource.status === "processing" || resource.status === "queued") ? (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Spinner size="sm" />
-                        <span>
-                          Processing...
-                          {resource.processingStage && resource.processingStage !== "ready" &&
-                            ` (${resource.processingStage})`
-                          }
-                        </span>
-                      </div>
                     ) : null}
                     {!resource.hasContent && !resource.pending && resource.status !== "processing" && resource.status !== "queued" ? (
                       <div className="text-destructive">Missing Content</div>
