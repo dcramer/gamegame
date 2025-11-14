@@ -526,6 +526,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
   // Create fragment records with proper typing
   const fragmentRecords: FragmentRecord[] = allFragmentsForEmbedding.map((item, index) => {
     const embeddingVector = fragmentEmbeddingMap.get(index) || [];
+    const searchText = item.searchableContent || item.content;
 
     return {
       id: nanoid(),
@@ -536,6 +537,7 @@ export async function runEmbedStageImpl(input: ProcessResourceInput, structured:
       content: item.content,
       embedding: embeddingVector, // Drizzle handles pgvector conversion from number[]
       searchableContent: item.searchableContent ?? null,
+      searchVector: sql`to_tsvector('english', ${searchText})`,
       syntheticQuestions: item.syntheticQuestions.length > 0 ? item.syntheticQuestions : null,
       answerTypes: item.answerTypes.length > 0 ? item.answerTypes : null,
       resourceName: resourceInfo.name ?? null,

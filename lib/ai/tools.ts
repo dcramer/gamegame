@@ -8,7 +8,7 @@ const searchResourcesInputSchema = z.object({
   query: z
     .string()
     .describe(
-      "Natural language search query. Use the user's question directly or rephrase it clearly (e.g., 'how do docks work' or 'dock mechanics and rules'). DO NOT keyword stuff."
+      "Natural language search query. Keep it simple and focused on key terms from the user's question (e.g., 'how do docks work' or 'dock rules'). Use the user's exact words when possible. DO NOT add extra context, semicolons, or keyword stuff."
     ),
   resourceType: z
     .enum(["all", "rulebook", "expansion", "faq", "errata"])

@@ -111,7 +111,7 @@ const AnswerWithCitations = ({
   const renderCitationNodes = (node: any): any => {
     if (typeof node === 'string') {
       const parts = node.split(citationSplitRegex);
-      return parts.map((part) => {
+      return parts.map((part, idx) => {
         const match = part.match(citationExactRegex);
         if (match) {
           const citationNumber = parseInt(match[1], 10);
@@ -119,12 +119,12 @@ const AnswerWithCitations = ({
           const key = `citation-${citationKey++}`;
           return <CitationLink key={key} number={citationNumber} citation={citation} />;
         }
-        return part;
+        return <span key={idx}>{part}</span>;
       });
     }
 
     if (Array.isArray(node)) {
-      return node.map(renderCitationNodes);
+      return node.map((n, idx) => <span key={idx}>{renderCitationNodes(n)}</span>);
     }
 
     if (
@@ -132,7 +132,7 @@ const AnswerWithCitations = ({
       node.props?.children &&
       (typeof node.type !== 'string' || (node.type !== 'code' && node.type !== 'pre'))
     ) {
-      return cloneElement(node, undefined, renderCitationNodes(node.props.children));
+      return cloneElement(node, node.props, renderCitationNodes(node.props.children));
     }
 
     return node;
@@ -142,9 +142,25 @@ const AnswerWithCitations = ({
   const components = {
     // Override text rendering to handle citations
     p: ({ children, ...props }: any) => {
-      const processedChildren = Children.toArray(renderCitationNodes(children));
+      const processedChildren = renderCitationNodes(children);
       return <p {...props}>{processedChildren}</p>;
     },
+    // Pass through other elements to maintain prose styling
+    ul: ({ children, ...props }: any) => <ul {...props}>{children}</ul>,
+    ol: ({ children, ...props }: any) => <ol {...props}>{children}</ol>,
+    li: ({ children, ...props }: any) => <li {...props}>{children}</li>,
+    h1: ({ children, ...props }: any) => <h1 {...props}>{children}</h1>,
+    h2: ({ children, ...props }: any) => <h2 {...props}>{children}</h2>,
+    h3: ({ children, ...props }: any) => <h3 {...props}>{children}</h3>,
+    h4: ({ children, ...props }: any) => <h4 {...props}>{children}</h4>,
+    h5: ({ children, ...props }: any) => <h5 {...props}>{children}</h5>,
+    h6: ({ children, ...props }: any) => <h6 {...props}>{children}</h6>,
+    blockquote: ({ children, ...props }: any) => <blockquote {...props}>{children}</blockquote>,
+    code: ({ children, ...props }: any) => <code {...props}>{children}</code>,
+    pre: ({ children, ...props }: any) => <pre {...props}>{children}</pre>,
+    a: ({ children, ...props }: any) => <a {...props}>{children}</a>,
+    strong: ({ children, ...props }: any) => <strong {...props}>{children}</strong>,
+    em: ({ children, ...props }: any) => <em {...props}>{children}</em>,
   };
 
   return (
