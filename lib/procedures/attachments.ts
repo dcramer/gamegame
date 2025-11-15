@@ -74,6 +74,7 @@ export const get = publicProcedure
         resourceId: attachments.resourceId,
         type: attachments.type,
         blobKey: attachments.blobKey,
+        url: attachments.url,
         mimeType: attachments.mimeType,
         originalFilename: attachments.originalFilename,
         pageNumber: attachments.pageNumber,
@@ -97,7 +98,7 @@ export const get = publicProcedure
 
     const result = {
       ...attachment,
-      url: attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null,
+      url: attachment.url ?? (attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null),
       bbox: parseBbox(attachment.bbox),
     };
 
@@ -126,6 +127,7 @@ export const listForResource = publicProcedure
         resourceId: attachments.resourceId,
         type: attachments.type,
         blobKey: attachments.blobKey,
+        url: attachments.url,
         mimeType: attachments.mimeType,
         originalFilename: attachments.originalFilename,
         pageNumber: attachments.pageNumber,
@@ -143,7 +145,7 @@ export const listForResource = publicProcedure
 
     return attachmentsList.map((attachment) => ({
       ...attachment,
-      url: attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null,
+      url: attachment.url ?? (attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null),
       bbox: parseBbox(attachment.bbox),
     }));
   });
@@ -170,6 +172,7 @@ export const listForGame = publicProcedure
         gameId: attachments.gameId,
         type: attachments.type,
         blobKey: attachments.blobKey,
+        url: attachments.url,
         mimeType: attachments.mimeType,
         originalFilename: attachments.originalFilename,
         pageNumber: attachments.pageNumber,
@@ -187,7 +190,7 @@ export const listForGame = publicProcedure
 
     return attachmentsList.map((attachment) => ({
       ...attachment,
-      url: attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null,
+      url: attachment.url ?? (attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null),
       bbox: parseBbox(attachment.bbox),
     }));
   });
@@ -232,7 +235,7 @@ export const update = adminProcedure
 
     const result = {
       ...updated,
-      url: updated.blobKey ? blobKeyToUrl(updated.blobKey) : null,
+      url: updated.url ?? (updated.blobKey ? blobKeyToUrl(updated.blobKey) : null),
       bbox: parseBbox(updated.bbox),
     };
 

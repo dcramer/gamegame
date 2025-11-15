@@ -78,6 +78,7 @@ interface WorkflowStatusContextValue {
 }
 
 const WorkflowStatusContext = createContext<WorkflowStatusContextValue | null>(null);
+const STORAGE_KEY = 'workflowFlash.runIds';
 
 function normalizeCopy(copy: WorkflowFlashCopy): NormalizedCopy {
   if (typeof copy === "string") {
@@ -224,6 +225,32 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
   const [hasActiveWorkflows, setHasActiveWorkflows] = useState(false);
 
   const pollRef = useRef<(() => Promise<void>) | undefined>(undefined);
+  const trackedRunIdsRef = useRef(new Set<string>());
+
+  const persistTrackedRuns = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const ids = Array.from(trackedRunIdsRef.current);
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
+  }, []);
+
+  const addTrackedRun = useCallback(
+    (runId: string) => {
+      if (!runId) return;
+      trackedRunIdsRef.current.add(runId);
+      persistTrackedRuns();
+    },
+    [persistTrackedRuns]
+  );
+
+  const removeTrackedRun = useCallback(
+    (runId: string) => {
+      if (!runId) return;
+      if (trackedRunIdsRef.current.delete(runId)) {
+        persistTrackedRuns();
+      }
+    },
+    [persistTrackedRuns]
+  );
 
   const handleCancel = useCallback(async (runId: string) => {
     try {
@@ -298,6 +325,7 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
         controllers.delete(key);
         setHasActiveWorkflows(controllers.size > 0);
         controller.options.onComplete?.();
+        removeTrackedRun(key);
         return;
       }
 
@@ -324,6 +352,7 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
         controllers.delete(key);
         setHasActiveWorkflows(controllers.size > 0);
         controller.options.onError?.(errorMsg);
+        removeTrackedRun(key);
         return;
       }
 
@@ -341,13 +370,14 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
         controllers.delete(key);
         setHasActiveWorkflows(controllers.size > 0);
         controller.options.onComplete?.();
+        removeTrackedRun(key);
         return;
       }
 
       const { content } = formatProgress(status, controller.normalizedCopy.pending);
       controller.message.update(content, "info", { removeAfter: null, createdAt: startedAt });
     },
-    [handleCancel, handleRetry]
+    [handleCancel, handleRetry, removeTrackedRun]
   );
 
   const poll = useCallback(async () => {
@@ -388,6 +418,7 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
             controllers.delete(runId);
             setHasActiveWorkflows(controllers.size > 0);
             controller.options.onComplete?.();
+            removeTrackedRun(runId);
           }
         }
       });
@@ -396,7 +427,7 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
     } finally {
       pollInFlightRef.current = false;
     }
-  }, [handleStatusUpdate]);
+  }, [handleStatusUpdate, removeTrackedRun]);
 
   // Store poll function in ref for handleRetry
   useEffect(() => {
@@ -432,11 +463,13 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
       controller.message.remove = () => {
         controllers.delete(controller.runId);
         setHasActiveWorkflows(controllers.size > 0);
+        removeTrackedRun(controller.runId);
         originalRemove();
       };
 
       controllers.set(controller.runId, controller);
       setHasActiveWorkflows(true);
+      addTrackedRun(controller.runId);
 
       if (initialStatus) {
         handleStatusUpdate(controller.runId, initialStatus);
@@ -445,7 +478,7 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
       }
       return controller.message;
     },
-    [handleStatusUpdate, poll]
+    [addTrackedRun, handleStatusUpdate, poll, removeTrackedRun]
   );
 
   const upsertStatus = useCallback(
@@ -484,30 +517,55 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    let cancelled = false;
+    if (typeof window === 'undefined') {
+      return;
+    }
 
-    (async () => {
-      try {
-        const response = await fetch("/api/admin/workflows");
-        if (!response.ok) {
-          throw new Error(`Failed to hydrate workflows: ${response.status}`);
-        }
-        const statuses: WorkflowStatusData[] = await response.json();
-        if (cancelled) return;
-        statuses.forEach(upsertStatus);
-        if (statuses.length > 0) {
-          void poll();
-        }
-      } catch (error) {
-        console.error("Failed to hydrate workflow statuses", error);
+    let cancelled = false;
+    const stored = window.sessionStorage.getItem(STORAGE_KEY);
+    if (!stored) {
+      return;
+    }
+
+    try {
+      const ids = (JSON.parse(stored) as unknown[])
+        .filter((value): value is string => typeof value === 'string' && value.length > 0);
+      ids.forEach((id) => trackedRunIdsRef.current.add(id));
+
+      if (ids.length === 0) {
+        return;
       }
-    })();
+
+      (async () => {
+        try {
+          const params = new URLSearchParams();
+          ids.forEach((id) => params.append('runId', id));
+          const response = await fetch(`/api/admin/workflows?${params.toString()}`);
+          if (!response.ok) {
+            throw new Error(`Failed to hydrate workflows: ${response.status}`);
+          }
+          const statuses: WorkflowStatusData[] = await response.json();
+          if (cancelled) return;
+          statuses.forEach(upsertStatus);
+          if (statuses.length > 0) {
+            void poll();
+          }
+        } catch (error) {
+          console.error('Failed to hydrate workflow statuses', error);
+          trackedRunIdsRef.current.clear();
+          window.sessionStorage.removeItem(STORAGE_KEY);
+        }
+      })();
+    } catch (error) {
+      console.error('Failed to parse stored workflows', error);
+      trackedRunIdsRef.current.clear();
+      window.sessionStorage.removeItem(STORAGE_KEY);
+    }
 
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
+  }, [poll, upsertStatus]);
 
   useEffect(() => {
     return () => {

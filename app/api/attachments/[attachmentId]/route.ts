@@ -61,6 +61,7 @@ export async function GET(
         resourceId: attachments.resourceId,
         type: attachments.type,
         blobKey: attachments.blobKey,
+        url: attachments.url,
         mimeType: attachments.mimeType,
         originalFilename: attachments.originalFilename,
         pageNumber: attachments.pageNumber,
@@ -84,7 +85,7 @@ export async function GET(
     // Get public URL
     const result = {
       ...attachment,
-      url: attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null,
+      url: attachment.url ?? (attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null),
       bbox: parseBbox(attachment.bbox),
     };
 
@@ -139,7 +140,7 @@ export const PATCH = withAdmin(async (
     // Get public URL
     const result = {
       ...updated,
-      url: updated.blobKey ? blobKeyToUrl(updated.blobKey) : null,
+      url: updated.url ?? (updated.blobKey ? blobKeyToUrl(updated.blobKey) : null),
       bbox: parseBbox(updated.bbox),
     };
 

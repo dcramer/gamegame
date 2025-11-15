@@ -148,20 +148,11 @@ describe.sequential('Attachment Reprocess API', () => {
       expect(data.error).toBe('Only image attachments can be reprocessed with vision');
     });
 
-    it('should successfully reprocess image attachment', async () => {
-      // Update the attachment first to simulate what the workflow does
-      await db
-        .update(attachments)
-        .set({
-          description: 'A game board showing player positions and resources',
-          isGoodQuality: 'good',
-          isRelevant: 1,
-          detectedType: 'diagram',
-          ocrText: 'Player 1: 5 points',
-        })
-        .where(eq(attachments.id, testAttachmentId));
-
-      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachmentId }));
+    it('should successfully queue image attachment reprocessing', async () => {
+      const response = await reprocessAttachment(
+        createNextRequest('http://localhost'),
+        createRouteContext({ attachmentId: testAttachmentId })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -169,18 +160,18 @@ describe.sequential('Attachment Reprocess API', () => {
       expect(invocations).toHaveLength(1);
       expect(invocations[0].workflowName).toBe('analyzeImagesWorkflow');
       expect(invocations[0].args[0]).toEqual({
+        runId: expect.any(String),
         mode: 'single-attachment',
         attachmentId: testAttachmentId,
         gameId: testGameId,
       });
 
-      // Verify response data
-      expect(data.id).toBe(testAttachmentId);
-      expect(data.description).toBe('A game board showing player positions and resources');
-      expect(data.isGoodQuality).toBe('good');
-      expect(data.isRelevant).toBe(1);
-      expect(data.detectedType).toBe('diagram');
-      expect(data.ocrText).toBe('Player 1: 5 points');
+      expect(data).toEqual({
+        id: testAttachmentId,
+        status: 'processing',
+        runId: expect.any(String),
+        message: 'Image reanalysis started',
+      });
     });
 
     it('should pass correct parameters to workflow', async () => {
@@ -206,25 +197,22 @@ describe.sequential('Attachment Reprocess API', () => {
       });
     });
 
-    it('should handle vision analysis with null ocrText', async () => {
-      // Update attachment to simulate workflow result with null ocrText
-      await db
-        .update(attachments)
-        .set({
-          description: 'Abstract game art',
-          isGoodQuality: 'bad',
-          isRelevant: 0,
-          detectedType: 'artwork',
-          ocrText: null,
-        })
-        .where(eq(attachments.id, testAttachmentId));
+    it('returns queue information for new attachments', async () => {
+      const attachment = await createTestAttachment(testResourceId, testGameId, {
+        type: 'image',
+        mimeType: 'image/png',
+      });
 
-      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachmentId }));
+      const response = await reprocessAttachment(
+        createNextRequest('http://localhost'),
+        createRouteContext({ attachmentId: attachment.id })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
-      expect(data.ocrText).toBeNull();
-      expect(data.isRelevant).toBe(0); // false converted to 0
+      expect(data.id).toBe(attachment.id);
+      expect(data.runId).toEqual(expect.any(String));
+      expect(data.status).toBe('processing');
     });
 
     it('should handle workflow errors', async () => {
@@ -238,35 +226,26 @@ describe.sequential('Attachment Reprocess API', () => {
       expect(data.error).toBe('Vision API timeout');
     });
 
-    it('should include blobKey URL in response', async () => {
-      const { blobKeyToUrl } = await import('@/lib/services/blob-storage');
-
+    it('responds with queue metadata regardless of attachment fields', async () => {
       const testAttachment = await createTestAttachment(testResourceId, testGameId, {
         type: 'image',
         mimeType: 'image/png',
         blobKey: 'my-blob-key.png',
-      });
-
-      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachment.id }));
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(blobKeyToUrl).toHaveBeenCalledWith('my-blob-key.png');
-      expect(data.url).toBe('https://blob.example.com/my-blob-key.png');
-    });
-
-    it('should parse bbox from array format', async () => {
-      const testAttachment = await createTestAttachment(testResourceId, testGameId, {
-        type: 'image',
-        mimeType: 'image/png',
         bbox: [100, 200, 400, 600] as any,
       });
 
-      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachment.id }));
+      const response = await reprocessAttachment(
+        createNextRequest('http://localhost'),
+        createRouteContext({ attachmentId: testAttachment.id })
+      );
       const data = await response.json();
 
       expect(response.status).toBe(200);
-      expect(data.bbox).toEqual([100, 200, 400, 600]);
+      expect(data).toMatchObject({
+        id: testAttachment.id,
+        status: 'processing',
+        runId: expect.any(String),
+      });
     });
   });
 });

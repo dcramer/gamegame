@@ -27,8 +27,9 @@ import {
   type UploadedImage,
 } from '@/lib/services/blob-storage';
 import { nanoid } from 'nanoid';
+import { CURRENT_INDEX_VERSION } from '@/lib/ai/embeddings';
 
-const CURRENT_EMBEDDING_VERSION = 3; // Match workers implementation
+const CURRENT_EMBEDDING_VERSION = CURRENT_INDEX_VERSION;
 
 type EmbedAttachmentRecord = Omit<NewAttachment, 'id' | 'blobKey' | 'mimeType'> & {
   id: string;

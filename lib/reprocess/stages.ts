@@ -18,13 +18,13 @@ export const REPROCESS_STAGE_DEFINITIONS: Record<ReprocessStage, StageDefinition
     label: 'Vision Analysis',
     actionTitle: 'Re-run Vision Analysis',
     actionDescription: 'Refresh GPT-5 image analysis without touching markdown, metadata, or embeddings.',
-    onlyStage: true,
+    onlyStage: false,
   },
   cleanup: {
     label: 'Markdown Cleanup',
     actionTitle: 'Re-run Markdown Cleanup',
     actionDescription: 'Reapply formatting heuristics while keeping existing images, metadata, and embeddings.',
-    onlyStage: true,
+    onlyStage: false,
   },
   metadata: {
     label: 'Metadata Generation',

@@ -43,6 +43,7 @@ async function getGameAttachments(gameId: string): Promise<Attachment[]> {
       resourceName: resources.name,
       type: attachments.type,
       blobKey: attachments.blobKey,
+      url: attachments.url,
       mimeType: attachments.mimeType,
       originalFilename: attachments.originalFilename,
       pageNumber: attachments.pageNumber,
@@ -61,7 +62,7 @@ async function getGameAttachments(gameId: string): Promise<Attachment[]> {
   // Convert to proper format
   return attachmentsList.map((attachment) => ({
     ...attachment,
-    url: attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : "",
+    url: attachment.url ?? (attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : ""),
     isGoodQuality: attachment.isGoodQuality === "good" ? true : attachment.isGoodQuality === "bad" ? false : null,
   }));
 }

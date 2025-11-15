@@ -62,6 +62,7 @@ interface UpdateWorkflowRunParams {
   externalRunId?: string | null;
   completedAt?: number | null;
   label?: string;
+  status?: WorkflowRunStatus;
 }
 
 export async function updateWorkflowRunRecord(
@@ -91,7 +92,7 @@ export async function updateWorkflowRunRecord(
   }
 
   const payload: Partial<NewWorkflowRunRow> = {
-    status: existing.status ?? 'running',
+    status: updates.status ?? existing.status ?? 'running',
     metadata: mergedMetadata,
     updatedAt: Date.now(),
   };
@@ -151,6 +152,7 @@ export async function recordWorkflowStage(
       ...(metadata ?? {}),
     },
     label,
+    status: 'running',
   });
 }
 
@@ -165,6 +167,7 @@ export async function completeWorkflowRun(
       progress: 1.0, // 100% complete
     },
     completedAt: Date.now(),
+    status: 'completed',
   });
 }
 
@@ -180,6 +183,7 @@ export async function failWorkflowRun(
       error,
     },
     completedAt: Date.now(),
+    status: 'failed',
   });
 }
 

@@ -41,6 +41,27 @@ async function resourceStatus() {
   }
 }
 
+async function createAuthedClient() {
+  const { createORPCClient } = await import('@orpc/client');
+  const { RPCLink } = await import('@orpc/client/fetch');
+  const { generateCliToken } = await import('../utils/auth');
+
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const token = await generateCliToken();
+
+  const link = new RPCLink({
+    url: `${baseUrl}/api/rpc`,
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return {
+    baseUrl,
+    orpc: createORPCClient<CallableRouter>(link),
+  };
+}
+
 async function reprocessResource() {
   const resourceId = process.argv[4];
   const fromStageArg = process.argv.find((arg) => arg.startsWith('--from='));
@@ -55,23 +76,7 @@ async function reprocessResource() {
   try {
     info(`Reprocessing resource ${resourceId}${fromStage ? ` from stage: ${fromStage}` : ''}...`);
 
-    // Use oRPC client with JWT auth
-    const { createORPCClient } = await import('@orpc/client');
-    const { RPCLink } = await import('@orpc/client/fetch');
-    const { generateCliToken } = await import('../utils/auth');
-
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const token = await generateCliToken();
-
-    // Create oRPC client with Bearer token auth
-    const link = new RPCLink({
-      url: `${baseUrl}/api/rpc`,
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-    });
-
-    const orpc = createORPCClient<CallableRouter>(link);
+    const { baseUrl, orpc } = await createAuthedClient();
 
     const result = await orpc.resources.reprocess({
       id: resourceId,
@@ -94,14 +99,10 @@ async function reprocessResource() {
 }
 
 async function reprocessAll() {
-  // Parse optional flags
   const gameIdArg = process.argv.find((arg) => arg.startsWith('--game='));
   const gameId = gameIdArg?.split('=')[1];
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-
   try {
-    // Get all resources
     const resourcesList = await getAllResources(gameId);
 
     if (resourcesList.length === 0) {
@@ -112,36 +113,17 @@ async function reprocessAll() {
     console.log(`Found ${resourcesList.length} resources to reprocess`);
     console.log('');
 
-    // Reprocess each resource
-    const results = [];
+    const { baseUrl, orpc } = await createAuthedClient();
+
+    const results: Array<{ resourceId: string; runId?: string; status: string; error?: string }> = [];
     for (const resource of resourcesList) {
       try {
-        const url = `${baseUrl}/api/workflows/process-resource`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            resourceId: resource.id,
-            gameId: resource.gameId,
-            name: resource.name,
-            url: resource.url,
-          }),
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          console.log(`✓ ${resource.id}: Job ${result.jobId} started`);
-          results.push({ resourceId: resource.id, jobId: result.jobId, status: 'started' });
-        } else {
-          const errorText = await response.text();
-          console.error(`✗ ${resource.id}: Failed - ${errorText}`);
-          results.push({ resourceId: resource.id, status: 'failed', error: errorText });
-        }
+        const response = await orpc.resources.reprocess({ id: resource.id });
+        console.log(`✓ ${resource.id}: Run ${response.runId} started`);
+        results.push({ resourceId: resource.id, runId: response.runId, status: 'started' });
       } catch (err: any) {
         console.error(`✗ ${resource.id}: ${err.message}`);
-        results.push({ resourceId: resource.id, status: 'error', error: err.message });
+        results.push({ resourceId: resource.id, status: 'failed', error: err.message });
       }
     }
 
@@ -151,10 +133,12 @@ async function reprocessAll() {
     );
     console.log('\nMonitor progress:');
     results
-      .filter((r) => r.jobId)
+      .filter((r) => r.runId)
       .forEach((r) => {
-        console.log(`  pnpm cli resources status ${r.jobId}`);
+        console.log(`  pnpm cli resources status ${r.runId}`);
       });
+    console.log('\nAdmin UI:');
+    console.log(`  ${baseUrl}/admin`);
   } catch (err: any) {
     error(`Failed to reprocess resources: ${err.message}`);
     process.exit(1);

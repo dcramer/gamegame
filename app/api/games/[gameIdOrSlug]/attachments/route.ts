@@ -47,6 +47,7 @@ export async function GET(
         resourceName: resources.name,
         type: attachments.type,
         blobKey: attachments.blobKey,
+        url: attachments.url,
         mimeType: attachments.mimeType,
         originalFilename: attachments.originalFilename,
         pageNumber: attachments.pageNumber,
@@ -96,7 +97,7 @@ export async function GET(
     // Convert to proper format
     const parsed = attachmentsList.map((attachment) => ({
       ...attachment,
-      url: attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null,
+      url: attachment.url ?? (attachment.blobKey ? blobKeyToUrl(attachment.blobKey) : null),
       bbox: parseBbox(attachment.bbox),
       isGoodQuality: attachment.isGoodQuality === 'good' ? true : attachment.isGoodQuality === 'bad' ? false : null,
     }));

@@ -7,40 +7,16 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { start } from 'workflow/api';
+import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { attachments } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { withAdmin, errorResponse, successResponse } from '@/lib/api/middleware';
 import { analyzeImagesWorkflow } from '@/workflows/analyze-images';
-
-/**
- * Helper to safely parse bbox JSON
- */
-function parseBbox(bboxValue: any): number[] | undefined {
-  if (!bboxValue) return undefined;
-
-  // If it's already an array, return it
-  if (Array.isArray(bboxValue)) {
-    if (bboxValue.every((v) => typeof v === 'number')) {
-      return bboxValue;
-    }
-    return undefined;
-  }
-
-  // If it's a string, try to parse it
-  if (typeof bboxValue === 'string') {
-    try {
-      const parsed = JSON.parse(bboxValue);
-      if (Array.isArray(parsed) && parsed.every((v) => typeof v === 'number')) {
-        return parsed;
-      }
-    } catch {
-      return undefined;
-    }
-  }
-
-  return undefined;
-}
+import {
+  createWorkflowRunRecord,
+  updateWorkflowRunRecord,
+} from '@/lib/services/workflow-run-store';
 
 /**
  * POST /api/attachments/:attachmentId/reprocess
@@ -75,10 +51,25 @@ export const POST = withAdmin(async (
       return errorResponse('Only image attachments can be reprocessed with vision', 400, 'VALIDATION_ERROR');
     }
 
-    // Call unified workflow in single-attachment mode
-    // Await completion since we need updated data immediately
+    const runId = nanoid();
+
+    await createWorkflowRunRecord({
+      runId,
+      workflowName: 'analyze-images',
+      status: 'pending',
+      attachmentId: attachment.id,
+      gameId: attachment.gameId,
+      metadata: {
+        jobName: `Analyze ${attachment.originalFilename ?? attachment.id}`,
+        stage: 'vision',
+        mode: 'single-attachment',
+      },
+    });
+
+    let workflowRun;
     try {
-      await start(analyzeImagesWorkflow, [{
+      workflowRun = await start(analyzeImagesWorkflow, [{
+        runId,
         mode: 'single-attachment',
         attachmentId,
         gameId: attachment.gameId,
@@ -92,26 +83,17 @@ export const POST = withAdmin(async (
       return errorResponse(errorMessage, 500, 'WORKFLOW_ERROR');
     }
 
-    // Fetch updated attachment
-    const [updated] = await db
-      .select()
-      .from(attachments)
-      .where(eq(attachments.id, attachmentId))
-      .limit(1);
+    await updateWorkflowRunRecord(runId, {
+      externalRunId: workflowRun?.runId,
+      status: 'running',
+    });
 
-    if (!updated) {
-      return errorResponse('Failed to fetch updated attachment', 500, 'INTERNAL_ERROR');
-    }
-
-    // Get public URL
-    const { blobKeyToUrl } = await import('@/lib/services/blob-storage');
-    const responseData = {
-      ...updated,
-      url: updated.blobKey ? blobKeyToUrl(updated.blobKey) : null,
-      bbox: parseBbox(updated.bbox),
-    };
-
-    return successResponse(responseData);
+    return successResponse({
+      id: attachment.id,
+      status: 'processing' as const,
+      runId: workflowRun?.runId ?? runId,
+      message: 'Image reanalysis started',
+    });
   } catch (error) {
     console.error('[POST /api/attachments/:attachmentId/reprocess] Error:', error);
 

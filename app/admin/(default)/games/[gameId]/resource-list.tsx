@@ -119,11 +119,19 @@ export default function ResourceList({
       formData.append('name', resource.name);
 
       // Note: Still using API route for resource creation because it handles FormData
-      const result = await fetch(`/api/games/${gameId}/resources`, {
+      const response = await fetch(`/api/games/${gameId}/resources`, {
         method: 'POST',
         body: formData,
         credentials: 'same-origin',
-      }).then(res => res.json());
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        const errorMessage = typeof errorBody.error === 'string' ? errorBody.error : `Upload failed (${response.status})`;
+        throw new Error(errorMessage);
+      }
+
+      const result = await response.json();
 
       uploadMessage.remove();
 
@@ -169,7 +177,11 @@ export default function ResourceList({
         router.refresh();
       }
     } catch (err: unknown) {
-      uploadMessage.remove();
+      uploadMessage.update(
+        err instanceof Error ? err.message : 'Failed to upload resource',
+        'error',
+        { removeAfter: 8000 }
+      );
       setAllResources((prev) =>
         prev.map((r) =>
           r.id === resource.id ? { ...r, error: (err as any).message } : r
