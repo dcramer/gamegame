@@ -45,3 +45,6 @@ next-env.d.ts
 
 # Local blob storage uploads
 /public/uploads
+
+# Workflow data (Local World filesystem storage)
+.workflow-data/

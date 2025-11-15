@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { games, resources, bggGames } from '@/lib/db/schema';
 import { eq, or } from 'drizzle-orm';
 import { Chat } from '@/components/chat';
+import { verifySession } from '@/lib/session';
 
 interface Game {
   id: string;
@@ -86,9 +87,11 @@ export default async function GameChatPage({
     notFound();
   }
 
+  const user = await verifySession();
+
   return (
     <div className="relative h-screen">
-      <Chat game={game} />
+      <Chat game={game} isAdmin={user?.isAdmin ?? false} />
     </div>
   );
 }

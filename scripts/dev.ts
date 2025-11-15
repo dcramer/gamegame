@@ -9,7 +9,8 @@ type ProcConfig = {
 
 const processes: ProcConfig[] = [
   { name: 'web', command: 'pnpm', args: ['dev:web'] },
-  { name: 'workflows', command: 'pnpm', args: ['dev:workflows'] },
+  // Workflows now use Local World (embedded in Next.js dev server)
+  // No separate worker process needed in development
 ];
 
 const children = new Map<

@@ -16,6 +16,7 @@ import {
   Search,
   FileText,
   Brain,
+  Settings,
 } from 'lucide-react';
 import { useAgentChat, type ChatMessage } from '@/lib/hooks/useAgentChat';
 
@@ -429,6 +430,7 @@ const defaultQuestions = [
 
 export function Chat({
   game,
+  isAdmin = false,
 }: {
   game: {
     id: string;
@@ -445,6 +447,7 @@ export function Chat({
       publishers: string[] | null;
     } | null;
   };
+  isAdmin?: boolean;
 }) {
   const [input, setInput] = useState("");
   const [imageError, setImageError] = useState(false);
@@ -630,26 +633,36 @@ export function Chat({
               </div>
             )}
             <p className="text-muted-foreground text-sm hidden lg:block">
-              {game.resourceCount || 0} resources{' '}
               <Button
                 size="sm"
                 variant="link"
                 onClick={() => {
                   sendMessage('What resources are you using?');
                 }}
+                className="p-0 h-auto"
               >
-                What are they?
+                {game.resourceCount || 0} resources
               </Button>
             </p>
           </div>
         </div>
       </div>
-      <Link href="/games">
-        <Button variant="ghost">
-          <span className="text-2xl">✕</span>
-          <span className="sr-only">Close chat</span>
-        </Button>
-      </Link>
+      <div className="flex items-center gap-1">
+        {isAdmin && (
+          <Link href={`/admin/games/${game.id}`}>
+            <Button variant="ghost" size="sm" title="Edit game">
+              <Settings className="w-5 h-5" />
+              <span className="sr-only">Edit game</span>
+            </Button>
+          </Link>
+        )}
+        <Link href="/games">
+          <Button variant="ghost">
+            <span className="text-2xl">✕</span>
+            <span className="sr-only">Close chat</span>
+          </Button>
+        </Link>
+      </div>
     </div>
   </>
   );

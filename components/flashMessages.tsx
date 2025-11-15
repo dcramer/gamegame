@@ -210,6 +210,17 @@ export default function FlashMessages({ children }: { children: ReactNode }) {
               setMessages((messages) => {
                 return messages.map((m) => {
                   if (m.id === newFlash.id) {
+                    // Calculate new removeAfter time
+                    let newRemoveAfter: number | null;
+                    if (options?.removeAfter === null) {
+                      newRemoveAfter = null;
+                    } else if (options?.removeAfter !== undefined) {
+                      // Always calculate from current time to avoid negative values
+                      newRemoveAfter = new Date().getTime() + options.removeAfter;
+                    } else {
+                      newRemoveAfter = m.removeAfter;
+                    }
+
                     return {
                       ...m,
                       message,
@@ -222,12 +233,7 @@ export default function FlashMessages({ children }: { children: ReactNode }) {
                         options?.completedAt !== undefined
                           ? options.completedAt
                           : m.completedAt,
-                      removeAfter:
-                        options?.removeAfter === null
-                          ? null
-                          : options?.removeAfter
-                          ? new Date().getTime() + options?.removeAfter
-                          : m.removeAfter,
+                      removeAfter: newRemoveAfter,
                       actions: options?.actions ?? m.actions,
                     };
                   } else {
