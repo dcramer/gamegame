@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAdmin } from '@/lib/api/middleware';
 import { db } from '@/lib/db';
-import { workflowRuns } from '@/lib/db/schema';
+import { workflowRuns, resources } from '@/lib/db/schema';
 import { getWorkflowRun } from '@/lib/services/workflows';
 import { desc, eq, inArray, isNull, or } from 'drizzle-orm';
 
@@ -75,17 +75,33 @@ export const GET = withAdmin(async (request: NextRequest) => {
         localRunId: row.id,
       });
     } catch (error) {
-      // If the workflow no longer exists in the Vercel store, mark as completed
-      // (it was likely already finished and pruned from Vercel's storage)
+      // If the workflow no longer exists in the Vercel store, mark as failed
+      // (it was likely incomplete and pruned, or never properly started)
       if (!row.completedAt) {
+        const now = Date.now();
         await db
           .update(workflowRuns)
           .set({
-            completedAt: Date.now(),
-            status: 'completed',
-            updatedAt: Date.now(),
+            completedAt: now,
+            status: 'failed',
+            error: 'Workflow run not found in storage',
+            updatedAt: now,
           })
           .where(eq(workflowRuns.id, row.id));
+
+        // Also update the associated resource if this was a resource processing workflow
+        if (row.resourceId) {
+          await db
+            .update(resources)
+            .set({
+              status: 'failed',
+              processingStage: 'ready',
+              processingMetadata: null,
+              currentRunId: null,
+              updatedAt: now,
+            })
+            .where(eq(resources.id, row.resourceId));
+        }
       }
       console.warn('[admin/workflows] Missing workflow run', row.id, error);
     }
