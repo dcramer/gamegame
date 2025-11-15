@@ -2,6 +2,8 @@
  * METADATA Step - Generate resource name and description
  */
 
+'use step';
+
 import { db } from '@/lib/db';
 import { resources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -14,8 +16,6 @@ import {
 import { recordWorkflowStage } from '@/lib/services/workflow-run-store';
 
 export async function runMetadataStage(input: ProcessResourceInput) {
-  'use step';
-
   try {
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     if (!OPENAI_API_KEY) {

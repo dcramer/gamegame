@@ -194,61 +194,42 @@ describe('analyzeImageQuality', () => {
     consoleSpy.mockRestore();
   });
 
-  it('should validate description field', async () => {
-    mockChatCompletion({
-      description: '', // Empty description
+  it('should work with structured outputs (strict JSON schema)', async () => {
+    const validJson = {
+      description: 'Test diagram showing game setup',
       quality: 'good',
       relevant: true,
       type: 'diagram',
       ocrText: null,
-    });
+    };
 
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // With structured outputs (strict: true), OpenAI guarantees schema-conformant JSON
+    // No markdown wrapping or validation needed
+    mockChatCompletion(validJson);
 
     const imageBuffer = createMockImageBuffer();
     const result = await analyzeImageQuality(imageBuffer, mockContext, 'test-api-key');
 
-    expect(result.description).toBe('');
-    expect(consoleSpy).toHaveBeenCalled();
-
-    consoleSpy.mockRestore();
+    expect(result.description).toBe('Test diagram showing game setup');
+    expect(result.quality).toBe('good');
+    expect(result.relevant).toBe(true);
+    expect(result.type).toBe('diagram');
   });
 
-  it('should validate quality field', async () => {
-    mockChatCompletion({
-      description: 'Test',
-      quality: 'invalid', // Invalid quality
-      relevant: true,
-      type: 'diagram',
-      ocrText: null,
-    });
+  it('should handle empty response from OpenAI', async () => {
+    // Mock an empty content response
+    mockChatCompletion('');
 
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const imageBuffer = createMockImageBuffer();
     const result = await analyzeImageQuality(imageBuffer, mockContext, 'test-api-key');
 
+    // Should return safe fallback
     expect(result.description).toBe('');
-    expect(consoleSpy).toHaveBeenCalled();
-
-    consoleSpy.mockRestore();
-  });
-
-  it('should validate type field', async () => {
-    mockChatCompletion({
-      description: 'Test',
-      quality: 'good',
-      relevant: true,
-      type: 'invalid_type', // Invalid type
-      ocrText: null,
-    });
-
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    const imageBuffer = createMockImageBuffer();
-    const result = await analyzeImageQuality(imageBuffer, mockContext, 'test-api-key');
-
-    expect(result.description).toBe('');
+    expect(result.quality).toBe('bad');
+    expect(result.relevant).toBe(false);
+    expect(result.type).toBe('decorative');
     expect(consoleSpy).toHaveBeenCalled();
 
     consoleSpy.mockRestore();

@@ -2,11 +2,11 @@
  * Delete Orphaned Blobs Step
  */
 
+'use step';
+
 export async function deleteOrphanedBlobs(
   orphanedBlobs: string[]
 ): Promise<{ deletedCount: number; failedDeletions: string[] }> {
-  'use step';
-
   if (orphanedBlobs.length === 0) {
     console.log('[Cleanup] No orphaned blobs to delete');
     return { deletedCount: 0, failedDeletions: [] };

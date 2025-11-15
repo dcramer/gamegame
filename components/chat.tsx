@@ -1,6 +1,6 @@
 'use client';
 
-import { Children, cloneElement, isValidElement, useEffect, useRef, useState } from 'react';
+import { Children, cloneElement, isValidElement, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import Link from 'next/link';
 import { Button } from './ui/button';
@@ -17,8 +17,10 @@ import {
   FileText,
   Brain,
   Settings,
+  ExternalLink,
 } from 'lucide-react';
-import { useAgentChat, type ChatMessage } from '@/lib/hooks/useAgentChat';
+import { useGameChat } from '@/lib/hooks/useGameChat';
+import type { ChatMessage, MessageTokenUsage } from '@/lib/hooks/useAgentChat';
 
 // Content block types for mixed media responses
 type TextBlock = {
@@ -54,6 +56,7 @@ interface ParsedMessage {
     pageRange?: [number, number];
     section?: string;
     quote?: string;
+    relevance?: 'primary' | 'supporting' | 'related';
   }>;
 }
 
@@ -69,6 +72,7 @@ const CitationLink = ({
     pageRange?: [number, number];
     section?: string;
     quote?: string;
+    relevance?: 'primary' | 'supporting' | 'related';
   };
 }) => {
   const tooltipContent = citation ? (
@@ -81,12 +85,31 @@ const CitationLink = ({
     </div>
   ) : null;
 
+  const anchorId = `citation-${number}`;
+  const locationLabel = citation
+    ? citation.pageRange && citation.pageRange.length === 2
+      ? `pp${citation.pageRange[0]}-${citation.pageRange[1]}`
+      : citation.pageNumber
+      ? `p${citation.pageNumber}`
+      : null
+    : null;
+  const pillLabel = citation
+    ? [citation.resourceName, locationLabel].filter(Boolean).join(', ')
+    : `Source ${number}`;
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <sup className="text-gray-500 font-bold cursor-help">
-          [{number}]
-        </sup>
+        <span className="inline-flex align-middle">
+          <a
+            href={`#${anchorId}`}
+            className="inline-flex items-center justify-center gap-1 mx-1 text-[0.7rem] leading-none font-semibold uppercase tracking-wide text-muted-foreground hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            aria-label={`Jump to citation ${number}`}
+          >
+            <span className="sr-only">Citation {number}: </span>
+            {pillLabel}
+          </a>
+        </span>
       </TooltipTrigger>
       {tooltipContent && (
         <TooltipContent side="top" className="max-w-xs">
@@ -112,16 +135,57 @@ const AnswerWithCitations = ({
   const renderCitationNodes = (node: any): any => {
     if (typeof node === 'string') {
       const parts = node.split(citationSplitRegex);
-      return parts.map((part, idx) => {
+      const elements: any[] = [];
+
+      for (let idx = 0; idx < parts.length; idx++) {
+        const part = parts[idx];
         const match = part.match(citationExactRegex);
         if (match) {
           const citationNumber = parseInt(match[1], 10);
           const citation = citations?.[citationNumber - 1];
-          const key = `citation-${citationKey++}`;
-          return <CitationLink key={key} number={citationNumber} citation={citation} />;
+          const keyBase = `citation-${citationKey++}`;
+          let punctuation = '';
+          const nextPart = parts[idx + 1];
+          if (typeof nextPart === 'string' && nextPart.length) {
+            const punctMatch = nextPart.match(/^([.,!?;:]+)(.*)$/);
+            if (punctMatch) {
+              punctuation = punctMatch[1];
+              parts[idx + 1] = punctMatch[2];
+            }
+          }
+
+          if (punctuation) {
+            elements.push(
+              <span key={`${keyBase}-punct`}>{punctuation}</span>
+            );
+          }
+
+          const prevPart = parts[idx - 1];
+          let needsSpaceBefore = false;
+          if (punctuation) {
+            needsSpaceBefore = true;
+          } else if (typeof prevPart === 'string' && prevPart.length > 0) {
+            const prevChar = prevPart[prevPart.length - 1];
+            needsSpaceBefore = !/\s/.test(prevChar);
+          } else if (elements.length > 0) {
+            needsSpaceBefore = true;
+          }
+
+          if (needsSpaceBefore) {
+            elements.push(
+              <span key={`${keyBase}-space`}>&nbsp;</span>
+            );
+          }
+
+          elements.push(
+            <CitationLink key={keyBase} number={citationNumber} citation={citation} />
+          );
+        } else if (part !== '') {
+          elements.push(<span key={`text-${idx}`}>{part}</span>);
         }
-        return <span key={idx}>{part}</span>;
-      });
+      }
+
+      return elements;
     }
 
     if (Array.isArray(node)) {
@@ -130,10 +194,18 @@ const AnswerWithCitations = ({
 
     if (
       isValidElement(node) &&
-      node.props?.children &&
       (typeof node.type !== 'string' || (node.type !== 'code' && node.type !== 'pre'))
     ) {
-      return cloneElement(node, node.props, renderCitationNodes(node.props.children));
+      const element = node as ReactElement<{ children?: ReactNode }>;
+      if (!element.props?.children) {
+        return node;
+      }
+
+      return cloneElement(
+        element,
+        element.props,
+        renderCitationNodes(element.props.children)
+      );
     }
 
     return node;
@@ -141,22 +213,45 @@ const AnswerWithCitations = ({
 
   // Custom text renderer that handles citation links inline
   const components = {
-    // Override text rendering to handle citations
+    // Override text-heavy elements to handle citations
     p: ({ children, ...props }: any) => {
       const processedChildren = renderCitationNodes(children);
       return <p {...props}>{processedChildren}</p>;
     },
-    // Pass through other elements to maintain prose styling
+    li: ({ children, ...props }: any) => {
+      const processedChildren = renderCitationNodes(children);
+      return <li {...props}>{processedChildren}</li>;
+    },
+    blockquote: ({ children, ...props }: any) => {
+      const processedChildren = renderCitationNodes(children);
+      return <blockquote {...props}>{processedChildren}</blockquote>;
+    },
+    h1: ({ children, ...props }: any) => {
+      const processedChildren = renderCitationNodes(children);
+      return <h1 {...props}>{processedChildren}</h1>;
+    },
+    h2: ({ children, ...props }: any) => {
+      const processedChildren = renderCitationNodes(children);
+      return <h2 {...props}>{processedChildren}</h2>;
+    },
+    h3: ({ children, ...props }: any) => {
+      const processedChildren = renderCitationNodes(children);
+      return <h3 {...props}>{processedChildren}</h3>;
+    },
+    h4: ({ children, ...props }: any) => {
+      const processedChildren = renderCitationNodes(children);
+      return <h4 {...props}>{processedChildren}</h4>;
+    },
+    h5: ({ children, ...props }: any) => {
+      const processedChildren = renderCitationNodes(children);
+      return <h5 {...props}>{processedChildren}</h5>;
+    },
+    h6: ({ children, ...props }: any) => {
+      const processedChildren = renderCitationNodes(children);
+      return <h6 {...props}>{processedChildren}</h6>;
+    },
     ul: ({ children, ...props }: any) => <ul {...props}>{children}</ul>,
     ol: ({ children, ...props }: any) => <ol {...props}>{children}</ol>,
-    li: ({ children, ...props }: any) => <li {...props}>{children}</li>,
-    h1: ({ children, ...props }: any) => <h1 {...props}>{children}</h1>,
-    h2: ({ children, ...props }: any) => <h2 {...props}>{children}</h2>,
-    h3: ({ children, ...props }: any) => <h3 {...props}>{children}</h3>,
-    h4: ({ children, ...props }: any) => <h4 {...props}>{children}</h4>,
-    h5: ({ children, ...props }: any) => <h5 {...props}>{children}</h5>,
-    h6: ({ children, ...props }: any) => <h6 {...props}>{children}</h6>,
-    blockquote: ({ children, ...props }: any) => <blockquote {...props}>{children}</blockquote>,
     code: ({ children, ...props }: any) => <code {...props}>{children}</code>,
     pre: ({ children, ...props }: any) => <pre {...props}>{children}</pre>,
     a: ({ children, ...props }: any) => <a {...props}>{children}</a>,
@@ -182,7 +277,7 @@ const ToolCallMessage = ({ message }: { message: Extract<ChatMessage, { type: 't
     }
     // Use lucide icons for tools
     if (name === 'search_resources') return <Search className="w-3 h-3" />;
-    if (name === 'search_media') return <ImageIcon className="w-3 h-3" />;
+    if (name === 'search_images') return <ImageIcon className="w-3 h-3" />;
     if (name === 'list_resources') return <FileText className="w-3 h-3" />;
     if (name === 'get_attachment') return <ImageIcon className="w-3 h-3" />;
     // Generic completed icon
@@ -191,7 +286,7 @@ const ToolCallMessage = ({ message }: { message: Extract<ChatMessage, { type: 't
 
   const getToolLabel = (name: string, args?: any) => {
     if (name === 'search_resources') return 'Searching rulebook';
-    if (name === 'search_media') return 'Searching for images';
+    if (name === 'search_images') return 'Searching for images';
     if (name === 'list_resources') return 'Checking available resources';
     if (name === 'get_attachment') {
       // Include attachment ID in the label to differentiate multiple image loads
@@ -205,7 +300,7 @@ const ToolCallMessage = ({ message }: { message: Extract<ChatMessage, { type: 't
     if (!args) return null;
 
     // Format search queries
-    if (name === 'search_resources' || name === 'search_media') {
+    if (name === 'search_resources' || name === 'search_images') {
       return args.query ? `"${args.query}"` : null;
     }
 
@@ -250,14 +345,82 @@ const ToolCallMessage = ({ message }: { message: Extract<ChatMessage, { type: 't
   );
 };
 
+const tokenNumberFormatter = new Intl.NumberFormat('en-US');
+
+const formatConfidenceLabel = (confidence?: 'high' | 'medium' | 'low') => {
+  if (!confidence) {
+    return '—';
+  }
+
+  return confidence.charAt(0).toUpperCase() + confidence.slice(1);
+};
+
+const formatResponseDurationLabel = (durationMs?: number | null) => {
+  if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs <= 0) {
+    return undefined;
+  }
+
+  if (durationMs < 1000) {
+    return `${Math.round(durationMs)} ms`;
+  }
+
+  const seconds = durationMs / 1000;
+  const precision = seconds >= 10 ? 0 : 1;
+  return `${seconds.toFixed(precision)} s`;
+};
+
+const formatTokensLabel = (tokens?: MessageTokenUsage | null) => {
+  if (!tokens) {
+    return undefined;
+  }
+
+  const parts: string[] = [];
+
+  if (tokens.inputTokens != null) {
+    parts.push(`${tokenNumberFormatter.format(tokens.inputTokens)} in`);
+  }
+
+  if (tokens.outputTokens != null) {
+    parts.push(`${tokenNumberFormatter.format(tokens.outputTokens)} out`);
+  }
+
+  if (tokens.totalTokens != null) {
+    parts.push(`${tokenNumberFormatter.format(tokens.totalTokens)} total`);
+  }
+
+  if (!parts.length) {
+    return undefined;
+  }
+
+  return parts.join(' · ');
+};
+
+const getFallbackResponseTimeMs = (messages: ChatMessage[], index: number) => {
+  const current = messages[index];
+  if (!current || current.type !== 'assistant') {
+    return undefined;
+  }
+
+  for (let i = index - 1; i >= 0; i--) {
+    const candidate = messages[i];
+    if (candidate.type === 'user') {
+      return current.timestamp - candidate.timestamp;
+    }
+  }
+
+  return undefined;
+};
+
 const SystemMessage = ({
   message,
   isCurrent,
   onFollowUp,
+  fallbackResponseTimeMs,
 }: {
   message: Extract<ChatMessage, { type: 'assistant' }>;
   isCurrent: boolean;
   onFollowUp: (followUp: string) => void;
+  fallbackResponseTimeMs?: number;
 }) => {
   const textContent = message.content;
 
@@ -274,7 +437,8 @@ const SystemMessage = ({
   try {
     parsed = JSON.parse(textContent);
   } catch (err) {
-    console.error("invalid payload", message);
+    // JSON parse errors during streaming are expected (incomplete/interrupted responses)
+    // Don't log - just show error to user
     return (
       <div className="bg-destructive text-destructive-foreground font-bold p-2 lg:p-3 rounded mb-4">
         There was an error processing your request. Please try again.
@@ -295,10 +459,23 @@ const SystemMessage = ({
 
   // Separate content blocks by type for rendering
   const imageBlocks = content.filter((block): block is ImageBlock => block.type === 'image');
+  const responseTimeMs = message.metadata?.responseTimeMs ?? fallbackResponseTimeMs ?? null;
+  const metadataLine = [
+    `Confidence: ${formatConfidenceLabel(confidence)}`,
+    `Response: ${formatResponseDurationLabel(responseTimeMs) ?? '—'}`,
+    `Tokens: ${formatTokensLabel(message.metadata?.tokens) ?? '—'}`,
+  ].join(' • ');
 
   return (
     <TooltipProvider>
       <div className="flex flex-col">
+        {citations?.length ? (
+          <div className="sr-only" aria-hidden="true">
+            {citations.map((_, index) => (
+              <span key={`citation-anchor-${index}`} id={`citation-${index + 1}`} />
+            ))}
+          </div>
+        ) : null}
         {/* Render content blocks in sequence */}
         <div className="flex flex-col gap-3">
           {content.map((block, index) => {
@@ -335,11 +512,9 @@ const SystemMessage = ({
             return null;
           })}
         </div>
-      {confidence && confidence !== 'high' && (
-        <div className="mt-3 text-sm text-yellow-400 bg-yellow-950/30 border border-yellow-900/50 rounded p-2">
-          ⚠️ Confidence: {confidence}
+        <div className="mt-3 text-xs text-muted-foreground">
+          {metadataLine}
         </div>
-      )}
       {!!ambiguities?.length && (
         <div className="mt-3 flex flex-col gap-2 text-sm">
           <h4 className="text-xs font-bold uppercase tracking-tight text-yellow-400">
@@ -454,11 +629,11 @@ export function Chat({
 
   const {
     messages,
-    isThinking,
     error,
     sendMessage,
+    stop,
     isLoading,
-  } = useAgentChat({
+  } = useGameChat({
     api: `/api/games/${game.id}/chat`,
     onError: (err) => {
       console.error('Chat error:', err);
@@ -501,6 +676,7 @@ export function Chat({
                 } else if (m.type === 'tool-call') {
                   return <ToolCallMessage key={m.id} message={m} />;
                 } else if (m.type === 'assistant') {
+                  const fallbackResponseTimeMs = getFallbackResponseTimeMs(visibleMessages, index);
                   return (
                     <SystemMessage
                       key={m.id}
@@ -509,14 +685,15 @@ export function Chat({
                       onFollowUp={(followUp) => {
                         sendMessage(followUp);
                       }}
+                      fallbackResponseTimeMs={fallbackResponseTimeMs}
                     />
                   );
                 }
                 return null;
               })}
 
-              {/* Show generic thinking indicator while loading (if no active tool calls) */}
-              {isLoading && isThinking && (
+              {/* Show generic thinking indicator while loading if no tool calls are visible */}
+              {isLoading && !messages.some(m => m.type === 'tool-call' && m.status === 'running') && (
                 <div className="flex items-center gap-2 text-muted-foreground text-xs">
                   <Brain className="w-3 h-3 animate-pulse" />
                   <span>Thinking...</span>
@@ -598,23 +775,21 @@ export function Chat({
         </div>
 
         <div>
-          <h2 className="text-xl lg:text-3xl font-bold">{game.name}</h2>
-          <div className="gap-4 items-center hidden lg:flex">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl lg:text-3xl font-bold">{game.name}</h2>
             {!!game.bggUrl && (
               <a
                 href={game.bggUrl}
-                className="group"
                 target="_blank"
                 rel="noopener noreferrer"
-                title={`${game.name} on Board Game Geek`}
+                title={`View ${game.name} on BoardGameGeek`}
+                className="text-muted-foreground hover:text-foreground transition-colors"
               >
-                <img
-                  src="/bgg.png"
-                  alt="Board Game Geek"
-                  className="w-5 h-5 grayscale group-hover:grayscale-0 rounded"
-                />
+                <ExternalLink className="w-4 h-4 lg:w-5 lg:h-5" />
               </a>
             )}
+          </div>
+          <div className="gap-4 items-center hidden lg:flex">
             {game.bggGame && (
               <div className="flex gap-3 text-muted-foreground text-sm items-center">
                 {game.bggGame.yearPublished && (

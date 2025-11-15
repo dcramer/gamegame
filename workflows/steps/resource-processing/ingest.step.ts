@@ -2,6 +2,8 @@
  * INGEST Step - Extract text and images from PDF using Mistral OCR
  */
 
+'use step';
+
 import { db } from '@/lib/db';
 import { resources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -16,8 +18,6 @@ import {
 import { recordWorkflowStage } from '@/lib/services/workflow-run-store';
 
 export async function runIngestStage(input: ProcessResourceInput) {
-  'use step';
-
   try {
     const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
     if (!MISTRAL_API_KEY) {

@@ -96,7 +96,7 @@ pnpm cli ask arcs "Show me the player mat" --verbose
 ```
 
 **What to look for in verbose mode:**
-- `tool-call: search_media` with description of visual content
+- `tool-call: search_images` with description of visual content
 - Image references in the response
 - Check that images are relevant to the question
 
@@ -193,7 +193,7 @@ finish event:
 ```
 
 **Verbose output includes:**
-- All tool calls (search_resources, search_media, get_attachment)
+- All tool calls (search_resources, search_images, get_attachment)
 - Tool arguments (query, resourceType, limit)
 - Tool results (first 100 chars, truncated for readability)
 - Token usage (input/output tokens)
@@ -224,17 +224,19 @@ Searches rulebook content using hybrid RAG (full-text + semantic search).
 - Section hierarchy (e.g., "Setup > Player Setup")
 - Image references if relevant
 
-### search_media
+### search_images
 
-Finds diagrams, setup photos, component images, and visual aids.
+Finds diagrams, setup photos, tables, and other visual aids with their surrounding rulebook context.
 
 **Parameters:**
-- `query` (required): Description of image to find (e.g., "setup diagram", "game board", "player mat")
+- `query` (required): Description of the image to find (e.g., "setup diagram", "player mat layout")
+- `limit` (optional, 1-8): Number of images to return (default: 3)
+- `imageType` (optional): Filter by detected type (`any`, `diagram`, `table`, `photo`, `icon`, `decorative`)
 
 **Returns:**
-- Image content blocks ready for display
-- Associated captions and page numbers
-- Bounding box information if available
+- Image content blocks ready for display (id, url/blob key, caption, page number)
+- Resource metadata (resourceId/resourceName, section)
+- Enriched fields for reasoning (detected type, OCR text when available, surrounding text snippet)
 
 ### get_attachment
 

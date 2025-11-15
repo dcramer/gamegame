@@ -15,6 +15,9 @@ export type ImageMetadata = {
   bbox?: [number, number, number, number];
   caption?: string;
   description?: string;
+  detectedType?: string;
+  ocrText?: string | null;
+  isRelevant?: boolean;
 };
 
 export const fragments = pgTable(

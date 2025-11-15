@@ -18,7 +18,7 @@ import { eq } from 'drizzle-orm';
 import { cleanupTestDb } from '@/tests/db-helpers';
 import { createTestGame } from '@/tests/fixtures';
 import { createMockFetch, openAI, routeAPICalls } from '@/tests/api-mocks';
-import { runEmbedStageImpl } from '@/workflows/steps/resource-processing/embed-stage.impl';
+import { runEmbedStageImpl } from '@/workflows/steps/resource-processing/embed.step';
 import type { StructuredPDFContent } from '@/lib/types/pdf';
 import { nanoid } from 'nanoid';
 

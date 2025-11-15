@@ -16,7 +16,12 @@ export interface SearchResult {
     url: string;
     bbox?: number[];
     caption?: string;
+    description?: string;
+    detectedType?: string;
+    ocrText?: string | null;
+    isRelevant?: boolean;
   }>;
+  searchableContent?: string | null;
 }
 
 /**
@@ -509,10 +514,7 @@ export async function findRelevantContent(
     answerTypes: fragments.answerTypes,
   };
 
-  // Only fetch searchableContent if reranking is enabled
-  if (enableReranking) {
-    selectFields.searchableContent = fragments.searchableContent;
-  }
+  selectFields.searchableContent = fragments.searchableContent;
 
   const fragmentData = await db
     .select(selectFields)
@@ -590,5 +592,6 @@ export async function findRelevantContent(
     pageNumber: f.pageNumber ?? undefined,
     section: f.section ?? undefined,
     images: f.images ?? undefined,
+    searchableContent: f.searchableContent ?? undefined,
   }));
 }

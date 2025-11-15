@@ -187,7 +187,6 @@ export const POST = withAdmin(async (
       const externalRunId = workflowRun.runId;
 
       await updateWorkflowRunRecord(runId, {
-        status: 'running',
         externalRunId,
       });
 

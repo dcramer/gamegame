@@ -5,13 +5,13 @@
  * Note: Steps cannot call workflows, only other steps.
  */
 
+'use step';
+
 import type { ProcessResourceInput } from '@/workflows/support/types';
 import { analyzeBatchResourceStep } from '@/workflows/steps/vision/analyze-batch-resource.step';
 import { recordWorkflowStage } from '@/lib/services/workflow-run-store';
 
 export async function runVisionStage(input: ProcessResourceInput) {
-  'use step';
-
   try {
     await recordWorkflowStage(input.runId, 'vision', {
       status: 'Analyzing resource images',

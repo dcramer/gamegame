@@ -103,6 +103,14 @@ export interface PDFChunk {
     url: string;
     bbox?: number[];
     caption?: string;
+    /** Vision-generated description aligned to this chunk */
+    description?: string;
+    /** Detected image type such as diagram or table */
+    detectedType?: string;
+    /** OCR text extracted from the image */
+    ocrText?: string | null;
+    /** Whether the image was marked relevant to gameplay */
+    isRelevant?: boolean;
   }>;
 }
 

@@ -13,11 +13,13 @@ const ALIVE_TIME = 5000; // ms
 
 let messageNum = 0;
 
-type FlashType = "success" | "error" | "info";
+type FlashType = "success" | "error" | "info" | "warning";
 
 type FlashAction = {
   label: string;
-  onClick: () => void;
+  onClick?: () => void;
+  href?: string;
+  align?: "left" | "right";
 };
 
 type FlashMessageOptions = {
@@ -102,7 +104,7 @@ export function Message({
   return (
     <div
       className={cn(
-        "rounded-md p-3 font-semibold opacity-90 relative pr-10 flex flex-col gap-1",
+        "rounded-md p-3 font-semibold opacity-90 relative pr-10 flex flex-col gap-2",
         type === "success" ? "bg-green-700 text-green-50" : "",
         type === "error" ? "bg-red-700 text-red-50" : "",
         type === "info" ? "bg-slate-700 text-slate-50" : "",
@@ -110,15 +112,44 @@ export function Message({
       )}
     >
       <div>{message}</div>
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-white/70">
-          {formatElapsed(elapsed)}
-        </span>
-        {actions && actions.length > 0 && (
-          <>
-            <span className="text-white/40">·</span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-white/70 min-w-[3rem] tabular-nums">
+            {formatElapsed(elapsed)}
+          </span>
+          {actions && actions.filter((a) => a.align !== "right").length > 0 && (
             <div className="flex gap-2">
-              {actions.map((action, i) => (
+              {actions
+                .filter((a) => a.align !== "right")
+                .map((action, i) =>
+                  action.href ? (
+                    <a
+                      key={i}
+                      href={action.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs font-semibold uppercase tracking-wide underline hover:text-white/90 transition-colors"
+                    >
+                      {action.label}
+                    </a>
+                  ) : (
+                    <button
+                      key={i}
+                      onClick={action.onClick}
+                      className="text-xs font-semibold uppercase tracking-wide underline hover:text-white/90 transition-colors cursor-pointer"
+                    >
+                      {action.label}
+                    </button>
+                  )
+                )}
+            </div>
+          )}
+        </div>
+        {actions && actions.filter((a) => a.align === "right").length > 0 && (
+          <div className="flex gap-2">
+            {actions
+              .filter((a) => a.align === "right")
+              .map((action, i) => (
                 <button
                   key={i}
                   onClick={action.onClick}
@@ -127,8 +158,7 @@ export function Message({
                   {action.label}
                 </button>
               ))}
-            </div>
-          </>
+          </div>
         )}
       </div>
       {onDismiss && (
@@ -251,7 +281,7 @@ export default function FlashMessages({ children }: { children: ReactNode }) {
         },
       }}
     >
-      <div className="fixed right-0 top-0 z-50 flex max-w-xl flex-col gap-y-4 p-4">
+      <div className="fixed right-0 top-0 z-50 flex w-full md:w-auto md:min-w-[400px] md:max-w-xl flex-col gap-y-4 p-4">
         {messages.map((m) => (
           <Message {...m} key={m.id} onDismiss={m.remove} />
         ))}

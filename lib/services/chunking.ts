@@ -36,7 +36,16 @@ function getCurrentSection(
  */
 function getRelevantImages(
   page: PDFPage
-): Array<{ id: string; url: string; bbox?: number[]; caption?: string }> {
+): Array<{
+  id: string;
+  url: string;
+  bbox?: number[];
+  caption?: string;
+  description?: string;
+  detectedType?: string;
+  ocrText?: string | null;
+  isRelevant?: boolean;
+}> {
   // Include all images from the page that have URLs
   return page.images
     .filter((img): img is typeof img & { url: string } => !!img.url)
@@ -45,6 +54,13 @@ function getRelevantImages(
       url: img.url,
       bbox: img.bbox,
       caption: img.caption,
+      description: img.description,
+      detectedType: typeof img.detectedType === 'string' ? img.detectedType : undefined,
+      ocrText: typeof img.ocrText === 'string' ? img.ocrText : null,
+      isRelevant:
+        typeof img.isRelevant === 'number'
+          ? img.isRelevant === 1
+          : undefined,
     }));
 }
 

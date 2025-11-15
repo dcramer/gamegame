@@ -13,6 +13,8 @@
  * All Node.js operations must be in step functions.
  */
 
+'use workflow';
+
 import type { ReprocessStage } from '@/lib/reprocess/stages';
 import { runIngestStage } from '@/workflows/steps/resource-processing/ingest.step';
 import { runVisionStage } from '@/workflows/steps/resource-processing/vision.step';
@@ -31,8 +33,6 @@ function extractErrorMessage(result: { success: boolean } & Record<string, unkno
 }
 
 export async function processResourceWorkflow(input: ProcessResourceInput) {
-  'use workflow';
-
   const stageOrder: ReprocessStage[] = ['ingest', 'vision', 'cleanup', 'metadata', 'embed'];
   const startStage: ReprocessStage = input.fromStage || 'ingest';
   const onlyStage = Boolean(input.onlyStage);

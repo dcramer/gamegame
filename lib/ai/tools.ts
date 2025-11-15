@@ -2,6 +2,7 @@ import { z } from "zod";
 import { findRelevantContent } from "./search";
 import { db } from "../db";
 import { resources, attachments } from "../db/schema";
+import { DETECTED_IMAGE_TYPES } from "../db/schema/attachments";
 import { eq } from "drizzle-orm";
 
 const searchResourcesInputSchema = z.object({
@@ -26,15 +27,27 @@ const searchResourcesInputSchema = z.object({
 
 type SearchResourcesInput = z.infer<typeof searchResourcesInputSchema>;
 
-const searchMediaInputSchema = z.object({
+const IMAGE_TYPE_OPTIONS = ['any', ...DETECTED_IMAGE_TYPES] as const;
+
+const searchImagesInputSchema = z.object({
   query: z
     .string()
     .describe(
-      'What image/diagram to find (e.g., "setup diagram", "game board", "player board")'
+      'What visual you need (e.g., "setup diagram", "player mat layout", "resource reference table"). Use concise, literal descriptions pulled from the user prompt.'
     ),
+  limit: z
+    .number()
+    .min(1)
+    .max(8)
+    .default(3)
+    .describe("How many images to retrieve (1-8). Default: 3"),
+  imageType: z
+    .enum(IMAGE_TYPE_OPTIONS)
+    .default("any")
+    .describe('Filter by detected type (diagram, table, photo, icon, decorative). Use "any" for broad searches.'),
 });
 
-type SearchMediaInput = z.infer<typeof searchMediaInputSchema>;
+type SearchImagesInput = z.infer<typeof searchImagesInputSchema>;
 
 const getAttachmentInputSchema = z.object({
   attachmentId: z
@@ -69,41 +82,51 @@ export function getTools(
       },
     },
 
-    search_media: {
+    search_images: {
       description:
-        "Find diagrams, setup photos, component images, and visual aids from rulebooks. Returns image content blocks that can be directly included in your response. Use when the user wants to SEE something, understand layout visually, identify components, or when text alone is not sufficient.",
-      inputSchema: searchMediaInputSchema,
-      execute: async ({ query }: SearchMediaInput) => {
+        "Find diagrams, setup photos, tables, and component close-ups with surrounding rulebook context. Use when the user explicitly asks to SEE something, or when a visual reference removes ambiguity.",
+      inputSchema: searchImagesInputSchema,
+      execute: async ({ query, limit, imageType }: SearchImagesInput) => {
+        const normalizedType = imageType === "any" ? undefined : imageType;
         const searchResults = await findRelevantContent(gameId, query, openaiApiKey, {
           fragmentType: "image",
-          limit: 5, // Fewer images
+          limit,
           environment,
           enableReranking: false,
         });
 
-        // Transform SearchResults into image content blocks
         const imageBlocks = [];
         for (const result of searchResults) {
-          if (result.images) {
-            for (const image of result.images) {
-              // Extract blobKey from URL if present
-              const urlMatch = image.url.match(/\/api\/blob\/([^?]+)/);
-              const blobKey = urlMatch ? urlMatch[1] : null;
+          if (!result.images || result.images.length === 0) {
+            continue;
+          }
 
-              imageBlocks.push({
-                type: "image",
-                id: image.id,
-                source: {
-                  url: image.url,
-                  blobKey: blobKey,
-                },
-                caption: image.caption ?? null,
-                pageNumber: result.pageNumber ?? null,
-                // Include resource metadata for context
-                resourceId: result.resourceId,
-                resourceName: result.resourceName,
-              });
-            }
+          const contextualSnippet = extractContextSnippet(result.searchableContent);
+          const filteredImages = result.images.filter((image) => {
+            if (!normalizedType) return true;
+            return image.detectedType === normalizedType;
+          });
+
+          for (const image of filteredImages) {
+            if (!image.url) continue;
+
+            imageBlocks.push({
+              type: "image",
+              id: image.id,
+              source: {
+                url: image.url,
+                blobKey: extractBlobKey(image.url),
+              },
+              caption: image.caption ?? image.description ?? result.content ?? null,
+              pageNumber: result.pageNumber ?? null,
+              resourceId: result.resourceId,
+              resourceName: result.resourceName,
+              section: result.section ?? null,
+              description: image.description ?? result.content ?? null,
+              detectedType: image.detectedType ?? null,
+              ocrText: image.ocrText ?? null,
+              surroundingText: contextualSnippet,
+            });
           }
         }
 
@@ -188,4 +211,42 @@ export function getTools(
       },
     },
   };
+}
+
+function extractContextSnippet(searchableContent?: string | null): string | null {
+  if (!searchableContent) {
+    return null;
+  }
+
+  const marker = '--- SURROUNDING TEXT ---';
+  const markerIndex = searchableContent.indexOf(marker);
+  if (markerIndex === -1) {
+    return null;
+  }
+
+  const afterMarker = searchableContent
+    .slice(markerIndex + marker.length)
+    .trim();
+
+  if (!afterMarker) {
+    return null;
+  }
+
+  const nextSectionIndex = afterMarker.indexOf('--- ');
+  const snippet =
+    nextSectionIndex === -1
+      ? afterMarker.trim()
+      : afterMarker.slice(0, nextSectionIndex).trim();
+
+  if (!snippet) {
+    return null;
+  }
+
+  return snippet.length > 600 ? `${snippet.slice(0, 600)}…` : snippet;
+}
+
+function extractBlobKey(url: string): string | null {
+  if (!url) return null;
+  const match = url.match(/\/api\/blob\/([^?]+)/);
+  return match ? match[1] : null;
 }

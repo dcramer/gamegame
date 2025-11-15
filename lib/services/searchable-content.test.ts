@@ -6,7 +6,7 @@ import {
   validateSearchableContentSize,
 } from './searchable-content';
 import type { PDFChunk, PDFPage, PDFImage } from '../types/pdf';
-import type { Resource, Attachment } from '../db/schema';
+import type { Resource } from '../db/schema';
 
 describe('buildSearchableContent', () => {
   const mockResource: Pick<
@@ -25,21 +25,34 @@ describe('buildSearchableContent', () => {
     pageNumber: 5,
     section: 'Setup > Player Setup',
     images: [
-      { id: 'img1', url: 'http://example.com/img1.png' },
+      {
+        id: 'img1',
+        url: 'http://example.com/img1.png',
+        description: 'Circle diagram for 5-player setup',
+        detectedType: 'diagram',
+        caption: 'Figure A',
+        ocrText: 'Seat order',
+      },
       { id: 'img2', url: 'http://example.com/img2.png' },
     ],
   };
 
-  const mockAttachments: Pick<Attachment, 'id' | 'description' | 'detectedType'>[] = [
+  const mockAttachments = [
     {
       id: 'img1',
       description: 'Diagram showing 5-player setup with territory cards arranged in a circle',
       detectedType: 'diagram',
+      caption: 'Player seating example',
+      ocrText: 'North | East | South | West',
+      isRelevant: true,
     },
     {
       id: 'img2',
       description: 'Close-up of territory card placement',
       detectedType: 'diagram',
+      caption: null,
+      ocrText: null,
+      isRelevant: true,
     },
   ];
 
@@ -56,7 +69,10 @@ describe('buildSearchableContent', () => {
 
     // Visual elements
     expect(result).toContain('--- VISUAL ELEMENTS ---');
-    expect(result).toContain('Image 1: Diagram showing 5-player setup');
+    expect(result).toContain('Image 1: Circle diagram for 5-player setup');
+    expect(result).toContain('  Type: diagram');
+    expect(result).toContain('  Caption: Figure A');
+    expect(result).toContain('  OCR: North | East | South | West');
 
     // Main content
     expect(result).toContain('--- CONTENT ---');
@@ -75,7 +91,7 @@ describe('buildSearchableContent', () => {
       extraAttachment,
     ]);
 
-    expect(result).toContain('Image 1: Diagram showing 5-player setup');
+    expect(result).toContain('Image 1: Circle diagram for 5-player setup');
     expect(result).toContain('Image 2: Close-up of territory card placement');
     expect(result).not.toContain('Not in fragment');
   });
@@ -89,12 +105,13 @@ describe('buildImageSearchableContent', () => {
     edition: '1.2',
   };
 
-  const mockPage: Pick<PDFPage, 'pageNumber' | 'sections'> = {
+  const mockPage: Pick<PDFPage, 'pageNumber' | 'sections' | 'markdown'> = {
     pageNumber: 5,
     sections: [
       { level: 1, text: 'Setup', hierarchy: 'Setup', pageNumber: 5 },
       { level: 2, text: 'Player Setup', hierarchy: 'Setup > Player Setup', pageNumber: 5 },
     ],
+    markdown: 'Setup steps:\n1. Give each player a board.\n2. Arrange the fleet tokens as shown.',
   };
 
   const mockImage: PDFImage = {
@@ -104,13 +121,14 @@ describe('buildImageSearchableContent', () => {
     pageNumber: 5,
   };
 
-  const mockAttachment: Pick<Attachment, 'description' | 'detectedType' | 'caption' | 'ocrText'> =
-    {
-      description: 'Diagram showing the game board setup for a 5-player game',
-      detectedType: 'diagram',
-      caption: null,
-      ocrText: null,
-    };
+  const mockAttachment = {
+    id: 'img1',
+    description: 'Diagram showing the game board setup for a 5-player game',
+    detectedType: 'diagram',
+    caption: null,
+    ocrText: null,
+    isRelevant: true,
+  };
 
   it('should include all contexts by default', () => {
     const result = buildImageSearchableContent(
@@ -129,9 +147,11 @@ describe('buildImageSearchableContent', () => {
     expect(result).toContain('Type: diagram');
     expect(result).toContain('Page: 5');
 
-    // Main content
+    // Main content & context snippets
     expect(result).toContain('--- DESCRIPTION ---');
     expect(result).toContain('Diagram showing the game board setup for a 5-player game');
+    expect(result).toContain('--- SURROUNDING TEXT ---');
+    expect(result).toContain('Setup steps');
   });
 
   it('should include OCR text when available', () => {
@@ -149,6 +169,19 @@ describe('buildImageSearchableContent', () => {
 
     expect(result).toContain('--- EXTRACTED TEXT ---');
     expect(result).toContain('Player 1 | Player 2 | Player 3');
+  });
+
+  it('should note decorative relevance flags', () => {
+    const decorativeAttachment = { ...mockAttachment, isRelevant: false };
+
+    const result = buildImageSearchableContent(
+      mockImage,
+      decorativeAttachment,
+      mockPage,
+      mockResource
+    );
+
+    expect(result).toContain('decorative/low-information');
   });
 
 });

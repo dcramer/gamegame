@@ -6,6 +6,8 @@
  * IMPORTANT: This file uses 'use workflow' directive and CANNOT import Node.js modules.
  */
 
+'use workflow';
+
 import { collectDatabaseReferences } from '@/workflows/steps/blob-maintenance/collect-db-references.step';
 import { listAllBlobs } from '@/workflows/steps/blob-maintenance/list-blobs.step';
 import { identifyOrphanedBlobs } from '@/workflows/steps/blob-maintenance/identify-orphaned.step';
@@ -13,8 +15,6 @@ import { deleteOrphanedBlobs } from '@/workflows/steps/blob-maintenance/delete-o
 import type { CleanupOrphanedBlobsResult } from '@/workflows/support/types';
 
 export async function cleanupOrphanedBlobsWorkflow(): Promise<CleanupOrphanedBlobsResult> {
-  'use workflow';
-
   // Step 1: Collect database references
   const dbReferences = await collectDatabaseReferences();
 

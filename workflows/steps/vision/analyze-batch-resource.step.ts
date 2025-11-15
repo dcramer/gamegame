@@ -18,6 +18,7 @@ import {
 } from '@/workflows/support/helpers';
 import { analyzeBatchStep } from '@/workflows/steps/vision/analyze-image.step';
 import { recordWorkflowStage } from '@/lib/services/workflow-run-store';
+import type { PDFPage } from '@/lib/types/pdf';
 
 export interface BatchResourceInput {
   resourceId: string;
@@ -55,15 +56,15 @@ export async function analyzeBatchResourceStep(
 
     // Load structured data
     const structured = await loadStructured(input.resourceId);
-    const images = structured.pages.flatMap((page) => page.images);
+    const allImages = structured.pages.flatMap((page) => page.images);
 
     await recordWorkflowStage(input.runId, 'vision', {
       status: 'Analyzing resource images',
-      imagesTotal: images.length,
+      imagesTotal: allImages.length,
     });
 
     // If no images, skip vision processing and return
-    if (images.length === 0) {
+    if (allImages.length === 0) {
       await db
         .update(resources)
         .set({
@@ -79,16 +80,26 @@ export async function analyzeBatchResourceStep(
       return { success: true, imagesProcessed: 0 };
     }
 
-    // Prepare images for batch analysis
-    const imagesToAnalyze = images
-      .filter((img) => img.base64)
-      .map((img) => ({
-        buffer: Buffer.from(stripDataUriBase64(img.base64!), 'base64'),
-        context: {
-          gameName: input.gameName,
-          pageNumber: img.pageNumber ?? 1,
-        },
-      }));
+    // Prepare images for batch analysis with contextual metadata
+    const resourceTitle = structured.metadata?.title;
+    const imagesToAnalyze = structured.pages.flatMap((page) => {
+      const sectionHierarchy = getSectionHierarchy(page);
+      const surroundingText = extractSurroundingText(page.markdown);
+
+      return page.images
+        .filter((img) => img.base64)
+        .map((img) => ({
+          buffer: Buffer.from(stripDataUriBase64(img.base64!), 'base64'),
+          context: {
+            gameName: input.gameName,
+            resourceName: resourceTitle,
+            pageNumber: img.pageNumber ?? page.pageNumber ?? 1,
+            section: sectionHierarchy,
+            caption: img.caption,
+            surroundingText,
+          },
+        }));
+    });
 
     // Run batch analysis with progress tracking
     const batchResult = await analyzeBatchStep({
@@ -160,4 +171,24 @@ export async function analyzeBatchResourceStep(
       error: errorMessage,
     };
   }
+}
+
+function getSectionHierarchy(page: PDFPage): string | undefined {
+  if (page.sections && page.sections.length > 0) {
+    return page.sections[page.sections.length - 1].hierarchy;
+  }
+  return undefined;
+}
+
+function extractSurroundingText(markdown?: string, limit = 800): string | undefined {
+  if (!markdown) {
+    return undefined;
+  }
+
+  const normalized = markdown.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.length > limit ? `${normalized.slice(0, limit)}…` : normalized;
 }

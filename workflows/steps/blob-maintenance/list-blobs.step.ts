@@ -2,9 +2,9 @@
  * List Blobs Step
  */
 
-export async function listAllBlobs(): Promise<string[]> {
-  'use step';
+'use step';
 
+export async function listAllBlobs(): Promise<string[]> {
   try {
     const { listFiles } = await import('@/lib/services/blob-storage');
     const blobs = await listFiles('resources/');

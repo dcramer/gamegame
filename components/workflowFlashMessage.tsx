@@ -10,6 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { ExternalLink } from "lucide-react";
 import { useFlashMessages } from "./flashMessages";
 import type { FlashMessage } from "./flashMessages";
 
@@ -98,7 +99,10 @@ function normalizeCopy(copy: WorkflowFlashCopy): NormalizedCopy {
   };
 }
 
-function formatProgress(status: WorkflowStatusData, fallback: string): ReactNode {
+function formatProgress(status: WorkflowStatusData, fallback: string): {
+  content: ReactNode;
+  entityLink: { href: string; label: string } | null;
+} {
   const metadata = status.metadata ?? {};
   const jobName = typeof metadata.jobName === "string" ? metadata.jobName : undefined;
   const label = typeof metadata.label === "string" ? metadata.label : undefined;
@@ -143,40 +147,45 @@ function formatProgress(status: WorkflowStatusData, fallback: string): ReactNode
     ? Math.max(0, Math.min(100, percentValue))
     : null;
 
-  return (
-    <div className="flex flex-col gap-1">
-      {/* Title */}
-      <div className="font-medium">{title}</div>
-
-      {/* Status line with permalink */}
-      <div className="flex items-center gap-2 text-sm text-white/90">
-        {statusParts.length > 0 && <span>{statusParts.join(" · ")}</span>}
-        {entityLink && (
-          <>
-            {statusParts.length > 0 && <span className="text-white/40">—</span>}
+  return {
+    content: (
+      <div className="flex flex-col gap-2">
+        {/* Title with optional link icon */}
+        <div className="flex items-center gap-1.5">
+          <span className="font-medium leading-none">{title}</span>
+          {entityLink && (
             <a
               href={entityLink.href}
               target="_blank"
               rel="noreferrer"
-              className="underline text-white/80 hover:text-white transition-colors"
+              className="text-white/70 hover:text-white/90 transition-colors flex-shrink-0"
+              aria-label="Open resource"
             >
-              {entityLink.label}
+              <ExternalLink size={14} />
             </a>
-          </>
+          )}
+        </div>
+
+        {/* Status line */}
+        {statusParts.length > 0 && (
+          <div className="flex items-center gap-2 text-sm text-white/90">
+            <span>{statusParts.join(" · ")}</span>
+          </div>
+        )}
+
+        {/* Progress bar */}
+        {progressPercent !== null && (
+          <div className="h-1.5 rounded-full bg-white/20 overflow-hidden">
+            <div
+              className="h-full bg-white transition-all"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
         )}
       </div>
-
-      {/* Progress bar */}
-      {progressPercent !== null && (
-        <div className="h-1.5 rounded-full bg-white/20 overflow-hidden">
-          <div
-            className="h-full bg-white transition-all"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-      )}
-    </div>
-  );
+    ),
+    entityLink,
+  };
 }
 
 function buildEntityLink(status: WorkflowStatusData) {
@@ -214,7 +223,7 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
   const pollInFlightRef = useRef(false);
   const [hasActiveWorkflows, setHasActiveWorkflows] = useState(false);
 
-  const pollRef = useRef<() => Promise<void>>();
+  const pollRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   const handleCancel = useCallback(async (runId: string) => {
     try {
@@ -259,15 +268,16 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
         : undefined;
 
       if (status.status === "pending" || status.status === "running") {
-        const text = formatProgress(status, controller.normalizedCopy.pending);
+        const { content } = formatProgress(status, controller.normalizedCopy.pending);
         const runId = status.runId ?? status.localRunId;
-        controller.message.update(text, "info", {
+        controller.message.update(content, "info", {
           removeAfter: null,
           createdAt: startedAt,
           actions: runId ? [
             {
               label: "Cancel",
               onClick: () => void handleCancel(runId),
+              align: "right" as const,
             },
           ] : undefined,
         });
@@ -275,11 +285,11 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
       }
 
       if (status.status === "completed") {
-        const text = formatProgress(status, controller.normalizedCopy.success);
+        const { content } = formatProgress(status, controller.normalizedCopy.success);
         const completedAt = status.completedAt
           ? new Date(status.completedAt).getTime()
           : Date.now();
-        controller.message.update(text, "success", {
+        controller.message.update(content, "success", {
           removeAfter: 30000, // 30 seconds
           createdAt: startedAt,
           completedAt,
@@ -307,6 +317,7 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
             {
               label: "Retry",
               onClick: () => void handleRetry(runId),
+              align: "right" as const,
             },
           ] : undefined,
         });
@@ -317,11 +328,11 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
       }
 
       if (status.status === "cancelled") {
-        const text = formatProgress(status, controller.normalizedCopy.cancelled);
+        const { content } = formatProgress(status, controller.normalizedCopy.cancelled);
         const completedAt = status.completedAt
           ? new Date(status.completedAt).getTime()
           : Date.now();
-        controller.message.update(text, "warning", {
+        controller.message.update(content, "warning", {
           removeAfter: 5000, // Auto-dismiss after 5 seconds
           createdAt: startedAt,
           completedAt,
@@ -329,11 +340,12 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
         });
         controllers.delete(key);
         setHasActiveWorkflows(controllers.size > 0);
+        controller.options.onComplete?.();
         return;
       }
 
-      const text = formatProgress(status, controller.normalizedCopy.pending);
-      controller.message.update(text, "info", { removeAfter: null, createdAt: startedAt });
+      const { content } = formatProgress(status, controller.normalizedCopy.pending);
+      controller.message.update(content, "info", { removeAfter: null, createdAt: startedAt });
     },
     [handleCancel, handleRetry]
   );
@@ -452,7 +464,8 @@ export function WorkflowStatusProvider({ children }: { children: ReactNode }) {
         : status.createdAt
         ? new Date(status.createdAt).getTime()
         : undefined;
-      const message = flash(formatProgress(status, normalizedCopy.pending), "info", {
+      const { content } = formatProgress(status, normalizedCopy.pending);
+      const message = flash(content, "info", {
         removeAfter: null,
         createdAt: startedAt,
       });

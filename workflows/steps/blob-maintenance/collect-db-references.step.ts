@@ -2,13 +2,13 @@
  * Collect Database References Step
  */
 
+'use step';
+
 import { db } from '@/lib/db';
 import { resources, attachments } from '@/lib/db/schema';
 import type { BlobReference } from '@/workflows/support/types';
 
 export async function collectDatabaseReferences(): Promise<BlobReference[]> {
-  'use step';
-
   const references: BlobReference[] = [];
 
   try {

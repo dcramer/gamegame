@@ -2,6 +2,8 @@
  * FINALIZE Step - Mark resource as ready
  */
 
+'use step';
+
 import { db } from '@/lib/db';
 import { resources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -9,8 +11,6 @@ import type { ProcessResourceInput } from '@/workflows/support/types';
 import { completeWorkflowRun } from '@/lib/services/workflow-run-store';
 
 export async function runFinalizeStage(input: ProcessResourceInput) {
-  'use step';
-
   try {
     await db
       .update(resources)

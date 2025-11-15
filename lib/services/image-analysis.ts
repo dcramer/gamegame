@@ -23,8 +23,10 @@ export interface ImageAnalysisResult {
 export interface ImageAnalysisContext {
   pageNumber: number;
   gameName?: string;
+  resourceName?: string;
   section?: string;
   caption?: string;
+  surroundingText?: string;
 }
 
 export interface ImageAnalysisOptions {
@@ -63,6 +65,37 @@ export async function analyzeImageQuality(
 
   const prompt = buildImageAnalysisPrompt(context);
 
+  // Define the JSON schema for structured outputs
+  const responseSchema = {
+    type: 'object' as const,
+    properties: {
+      description: {
+        type: 'string' as const,
+        description: 'Detailed description of the image (2-3 sentences)',
+      },
+      quality: {
+        type: 'string' as const,
+        enum: ['good', 'bad'],
+        description: 'Image quality - good (clear, readable) or bad (blurry, unclear)',
+      },
+      relevant: {
+        type: 'boolean' as const,
+        description: 'Whether the image contains useful gameplay information',
+      },
+      type: {
+        type: 'string' as const,
+        enum: ['diagram', 'table', 'photo', 'icon', 'decorative'],
+        description: 'Type of image',
+      },
+      ocrText: {
+        type: ['string', 'null'] as any,
+        description: 'Extracted text from tables/diagrams, or null if none',
+      },
+    },
+    required: ['description', 'quality', 'relevant', 'type', 'ocrText'],
+    additionalProperties: false,
+  };
+
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -89,7 +122,14 @@ export async function analyzeImageQuality(
             ],
           },
         ],
-        response_format: { type: 'json_object' },
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'image_analysis',
+            schema: responseSchema,
+            strict: true,
+          },
+        },
         max_completion_tokens: maxTokens,
         temperature: 1,
       }),
@@ -100,11 +140,25 @@ export async function analyzeImageQuality(
       throw new Error(`OpenAI API error: ${response.status} ${errorText}`);
     }
 
-    const data = (await response.json()) as { choices: Array<{ message: { content: string } }> };
-    const result = JSON.parse(data.choices[0].message.content);
+    // With structured outputs (strict: true), the response is guaranteed to be valid JSON
+    // that conforms to our schema. No need for manual parsing/validation.
+    const data = (await response.json()) as {
+      choices: Array<{ message: { content: string } }>;
+    };
 
-    // Validate and normalize the response
-    return validateAnalysisResult(result);
+    const content = data.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('Empty response from OpenAI API');
+    }
+
+    // Parse the structured output - guaranteed to match our schema
+    const result = JSON.parse(content) as ImageAnalysisResult;
+
+    // Normalize ocrText (null → undefined for consistency)
+    return {
+      ...result,
+      ocrText: result.ocrText || undefined,
+    };
   } catch (error) {
     console.error('Error analyzing image (page %d):', context.pageNumber, error);
     // Return a safe fallback rather than failing the entire pipeline
@@ -121,12 +175,28 @@ export async function analyzeImageQuality(
  * Build the prompt for image analysis
  */
 function buildImageAnalysisPrompt(context: ImageAnalysisContext): string {
-  return `Analyze this image from a board game rulebook.
+  const details: string[] = [`- Page: ${context.pageNumber}`];
+  if (context.gameName) {
+    details.push(`- Game: ${context.gameName}`);
+  }
+  if (context.resourceName) {
+    details.push(`- Resource: ${context.resourceName}`);
+  }
+  if (context.section) {
+    details.push(`- Section: ${context.section}`);
+  }
+  if (context.caption) {
+    details.push(`- Caption: ${context.caption}`);
+  }
+
+  const surroundingText = context.surroundingText
+    ? `\nRelevant rulebook text (trust this over guesses):\n"""${sanitizeContextText(context.surroundingText)}"""`
+    : '';
+
+  return `Analyze this image from a board game rulebook. Use the textual context to ground your answer and avoid speculation.
 
 Context:
-- Page: ${context.pageNumber}
-${context.section ? `- Section: ${context.section}` : ''}
-${context.caption ? `- Caption: ${context.caption}` : ''}
+${details.join('\n')}${surroundingText}
 
 Provide a JSON response with:
 
@@ -166,41 +236,12 @@ Return ONLY valid JSON in this exact format:
 }`;
 }
 
-/**
- * Validate and normalize the API response
- */
-function validateAnalysisResult(result: any): ImageAnalysisResult {
-  // Validate required fields
-  if (typeof result.description !== 'string' || !result.description.trim()) {
-    throw new Error('Invalid description in analysis result');
+function sanitizeContextText(text: string, limit = 900): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return '';
   }
-
-  if (!['good', 'bad'].includes(result.quality)) {
-    throw new Error('Invalid quality in analysis result');
-  }
-
-  if (typeof result.relevant !== 'boolean') {
-    throw new Error('Invalid relevant flag in analysis result');
-  }
-
-  const validTypes: DetectedImageType[] = ['diagram', 'table', 'photo', 'icon', 'decorative'];
-  if (!validTypes.includes(result.type)) {
-    throw new Error('Invalid type in analysis result');
-  }
-
-  // Normalize ocrText (null or string)
-  const ocrText =
-    result.ocrText && typeof result.ocrText === 'string' && result.ocrText.trim()
-      ? result.ocrText.trim()
-      : undefined;
-
-  return {
-    description: result.description.trim(),
-    quality: result.quality,
-    relevant: result.relevant,
-    type: result.type,
-    ocrText,
-  };
+  return normalized.length > limit ? `${normalized.slice(0, limit)}…` : normalized;
 }
 
 /**

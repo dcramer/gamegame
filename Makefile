@@ -2,7 +2,7 @@ PG_CONTAINER=docker exec -t gamegame-postgres-1
 PG_DATABASE=gamegame
 PG_DATABASE_TEST=test_gamegame
 
-setup: install create-db migrate migrate-workflows
+setup: install create-db migrate
 
 install:
 	pnpm install
@@ -11,13 +11,11 @@ reset-db:
 	$(MAKE) drop-db
 	$(MAKE) create-db
 	$(MAKE) migrate
-	$(MAKE) migrate-workflows
 
 reset-test-db:
 	$(MAKE) drop-db-test
 	$(MAKE) create-db-test
 	$(MAKE) migrate-test
-	$(MAKE) migrate-workflows-test
 
 drop-db: drop-db-dev drop-db-test
 
@@ -40,12 +38,6 @@ migrate:
 
 migrate-test:
 	DATABASE_URL=postgresql://postgres:postgres@localhost:5433/$(PG_DATABASE_TEST) pnpm db:migrate
-
-migrate-workflows:
-	WORKFLOW_POSTGRES_URL=postgresql://postgres:postgres@localhost:5433/$(PG_DATABASE) pnpm exec workflow-postgres-setup
-
-migrate-workflows-test:
-	WORKFLOW_POSTGRES_URL=postgresql://postgres:postgres@localhost:5433/$(PG_DATABASE_TEST) pnpm exec workflow-postgres-setup
 
 wipe-node-modules:
 	find . | grep node_modules$ | xargs rm -rf

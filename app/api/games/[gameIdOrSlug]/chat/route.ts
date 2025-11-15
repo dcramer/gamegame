@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { streamText } from 'ai';
+import { streamText, convertToModelMessages, type TextStreamPart, type UIMessage } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { db } from '@/lib/db';
@@ -15,14 +15,9 @@ import { getTools } from '@/lib/ai/tools';
 import { env } from '@/lib/env.mjs';
 import { withRateLimit } from '@/lib/utils/rate-limit-handler';
 
-// Request schema
+// Request schema - AI SDK sends UIMessage[]
 const chatRequestSchema = z.object({
-  messages: z.array(
-    z.object({
-      role: z.enum(['user', 'assistant']),
-      content: z.string(),
-    })
-  ),
+  messages: z.array(z.any()), // UIMessage[] from AI SDK
 });
 
 /**
@@ -79,14 +74,16 @@ export async function POST(
         env.ENVIRONMENT
       );
 
+      // Convert UI messages to model messages using AI SDK helper
+      const modelMessages = convertToModelMessages(messages as UIMessage[]);
+
+      const generationStartedAt = Date.now();
+
       // Stream response using Vercel AI SDK
       const result = streamText({
         model: openai('gpt-5'),
         system: systemPrompt,
-        messages: messages.map(msg => ({
-          role: msg.role,
-          content: msg.content,
-        })),
+        messages: modelMessages,
         tools,
         stopWhen: [],
         experimental_telemetry: {
@@ -95,8 +92,31 @@ export async function POST(
         },
       });
 
+      const getMessageMetadata = ({ part }: { part: TextStreamPart<any> }) => {
+        if (part.type !== 'finish') {
+          return undefined;
+        }
+
+        const responseTimeMs = Date.now() - generationStartedAt;
+        const tokens = part.totalUsage
+          ? {
+              inputTokens: part.totalUsage.inputTokens ?? null,
+              outputTokens: part.totalUsage.outputTokens ?? null,
+              totalTokens: part.totalUsage.totalTokens ?? null,
+            }
+          : null;
+
+        return {
+          responseTimeMs,
+          tokens,
+          completedAt: new Date().toISOString(),
+        };
+      };
+
       // Return streaming SSE response for the CLI/clients consuming AI SDK events
-      return result.toUIMessageStreamResponse();
+      return result.toUIMessageStreamResponse({
+        messageMetadata: getMessageMetadata,
+      });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return NextResponse.json(

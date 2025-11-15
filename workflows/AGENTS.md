@@ -14,8 +14,9 @@ Workflows use Vercel's durable execution system to coordinate multi-step process
 ### Critical Rules
 
 1. **NEVER mix `'use workflow'` and `'use step'` in the same file**
-2. **NEVER import Node.js modules at the top level of workflow files**
-3. **ALWAYS put Node.js operations (db access, file I/O, API calls) in steps**
+2. **Add the directive as a top-level string literal (e.g., place `'use workflow';` or `'use step';` before any imports) so the bundler can detect it during module analysis**
+3. **NEVER import Node.js modules at the top level of workflow files**
+4. **ALWAYS put Node.js operations (db access, file I/O, API calls) in steps**
 
 ### Why This Matters
 
@@ -52,7 +53,6 @@ workflows/
       embed.step.ts
       finalize.step.ts
       mark-job-failed.step.ts
-      embed-stage.impl.ts
     vision/
       analyze-batch-resource.step.ts
       analyze-single-attachment.step.ts
@@ -96,12 +96,12 @@ Add `workflow.ts` (or `my-workflow.workflow.ts` if multiple coordinators) plus a
  * IMPORTANT: This file uses 'use workflow' and CANNOT import Node.js modules.
  */
 
+'use workflow';
+
 import { stepOne } from '@/workflows/steps/my-domain/step-one.step';
 import { stepTwo } from '@/workflows/steps/my-domain/step-two.step';
 
 export async function myWorkflow(input: MyInput) {
-  'use workflow';
-
   // Pure coordination logic only
   const result1 = await stepOne(input);
   if (!result1.success) {
@@ -120,12 +120,13 @@ export async function myWorkflow(input: MyInput) {
  * Step One - Describe what this step does
  */
 
+'use step';
+
 import { db } from '@/lib/db';  // ✅ OK in steps
 import { someTable } from '@/lib/db/schema';
 import { parseMetadata } from '@/workflows/support/helpers';
 
 export async function stepOne(input: MyInput) {
-  'use step';
 
   // Full Node.js access here
   const data = await db.select().from(someTable);

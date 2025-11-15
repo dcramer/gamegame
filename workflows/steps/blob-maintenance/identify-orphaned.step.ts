@@ -2,14 +2,14 @@
  * Identify Orphaned Blobs Step
  */
 
+'use step';
+
 import type { BlobReference } from '@/workflows/support/types';
 
 export async function identifyOrphanedBlobs(
   references: BlobReference[],
   allBlobs: string[]
 ): Promise<string[]> {
-  'use step';
-
   try {
     const referencedPrefixes = new Set<string>();
 

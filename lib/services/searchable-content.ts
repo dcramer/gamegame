@@ -7,7 +7,16 @@
  */
 
 import type { PDFChunk, PDFPage, PDFImage } from '../types/pdf';
-import type { Resource, Attachment } from '../db/schema';
+import type { Resource } from '../db/schema';
+
+interface AttachmentVisualMetadata {
+  id: string;
+  description?: string | null;
+  detectedType?: string | null;
+  caption?: string | null;
+  ocrText?: string | null;
+  isRelevant?: boolean;
+}
 
 export interface SearchableContentOptions {
   includeDocumentContext?: boolean;
@@ -39,7 +48,7 @@ export function buildSearchableContent(
     Resource,
     'name' | 'originalFilename' | 'description' | 'resourceType' | 'edition'
   >,
-  attachments: Pick<Attachment, 'id' | 'description' | 'detectedType'>[],
+  attachments: AttachmentVisualMetadata[],
   options: SearchableContentOptions = {}
 ): string {
   const opts = { ...DEFAULT_OPTIONS, ...options };
@@ -85,20 +94,42 @@ export function buildSearchableContent(
 
   // Visual elements context (images on this page)
   if (opts.includeVisualContext && fragment.images && fragment.images.length > 0) {
-    const relevantAttachments = attachments.filter((att) =>
-      fragment.images!.some((img) => img.id === att.id)
-    );
+    const imageMap = new Map(fragment.images.map((img) => [img.id, img]));
+    const relevantAttachments = attachments.filter((att) => imageMap.has(att.id));
 
     if (relevantAttachments.length > 0) {
       parts.push('--- VISUAL ELEMENTS ---');
 
       relevantAttachments.forEach((attachment, idx) => {
-        if (attachment.description) {
-          parts.push(`Image ${idx + 1}: ${attachment.description}`);
+        const chunkImage = imageMap.get(attachment.id);
+        const description = chunkImage?.description || attachment.description;
+        parts.push(
+          description
+            ? `Image ${idx + 1}: ${description}`
+            : `Image ${idx + 1}: (description unavailable)`
+        );
 
-          if (attachment.detectedType) {
-            parts.push(`  Type: ${attachment.detectedType}`);
-          }
+        const detectedType = chunkImage?.detectedType || attachment.detectedType;
+        if (detectedType) {
+          parts.push(`  Type: ${detectedType}`);
+        }
+
+        const caption = chunkImage?.caption || attachment.caption;
+        if (caption) {
+          parts.push(`  Caption: ${caption}`);
+        }
+
+        const relevance =
+          typeof chunkImage?.isRelevant === 'boolean'
+            ? chunkImage?.isRelevant
+            : attachment.isRelevant;
+        if (relevance === false) {
+          parts.push('  Relevance: decorative/low-information');
+        }
+
+        const ocrText = attachment.ocrText || chunkImage?.ocrText;
+        if (ocrText) {
+          parts.push(`  OCR: ${truncateText(ocrText, 300)}`);
         }
       });
 
@@ -126,11 +157,8 @@ export function buildSearchableContent(
  */
 export function buildImageSearchableContent(
   image: PDFImage,
-  attachment: Pick<
-    Attachment,
-    'description' | 'detectedType' | 'caption' | 'ocrText'
-  >,
-  page: Pick<PDFPage, 'pageNumber' | 'sections'>,
+  attachment: AttachmentVisualMetadata,
+  page: Pick<PDFPage, 'pageNumber' | 'sections' | 'markdown'>,
   resource: Pick<
     Resource,
     'name' | 'description' | 'resourceType' | 'edition'
@@ -164,8 +192,9 @@ export function buildImageSearchableContent(
   if (opts.includeLocationContext) {
     parts.push('--- IMAGE CONTEXT ---');
 
-    if (attachment.detectedType) {
-      parts.push(`Type: ${attachment.detectedType}`);
+    const detectedType = image.detectedType || attachment.detectedType;
+    if (detectedType) {
+      parts.push(`Type: ${detectedType}`);
     }
 
     parts.push(`Page: ${page.pageNumber}`);
@@ -179,8 +208,19 @@ export function buildImageSearchableContent(
       parts.push(`Section: ${section}`);
     }
 
-    if (attachment.caption || image.caption) {
-      parts.push(`Caption: ${attachment.caption || image.caption}`);
+    const caption = attachment.caption || image.caption;
+    if (caption) {
+      parts.push(`Caption: ${caption}`);
+    }
+
+    const relevance =
+      typeof attachment.isRelevant === 'boolean'
+        ? attachment.isRelevant
+        : typeof image.isRelevant === 'number'
+          ? image.isRelevant === 1
+          : undefined;
+    if (relevance === false) {
+      parts.push('Relevance: decorative/low-information');
     }
 
     parts.push('');
@@ -188,16 +228,42 @@ export function buildImageSearchableContent(
 
   // Description (main searchable content for images)
   parts.push('--- DESCRIPTION ---');
-  parts.push(attachment.description || image.description || '');
+  parts.push(attachment.description || image.description || '(no description available)');
 
   // OCR text (for tables and diagrams with text)
-  if (attachment.ocrText) {
+  const ocrText = attachment.ocrText || image.ocrText || null;
+  if (ocrText) {
     parts.push('');
     parts.push('--- EXTRACTED TEXT ---');
-    parts.push(attachment.ocrText);
+    parts.push(truncateText(ocrText, 800));
+  }
+
+  const snippet = extractSurroundingSnippet(page.markdown);
+  if (snippet) {
+    parts.push('');
+    parts.push('--- SURROUNDING TEXT ---');
+    parts.push(snippet);
   }
 
   return parts.join('\n');
+}
+
+function truncateText(value: string, limit = 500): string {
+  if (value.length <= limit) {
+    return value;
+  }
+  return `${value.slice(0, limit)}…`;
+}
+
+function extractSurroundingSnippet(markdown?: string, limit = 800): string | null {
+  if (!markdown) {
+    return null;
+  }
+  const normalized = markdown.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized.length > limit ? `${normalized.slice(0, limit)}…` : normalized;
 }
 
 /**

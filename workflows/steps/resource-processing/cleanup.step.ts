@@ -2,6 +2,8 @@
  * CLEANUP Step - Clean markdown with LLM
  */
 
+'use step';
+
 import { db } from '@/lib/db';
 import { resources } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -15,8 +17,6 @@ import {
 import { recordWorkflowStage } from '@/lib/services/workflow-run-store';
 
 export async function runCleanupStage(input: ProcessResourceInput) {
-  'use step';
-
   try {
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     if (!OPENAI_API_KEY) {

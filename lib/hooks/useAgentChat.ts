@@ -2,28 +2,40 @@
 
 import { useState, useCallback, useRef } from 'react';
 
+export type MessageTokenUsage = {
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  totalTokens?: number | null;
+};
+
+export type ChatMessageMetadata = {
+  responseTimeMs?: number | null;
+  tokens?: MessageTokenUsage | null;
+  completedAt?: string | null;
+};
+
+interface BaseChatMessage {
+  id: string;
+  timestamp: number;
+  metadata?: ChatMessageMetadata;
+}
+
 export type ChatMessage =
-  | {
-      id: string;
+  | (BaseChatMessage & {
       type: 'user';
       content: string;
-      timestamp: number;
-    }
-  | {
-      id: string;
+    })
+  | (BaseChatMessage & {
       type: 'tool-call';
       name: string;
       args?: any;
-      timestamp: number;
       status: 'running' | 'completed';
       durationMs?: number;
-    }
-  | {
-      id: string;
+    })
+  | (BaseChatMessage & {
       type: 'assistant';
       content: string;
-      timestamp: number;
-    };
+    });
 
 type ToolCallMessage = Extract<ChatMessage, { type: 'tool-call' }>;
 

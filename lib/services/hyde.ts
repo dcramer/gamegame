@@ -107,7 +107,7 @@ export async function generateQuestionsForFragment(
           pageNumber: fragment.pageNumber,
           contentLength: fragment.content.length,
         },
-        content,
+        content: truncateString(content),
         parseError,
       });
       return [];
@@ -221,6 +221,14 @@ export async function generateQuestionsForFragments(
   }
 
   return results;
+}
+
+/**
+ * Truncate a string to a maximum length, adding ellipsis if truncated
+ */
+function truncateString(str: string, maxLength: number = 200): string {
+  if (str.length <= maxLength) return str;
+  return str.slice(0, maxLength) + `... [${str.length - maxLength} more chars]`;
 }
 
 /**
