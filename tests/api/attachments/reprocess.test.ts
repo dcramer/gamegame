@@ -1,0 +1,251 @@
+/**
+ * Tests for Attachment Reprocess API Route
+ * POST /api/attachments/[attachmentId]/reprocess - Reprocess attachment with vision
+ */
+
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import {
+  clearWorkflowMockInvocations,
+  getWorkflowMockInvocations,
+  workflowStartMock,
+} from '@/tests/utils/workflow-mock';
+const analyzeImagesWorkflowMock = vi.hoisted(() => {
+  const fn = vi.fn(async () =>
+    Promise.resolve({
+      success: true,
+      mode: 'single-attachment',
+    })
+  );
+  fn.mockName('analyzeImagesWorkflow');
+  return fn;
+});
+vi.mock('@/workflows/analyze-images', () => ({
+  analyzeImagesWorkflow: analyzeImagesWorkflowMock,
+}));
+import { POST as reprocessAttachment } from '@/app/api/attachments/[attachmentId]/reprocess/route';
+import { createNextRequest, createRouteContext } from '@/tests/utils/next-request';
+import { db } from '@/lib/db';
+import { attachments } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
+import { cleanupTestDb } from '@/tests/db-helpers';
+import { createTestGame, createTestResource, createTestAttachment } from '@/tests/fixtures';
+
+// Mock requireAdmin from session module
+vi.mock('@/lib/session', () => ({
+  requireAdmin: vi.fn(() => Promise.resolve({ id: 'test-user', email: 'admin@test.com', isAdmin: true })),
+}));
+
+// Mock blob storage URL helper
+vi.mock('@/lib/services/blob-storage', () => ({
+  blobKeyToUrl: vi.fn((key: string) => `https://blob.example.com/${key}`),
+}));
+
+// Mock env to provide required environment variables
+vi.mock('@/lib/env.mjs', () => ({
+  env: {
+    OPENAI_API_KEY: 'test-openai-key',
+    BLOB_READ_WRITE_TOKEN: undefined,
+  },
+}));
+
+describe.sequential('Attachment Reprocess API', () => {
+  let testGameId: string;
+  let testResourceId: string;
+  let testAttachmentId: string;
+
+  beforeEach(async () => {
+    await cleanupTestDb();
+
+    // Reset mocks
+    vi.clearAllMocks();
+    clearWorkflowMockInvocations();
+    analyzeImagesWorkflowMock.mockReset();
+    analyzeImagesWorkflowMock.mockImplementation(async () => ({
+      success: true,
+      mode: 'single-attachment',
+    }));
+
+    // Mock global fetch to return fake image data
+    global.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
+      } as Response)
+    );
+
+    // Mock requireAdmin to allow all requests
+    const { requireAdmin } = await import('@/lib/session');
+    (requireAdmin as any).mockResolvedValue({ id: 'test-user', email: 'admin@test.com', isAdmin: true });
+
+    // Create test data
+    const game = await createTestGame({ name: 'Test Game' });
+    const resource = await createTestResource(game.id, {
+      name: 'Test Resource',
+    });
+    const attachment = await createTestAttachment(resource.id, game.id, {
+      type: 'image',
+      mimeType: 'image/png',
+      url: 'https://blob.example.com/test-image.png',
+      blobKey: 'test-image.png',
+      caption: 'Original caption',
+    });
+
+    testGameId = game.id;
+    testResourceId = resource.id;
+    testAttachmentId = attachment.id;
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('POST /api/attachments/[attachmentId]/reprocess', () => {
+    it('should reject unauthorized requests', async () => {
+      const { requireAdmin } = await import('@/lib/session');
+      (requireAdmin as any).mockRejectedValueOnce(new Error('Unauthorized'));
+
+      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachmentId }));
+      const data = await response.json();
+
+      expect(response.status).toBe(401); // Unauthorized
+      expect(data.error).toBe('Authentication required');
+    });
+
+    it('should reject non-existent attachment', async () => {
+      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: 'non-existent-id' }));
+      const data = await response.json();
+
+      expect(response.status).toBe(404);
+      expect(data.error).toBe('Attachment not found');
+    });
+
+    it('should reject non-image attachments', async () => {
+      // Create a non-image attachment
+      const pdfAttachment = await createTestAttachment(testResourceId, testGameId, {
+        type: 'pdf',
+        mimeType: 'application/pdf',
+      });
+
+      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: pdfAttachment.id }));
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error).toBe('Only image attachments can be reprocessed with vision');
+    });
+
+    it('should reject attachments with non-image mimeType', async () => {
+      // Create attachment with image type but wrong mimeType
+      const badAttachment = await createTestAttachment(testResourceId, testGameId, {
+        type: 'image',
+        mimeType: 'text/plain',
+      });
+
+      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: badAttachment.id }));
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error).toBe('Only image attachments can be reprocessed with vision');
+    });
+
+    it('should successfully queue image attachment reprocessing', async () => {
+      const response = await reprocessAttachment(
+        createNextRequest('http://localhost'),
+        createRouteContext({ attachmentId: testAttachmentId })
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      const invocations = getWorkflowMockInvocations();
+      expect(invocations).toHaveLength(1);
+      expect(invocations[0].workflowName).toBe('analyzeImagesWorkflow');
+      expect(invocations[0].args[0]).toEqual({
+        runId: expect.any(String),
+        mode: 'single-attachment',
+        attachmentId: testAttachmentId,
+        gameId: testGameId,
+      });
+
+      expect(data).toEqual({
+        id: testAttachmentId,
+        status: 'processing',
+        runId: expect.any(String),
+        message: 'Image reanalysis started',
+      });
+    });
+
+    it('should pass correct parameters to workflow', async () => {
+      // Create attachment with specific metadata
+      const testAttachment = await createTestAttachment(testResourceId, testGameId, {
+        type: 'image',
+        mimeType: 'image/jpeg',
+        pageNumber: 5,
+        caption: 'Setup diagram',
+        blobKey: 'test-key.jpg',
+      });
+
+      await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachment.id }));
+
+      // Verify workflow was recorded with correct parameters
+      const invocations = getWorkflowMockInvocations();
+      expect(invocations).toHaveLength(1);
+      expect(invocations[0].workflowName).toBe('analyzeImagesWorkflow');
+      expect(invocations[0].args[0]).toEqual({
+        mode: 'single-attachment',
+        attachmentId: testAttachment.id,
+        gameId: testGameId,
+      });
+    });
+
+    it('returns queue information for new attachments', async () => {
+      const attachment = await createTestAttachment(testResourceId, testGameId, {
+        type: 'image',
+        mimeType: 'image/png',
+      });
+
+      const response = await reprocessAttachment(
+        createNextRequest('http://localhost'),
+        createRouteContext({ attachmentId: attachment.id })
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.id).toBe(attachment.id);
+      expect(data.runId).toEqual(expect.any(String));
+      expect(data.status).toBe('processing');
+    });
+
+    it('should handle workflow errors', async () => {
+      const workflowError = new Error('Vision API timeout');
+      workflowStartMock.mockRejectedValueOnce(workflowError);
+
+      const response = await reprocessAttachment(createNextRequest('http://localhost'), createRouteContext({ attachmentId: testAttachmentId }));
+      const data = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(data.error).toBe('Vision API timeout');
+    });
+
+    it('responds with queue metadata regardless of attachment fields', async () => {
+      const testAttachment = await createTestAttachment(testResourceId, testGameId, {
+        type: 'image',
+        mimeType: 'image/png',
+        blobKey: 'my-blob-key.png',
+        bbox: [100, 200, 400, 600] as any,
+      });
+
+      const response = await reprocessAttachment(
+        createNextRequest('http://localhost'),
+        createRouteContext({ attachmentId: testAttachment.id })
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toMatchObject({
+        id: testAttachment.id,
+        status: 'processing',
+        runId: expect.any(String),
+      });
+    });
+  });
+});

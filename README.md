@@ -1,75 +1,196 @@
 # GameGame
 
-GameGame is an LLM-powered board game assistant. It's built on top of [Vercel's AI SDK](https://github.com/vercel/ai) and [OpenAI's GPT models](https://platform.openai.com/docs/models).
+An LLM-powered board game assistant that helps players understand game rules using RAG (Retrieval-Augmented Generation) with hybrid search.
 
-## Adding a Game
+## Quick Start
 
-**If you want a game added, please open an issue and if you can provide a link to a PDF of the rulebook, that would be great!**
+### Prerequisites
+- Node.js 20+
+- pnpm (`npm install -g pnpm`)
+- Docker and Docker Compose
 
-### New Way: Via /admin/add-game
+### Setup
 
-We do two things that some people will frown upon:
+```bash
+# 1. Clone and install dependencies
+git clone <repository-url>
+cd gamegame
+pnpm install
 
-1. We yoink the high res `.webp` icons from BGG (sorry, <3 BGG)
-2. We google for a PDF version of the rulebook, which we'll convert to markdown and use to generate with the RAG system.
+# 2. Start PostgreSQL
+docker-compose up -d
 
-Right now I do this locally wired up to the prod db (cringe), but should be easy enough for to make it function in prod.
-
-### Old Way: Generating a GPT
-
-For now we're using the GPT store to manage these. Here's a rough template to follow:
-
-**Name:**
-
-**Game**GPT
-
-**Description:**
-
-**GAME** rules expert, offering precise and neutral gameplay guidance.
-
-**Instructions:**
-This GPT is a knowledgeable expert on the rules of the board game '**GAME**.' It will interpret the rules based on the uploaded document and provide accurate, detailed explanations and clarifications about gameplay, mechanics, and any rule ambiguities. It will assist players in understanding the game, resolving disputes, and ensuring a smooth gaming experience. The GPT will focus on being precise, clear, and neutral in its interpretations, avoiding any bias and maintaining a focus on delivering accurate and helpful guidance.
-
-Add the PDF versions of any available rulebook to the knowledge, and ensure "Code Interpreter & Data Analysis" is enabled.
-
-For the image, just search for the `.webp` on BGG.
-
-Publish it to the GPT Store, add the required fields to `constants.ts` and you're done!
-
-## LLM Tests
-
-There's a simple qualitative test suite that can be run via `pnpm test`. It relies the environment be configured to talk to the production datastores (or otherwise, have replicas of them running).
-
-It will utilize additional calls to the LLM in order to validate the responses from the original questions.
-
-## Contributing
-
-We're primarily running with cloud services, so your dev env is going to be a little tricky.
-
-1. Ensure you've got `pnpm` and `docker` installed.
-2. `cp .env.example .env` and fill in the correct values.
-3. `docker-compose up -d` to spin up local services where possible.
-4. `make setup` will pull in deps and setup the db.
-5. `pnpm db:migrate` to apply any migrations.
-
-### Giving Yourself Admin
-
-You'll need to make sure you've configured email (TODO: make some kind of local auth), and then hit the login page via:
-
-```
-https://localhost:3000/login
+# 3. Configure environment variables
+cp .env.example .env.local
 ```
 
-Once your account is created, you can add the admin flag for yourself:
+Edit `.env.local` and add your API keys:
+```bash
+# Required for core functionality
+OPENAI_API_KEY=sk-...              # From platform.openai.com
+MISTRAL_API_KEY=...                # From console.mistral.ai
+AUTH_SECRET=...                    # Generate: npx auth secret
+SESSION_SECRET=...                 # Generate: openssl rand -base64 32
+AUTH_RESEND_KEY=...                # From resend.com (for magic link emails)
 
+# Optional (falls back to local storage)
+BLOB_READ_WRITE_TOKEN=...          # Vercel Blob for file storage
 ```
-PGPASSWORD=postgres psql -h localhost -U postgres gamegame -c "UPDATE \"user\" SET admin = TRUE WHERE email = 'your-email@example.com';"
+
+```bash
+# 4. Initialize database (creates databases + runs migrations)
+make setup
+
+# 5. Create an admin user
+make grant-admin
+# Enter your email when prompted
+
+# 6. Start development server
+pnpm dev
 ```
 
-Then navigate to `https://localhost:3000/admin` (also linked in the footer).
+Visit http://localhost:3000
 
-### Database Migrations
+### First Login
 
-We use Drizzle for migrations. To generate a new one, run `pnpm db:genrate`.
+After starting the dev server, generate a magic link:
+```bash
+pnpm cli users login-url your-email@example.com
+```
+Click the link to sign in.
 
-**Note:** Migrations do not automatically apply in production.
+## Common Commands
+
+### Development
+```bash
+pnpm dev              # Start dev server with Turbopack (http://localhost:3000)
+pnpm build            # Production build
+pnpm lint             # Run ESLint
+pnpm type-check       # TypeScript type check without building
+```
+
+### Database Management
+```bash
+# Daily operations
+make reset-db         # Drop and recreate databases (dev + test)
+pnpm db:studio        # Open Drizzle Studio (GUI for database)
+docker-compose ps     # Check if database is running
+
+# Schema changes
+pnpm db:generate      # Generate new migration from schema changes
+make migrate          # Apply pending migrations
+pnpm db:push          # Push schema directly (dev only, skips migrations)
+```
+
+### CLI Tools
+
+The CLI handles common admin tasks without needing to write SQL:
+
+```bash
+# User management
+pnpm cli users create user@example.com [--admin]
+pnpm cli users grant-admin user@example.com
+pnpm cli users login-url user@example.com
+
+# Game management
+pnpm cli games list
+pnpm cli games create "Game Name" --slug game-slug
+
+# Resource management
+pnpm cli resources reprocess <resource-id> [--from=stage]
+pnpm cli resources reprocess-all [--game=slug]
+pnpm cli resources status <job-id>
+
+# Interactive chat (test RAG system)
+pnpm cli ask <game-slug> "How do I setup the game?"
+```
+
+### Testing
+```bash
+pnpm test             # Run tests in watch mode (TDD)
+pnpm test:run         # Run tests once (CI mode)
+
+# Test database must be running and migrated:
+docker-compose up -d
+make migrate-test
+```
+
+## Documentation
+
+- **[CLAUDE.md](./CLAUDE.md)** - Complete architecture, development guide, and AI assistant context
+- **[docs/testing.md](./docs/testing.md)** - Testing philosophy and guidelines
+- **[docs/api-routes.md](./docs/api-routes.md)** - API documentation
+
+## Tech Stack
+
+- **Framework**: Next.js 16 with App Router, React 19
+- **Database**: PostgreSQL with pgvector extension
+- **ORM**: Drizzle ORM
+- **AI**: OpenAI GPT-5, Mistral OCR
+- **Storage**: Vercel Blob (falls back to local filesystem in dev)
+- **Auth**: JWT sessions with magic link email authentication
+- **Workflows**: Vercel Workflows for async PDF processing
+- **Styling**: Tailwind CSS v4, Radix UI components
+
+## Environment Variables
+
+### Required Variables
+
+| Variable | Description | How to Get |
+|----------|-------------|------------|
+| `DATABASE_URL` | PostgreSQL connection | Auto-configured: `postgres://postgres:postgres@localhost:5433/gamegame` |
+| `OPENAI_API_KEY` | OpenAI API key for embeddings and chat | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| `MISTRAL_API_KEY` | Mistral API for PDF OCR | [console.mistral.ai/api-keys](https://console.mistral.ai/api-keys) |
+| `AUTH_SECRET` | NextAuth session encryption | Generate: `npx auth secret` |
+| `SESSION_SECRET` | JWT signing secret (32+ chars) | Generate: `openssl rand -base64 32` |
+| `AUTH_RESEND_KEY` | Resend API for magic link emails | [resend.com/api-keys](https://resend.com/api-keys) |
+
+### Optional Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob for file storage | Falls back to `./public/uploads` |
+| `KV_URL`, `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Vercel KV for rate limiting | Rate limiting disabled |
+| `NEXT_PUBLIC_APP_URL` | Public app URL | `http://localhost:3000` |
+| `SENTRY_DSN` | Error tracking (production) | Spotlight debugging UI |
+
+See [.env.example](./.env.example) for complete list with descriptions.
+
+## Troubleshooting
+
+### Database won't start
+```bash
+# Check if port 5433 is already in use
+lsof -i :5433
+
+# Reset Docker containers
+docker-compose down
+docker-compose up -d
+```
+
+### Migrations fail
+```bash
+# Ensure database is running
+docker-compose ps
+
+# Reset database and re-run migrations
+make reset-db
+```
+
+### "Module not found" errors
+```bash
+# Clear Next.js cache and reinstall
+rm -rf .next node_modules
+pnpm install
+```
+
+### Tests fail with database errors
+```bash
+# Ensure test database is created and migrated
+make create-db-test
+make migrate-test
+```
+
+## License
+
+MIT

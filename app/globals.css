@@ -1,83 +1,101 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@plugin "tailwindcss-animate";
 
-:root {
-  --foreground-rgb: 255, 255, 255;
-  --background-start-rgb: 0, 0, 0;
-  --background-end-rgb: 0, 0, 0;
+@theme {
+  /* Color palette */
+  --color-background: oklch(100% 0 0);
+  --color-foreground: oklch(3.9% 0 0);
+  --color-card: oklch(100% 0 0);
+  --color-card-foreground: oklch(3.9% 0 0);
+  --color-popover: oklch(100% 0 0);
+  --color-popover-foreground: oklch(3.9% 0 0);
+  --color-primary: oklch(9% 0 0);
+  --color-primary-foreground: oklch(98% 0 0);
+  --color-secondary: oklch(96.1% 0 0);
+  --color-secondary-foreground: oklch(9% 0 0);
+  --color-muted: oklch(96.1% 0 0);
+  --color-muted-foreground: oklch(45.1% 0 0);
+  --color-accent: oklch(96.1% 0 0);
+  --color-accent-foreground: oklch(9% 0 0);
+  --color-destructive: oklch(70% 0.19 25);
+  --color-destructive-foreground: oklch(98% 0 0);
+  --color-success: oklch(55% 0.15 145);
+  --color-success-foreground: oklch(98% 0 0);
+  --color-warning: oklch(70% 0.15 85);
+  --color-warning-foreground: oklch(20% 0 0);
+  --color-border: oklch(70% 0 0);
+  --color-input: oklch(98% 0 0);
+  --color-ring: oklch(3.9% 0 0);
+
+  /* Border radius */
+  --radius-lg: 0.5rem;
+  --radius-md: calc(0.5rem - 2px);
+  --radius-sm: calc(0.5rem - 4px);
+
+  /* Container */
+  --container-center: true;
+  --container-padding: 2rem;
+  --container-2xl: 1400px;
+
+  /* Font family */
+  --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+
+  /* Animations */
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
+@keyframes accordion-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
   }
 }
 
-@layer base {
-  :root {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+@keyframes accordion-up {
+  from {
+    height: var(--radix-accordion-content-height);
   }
+  to {
+    height: 0;
+  }
+}
 
-  .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-  }
+.dark {
+  --color-background: oklch(0% 0 0);
+  --color-foreground: oklch(98% 0 0);
+  --color-card: oklch(8% 0 0);
+  --color-card-foreground: oklch(98% 0 0);
+  --color-popover: oklch(3.9% 0 0);
+  --color-popover-foreground: oklch(98% 0 0);
+  --color-primary: oklch(98% 0 0);
+  --color-primary-foreground: oklch(9% 0 0);
+  --color-secondary: oklch(18% 0 0);
+  --color-secondary-foreground: oklch(98% 0 0);
+  --color-muted: oklch(12% 0 0);
+  --color-muted-foreground: oklch(60% 0 0);
+  --color-accent: oklch(25% 0 0);
+  --color-accent-foreground: oklch(98% 0 0);
+  --color-destructive: oklch(65% 0.19 25);
+  --color-destructive-foreground: oklch(98% 0 0);
+  --color-success: oklch(40% 0.15 145);
+  --color-success-foreground: oklch(98% 0 0);
+  --color-warning: oklch(60% 0.15 85);
+  --color-warning-foreground: oklch(98% 0 0);
+  --color-border: oklch(30% 0 0);
+  --color-input: oklch(5% 0 0);
+  --color-ring: oklch(50% 0 0);
 }
 
 @layer base {
   * {
-    @apply border-border;
-  }
-  html {
-    @apply bg-gray-100;
+    border-color: var(--color-border);
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
   }
 }

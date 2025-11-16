@@ -12,5 +12,6 @@ export default defineConfig({
     // won't need to be prefixed with `VITE_`
     // env: loadEnv("test", process.cwd(), ""),
     environment: "node",
+    setupFiles: ["./tests/setup.ts"],
   },
 });

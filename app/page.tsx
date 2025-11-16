@@ -1,5 +1,5 @@
-import { LandingPage } from "@/components/landing-page"
+import { redirect } from 'next/navigation';
 
-export default function Page() {
-  return <LandingPage />
+export default function HomePage() {
+  redirect('/games');
 }

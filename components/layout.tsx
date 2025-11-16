@@ -1,5 +1,12 @@
+import { Suspense } from "react";
 import Footer from "./footer";
 import Header from "./header";
+import { getCurrentUser } from "@/lib/session";
+
+async function FooterWithAuth() {
+  const user = await getCurrentUser();
+  return <Footer isAdmin={user?.isAdmin} />;
+}
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -10,7 +17,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {children}
       </main>
 
-      <Footer />
+      <Suspense fallback={<Footer isAdmin={false} />}>
+        <FooterWithAuth />
+      </Suspense>
     </div>
   );
 }

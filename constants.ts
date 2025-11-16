@@ -1,49 +1,5 @@
-export const GAMES = [
-  {
-    name: "Catan",
-    image: "/assets/settlers-of-catan.webp",
-    slug: "catan",
-    gptUrl: "https://chatgpt.com/g/g-sAoCBiDek-catangpt",
-    imagePosition: "top",
-  },
-  {
-    name: "Arcs",
-    image: "/assets/arcs.webp",
-    slug: "arcs",
-    gptUrl: "https://chatgpt.com/g/g-zvwOJfz3H-arcsgpt",
-  },
-  {
-    name: "Food Chain Magnate",
-    image: "/assets/food-chain-magnate.webp",
-    slug: "arcs",
-    gptUrl: "https://chatgpt.com/g/g-zvwOJfz3H-arcsgpt",
-  },
-  {
-    name: "Gloomhaven",
-    image: "/assets/gloomhaven.webp",
-    slug: "gloomhaven",
-    gptUrl: "https://chatgpt.com/g/g-mvicjv7X0-gloomhavengpt",
-  },
-  {
-    name: "Frosthaven",
-    image: "/assets/frosthaven.webp",
-    slug: "frosthaven",
-    gptUrl: "https://chatgpt.com/g/g-Z11qd3Sav-frosthavengpt",
-  },
-  {
-    name: "Root",
-    image: "/assets/root.webp",
-    slug: "root",
-    gptUrl: "https://chatgpt.com/g/g-naKtHBPZr-rootgpt",
-  },
-  {
-    name: "Scythe",
-    image: "/assets/scythe.webp",
-    slug: "scythe",
-    gptUrl: "https://chatgpt.com/g/g-4xHTzqOoY-scythegpt",
-  },
-];
-
-export const MODEL = "gpt-4o-mini";
+// AI Model for chat - DO NOT CHANGE unless explicitly requested by user
+// This is a valid OpenAI GPT-5 model (released 2025)
+export const MODEL = "gpt-5-mini";
 
 export const GITHUB_URL = "https://github.com/dcramer/GameGame";

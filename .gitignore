@@ -42,3 +42,9 @@ next-env.d.ts
 .env.sentry-build-plugin
 
 *Zone.Identifier
+
+# Local blob storage uploads
+/public/uploads
+
+# Workflow data (Local World filesystem storage)
+.workflow-data/

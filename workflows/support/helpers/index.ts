@@ -1,0 +1,161 @@
+/**
+ * Shared helper functions for workflow steps
+ *
+ * These helpers can be imported and used by any step that needs them.
+ * They have full Node.js access since they're imported by steps, not workflows.
+ */
+
+import { db } from '@/lib/db';
+import { resources } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
+import type { StructuredPDFContent, PDFImage } from '@/lib/types/pdf';
+import type { ProcessingMetadata, ProcessResourceInput } from '@/workflows/support/types';
+
+// ==========================================
+// Base64 Helpers
+// ==========================================
+
+/**
+ * Strip the data URI prefix from a base64 string, if present.
+ * Ensures downstream Buffer.from(base64, 'base64') decodes only the payload.
+ */
+export function stripDataUriBase64(value: string): string {
+  if (!value) return value;
+
+  const match = value.match(/^data:[^;]+;base64,(.+)$/);
+  if (match) {
+    return match[1];
+  }
+
+  return value.trim();
+}
+
+// ==========================================
+// Resource Failure Helper
+// ==========================================
+
+export async function markResourceFailed(resourceId: string, error: string) {
+  await db
+    .update(resources)
+    .set({
+      status: 'failed',
+      processingStage: 'failed',
+      processingMetadata: null,
+      currentRunId: null,
+      updatedAt: Date.now(),
+    })
+    .where(eq(resources.id, resourceId));
+}
+
+// ==========================================
+// Metadata Helpers
+// ==========================================
+
+export function defaultMetadata(resourceId: string): ProcessingMetadata {
+  return {
+    structuredKey: `resources/${resourceId}/structured.json`,
+  };
+}
+
+export function parseMetadata(resourceId: string, value?: string | null): ProcessingMetadata {
+  if (!value) {
+    return defaultMetadata(resourceId);
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object') {
+      return defaultMetadata(resourceId);
+    }
+
+    return {
+      structuredKey: typeof parsed.structuredKey === 'string' ? parsed.structuredKey : `resources/${resourceId}/structured.json`,
+    };
+  } catch {
+    return defaultMetadata(resourceId);
+  }
+}
+
+export function serializeMetadata(metadata: ProcessingMetadata): string {
+  return JSON.stringify(metadata);
+}
+
+// ==========================================
+// Storage Helpers
+// ==========================================
+
+export async function saveStructured(resourceId: string, structured: StructuredPDFContent): Promise<void> {
+  const { uploadBlob } = await import('@/lib/services/blob-storage');
+  const key = `resources/${resourceId}/structured.json`;
+  const buffer = Buffer.from(JSON.stringify(structured));
+  await uploadBlob(key, buffer, 'application/json');
+}
+
+export async function loadStructured(resourceId: string): Promise<StructuredPDFContent> {
+  const { getBlob } = await import('@/lib/services/blob-storage');
+  const key = `resources/${resourceId}/structured.json`;
+  const data = await getBlob(key);
+
+  if (!data) {
+    throw new Error(`Structured data not found for resource ${resourceId}`);
+  }
+
+  return JSON.parse(data.toString('utf-8')) as StructuredPDFContent;
+}
+
+export async function fetchDocumentBuffer(input: ProcessResourceInput): Promise<{ buffer: Buffer; mimeType: string }> {
+  if (input.sourceKey) {
+    const { getBlob } = await import('@/lib/services/blob-storage');
+    const data = await getBlob(input.sourceKey);
+
+    if (data) {
+      const { detectMimeType } = await import('@/lib/services/blob-storage');
+      const mimeType = detectMimeType(data) || 'application/pdf';
+      return { buffer: data, mimeType };
+    }
+  }
+
+  if (!input.url) {
+    throw new Error('No URL or source key provided for document ingestion');
+  }
+
+  // If URL is a relative path and we're using local storage, read from filesystem
+  if (input.url.startsWith('/') && !process.env.BLOB_READ_WRITE_TOKEN) {
+    const path = await import('node:path');
+    const { readFile } = await import('node:fs/promises');
+    const { detectMimeType } = await import('@/lib/services/blob-storage');
+
+    const filePath = path.join(process.cwd(), 'public', input.url);
+    try {
+      const buffer = await readFile(filePath);
+      const mimeType = detectMimeType(buffer) || 'application/pdf';
+      return { buffer, mimeType };
+    } catch (error) {
+      throw new Error(`Failed to read file from local storage at "${filePath}": ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // Otherwise use fetch for absolute URLs (Vercel Blob, etc)
+  const response = await fetch(input.url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch document (status ${response.status})`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const mimeType = response.headers.get('content-type') || 'application/pdf';
+
+  return { buffer, mimeType };
+}
+
+// ==========================================
+// Image Helpers
+// ==========================================
+
+export function namespaceImageId(resourceId: string, image: PDFImage): string {
+  const baseId = image.id.replace(/\.[^./]+$/, '');
+  if (!baseId.startsWith(resourceId)) {
+    return `${resourceId}-${baseId}`;
+  }
+  return baseId;
+}

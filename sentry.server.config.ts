@@ -3,17 +3,14 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs";
+import { ORPCInstrumentation } from "@orpc/otel";
+import { SharedSentryConfig } from "@/lib/sentry.config";
 
 Sentry.init({
-  dsn:
-    process.env.NODE_ENV === "production"
-      ? "https://491514b0beea2842d2bc10d78053fb4e@o172566.ingest.us.sentry.io/4507903928238080"
-      : undefined,
-  // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
-  tracesSampleRate: 1,
-
-  // Setting this option to true will print useful information to the console while you're setting up Sentry.
-  debug: false,
-
-  spotlight: process.env.NODE_ENV === "development",
+  ...SharedSentryConfig,
+  dsn: process.env.SENTRY_DSN,
+  openTelemetryInstrumentations: [new ORPCInstrumentation()],
+  integrations: [
+    Sentry.consoleLoggingIntegration({ levels: ["log", "warn", "error"] }),
+  ],
 });
