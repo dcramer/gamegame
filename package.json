@@ -42,7 +42,7 @@
     "lucide-react": "^0.438.0",
     "mime": "^4.0.6",
     "nanoid": "^5.0.9",
-    "next": "15.1.7",
+    "next": "15.1.11",
     "next-auth": "5.0.0-beta.25",
     "pdf2json": "^3.1.5",
     "postgres": "^3.4.5",
